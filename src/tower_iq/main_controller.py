@@ -8,288 +8,185 @@ application components and manages the overall application lifecycle.
 import asyncio
 from typing import Any
 
+from PyQt6.QtCore import QObject, pyqtSignal
+
 from .core.config import ConfigurationManager
 from .core.session import SessionManager
 from .services.docker_service import DockerService
 from .services.database_service import DatabaseService
+from .services.setup_service import SetupService
+from .services.emulator_service import EmulatorService
+from .services.frida_service import FridaService
 
 
-class MainController:
+class MainController(QObject):
     """
     Main controller that orchestrates all application components.
     Manages the overall application lifecycle and coordinates between services.
     """
     
-    def __init__(
-        self,
-        config: ConfigurationManager,
-        session_manager: SessionManager,
-        docker_service: DockerService,
-        database_service: DatabaseService,
-        logger: Any
-    ) -> None:
+    # PyQt Signals for UI communication
+    log_received = pyqtSignal(dict)
+    status_changed = pyqtSignal(str, str)
+    new_metric_received = pyqtSignal(str, object)
+    setup_finished = pyqtSignal(bool)
+    
+    def __init__(self, config: ConfigurationManager, logger: Any) -> None:
         """
         Initialize the main controller.
         
         Args:
             config: Configuration manager instance
-            session_manager: Session manager instance
-            docker_service: Docker service instance
-            database_service: Database service instance
             logger: Logger instance
         """
-        self.config = config
-        self.session_manager = session_manager
-        self.docker_service = docker_service
-        self.database_service = database_service
+        super().__init__()
+        
         self.logger = logger.bind(source="MainController")
+        self.config = config
+        
+        # Initialize core services
+        self.session = SessionManager()
+        self.db_service = DatabaseService(config, logger)
+        self.docker_service = DockerService(config, logger)
+        self.setup_service = SetupService(config, logger, self.docker_service, self.db_service, self)
+        self.emulator_service = EmulatorService(config, logger)
+        self.frida_service = FridaService(config, logger)
+        
+        # Message dispatch pattern
+        self._message_handlers: dict = {}
+        self._register_handlers()
         
         # Application state
         self._is_running = False
-        self._startup_complete = False
-        
-        # Background tasks
-        self._background_tasks: set[asyncio.Task] = set()
     
-    async def start(self) -> None:
+    async def run(self) -> None:
         """
-        Start the main application controller.
-        Initializes all services and starts background tasks.
+        The main entry point for the controller's lifecycle.
+        This method is started in the background by main_app_entry.py.
         """
-        if self._is_running:
-            self.logger.warning("Controller is already running")
-            return
+        self._is_running = True
         
-        self.logger.info("Starting TowerIQ main controller")
+        # Run initial setup
+        setup_success = await self.setup_service.run_initial_setup()
+        self.setup_finished.emit(setup_success)
         
-        try:
-            # Start Docker stack if auto-start is enabled
-            if self.config.get('gui.auto_start_docker', True):
-                await self._start_docker_stack()
-            
-            # Start background monitoring tasks
-            await self._start_background_tasks()
-            
-            # Mark as running
-            self._is_running = True
-            self._startup_complete = True
-            
-            self.logger.info("Main controller started successfully")
-            
-        except Exception as e:
-            self.logger.error("Failed to start main controller", error=str(e))
-            await self.shutdown()
-            raise
+        if setup_success:
+            # Start main monitoring tasks
+            await asyncio.gather(
+                self._listen_for_frida_messages(),
+                self._monitor_system_health()
+            )
     
-    async def shutdown(self) -> None:
+    async def stop(self) -> None:
         """
-        Gracefully shutdown the main controller.
-        Stops all services and cleans up resources.
+        Gracefully shuts down all services.
         """
-        if not self._is_running:
-            return
-        
-        self.logger.info("Shutting down main controller")
-        
-        try:
-            # Mark as not running to stop background tasks
-            self._is_running = False
-            
-            # Cancel all background tasks
-            await self._stop_background_tasks()
-            
-            # End current run if active
-            if self.session_manager.current_runId:
-                self.session_manager.end_run()
-                self.logger.info("Ended active run session")
-            
-            # Stop Docker stack
-            await self._stop_docker_stack()
-            
-            # Close database connections
-            await self.database_service.close()
-            
-            # Reset session state
-            self.session_manager.reset_all_state()
-            
-            self.logger.info("Main controller shutdown completed")
-            
-        except Exception as e:
-            self.logger.error("Error during controller shutdown", error=str(e))
+        self._is_running = False
+        await self.frida_service.detach()
+        await self.docker_service.stop_stack()
+        await self.db_service.close()
     
-    async def _start_docker_stack(self) -> None:
-        """Start the Docker backend stack."""
-        self.logger.info("Starting Docker backend stack")
-        
-        if await self.docker_service.start_stack():
-            self.logger.info("Docker stack started successfully")
-        else:
-            self.logger.error("Failed to start Docker stack")
-            # Don't fail startup if Docker fails - allow manual retry
-    
-    async def _stop_docker_stack(self) -> None:
-        """Stop the Docker backend stack."""
-        self.logger.info("Stopping Docker backend stack")
-        
-        if await self.docker_service.stop_stack():
-            self.logger.info("Docker stack stopped successfully")
-        else:
-            self.logger.warning("Failed to stop Docker stack cleanly")
-    
-    async def _start_background_tasks(self) -> None:
-        """Start all background monitoring tasks."""
-        self.logger.info("Starting background monitoring tasks")
-        
-        # Health monitoring task
-        health_task = asyncio.create_task(self._health_monitoring_loop())
-        self._background_tasks.add(health_task)
-        health_task.add_done_callback(self._background_tasks.discard)
-        
-        # Session monitoring task
-        session_task = asyncio.create_task(self._session_monitoring_loop())
-        self._background_tasks.add(session_task)
-        session_task.add_done_callback(self._background_tasks.discard)
-        
-        self.logger.info("Background tasks started", task_count=len(self._background_tasks))
-    
-    async def _stop_background_tasks(self) -> None:
-        """Stop all background tasks."""
-        if not self._background_tasks:
-            return
-        
-        self.logger.info("Stopping background tasks", task_count=len(self._background_tasks))
-        
-        # Cancel all tasks
-        for task in self._background_tasks:
-            task.cancel()
-        
-        # Wait for all tasks to complete
-        if self._background_tasks:
-            await asyncio.gather(*self._background_tasks, return_exceptions=True)
-        
-        self._background_tasks.clear()
-        self.logger.info("All background tasks stopped")
-    
-    async def _health_monitoring_loop(self) -> None:
-        """Background task for monitoring system health."""
-        self.logger.debug("Starting health monitoring loop")
-        
-        while self._is_running:
-            try:
-                # Check Docker stack health
-                docker_healthy = await self.docker_service.is_healthy()
-                
-                # Log health status changes
-                if docker_healthy != self.session_manager.get_status_summary().get('docker_healthy'):
-                    self.logger.info("Docker health status changed", healthy=docker_healthy)
-                
-                # Update session state (we'll add this field to session manager later)
-                # For now, just log the status
-                self.logger.debug("Health check completed", docker_healthy=docker_healthy)
-                
-                # Wait before next check
-                await asyncio.sleep(30)  # Check every 30 seconds
-                
-            except asyncio.CancelledError:
-                self.logger.debug("Health monitoring loop cancelled")
-                break
-            except Exception as e:
-                self.logger.error("Error in health monitoring loop", error=str(e))
-                await asyncio.sleep(10)  # Wait before retrying
-    
-    async def _session_monitoring_loop(self) -> None:
-        """Background task for monitoring session state."""
-        self.logger.debug("Starting session monitoring loop")
-        
-        while self._is_running:
-            try:
-                # Get current session status
-                status = self.session_manager.get_status_summary()
-                
-                # Log session status periodically (every 5 minutes)
-                self.logger.debug("Session status", **status)
-                
-                # Perform any session-related maintenance
-                # (This is where we'd add logic for session timeouts, etc.)
-                
-                # Wait before next check
-                await asyncio.sleep(300)  # Check every 5 minutes
-                
-            except asyncio.CancelledError:
-                self.logger.debug("Session monitoring loop cancelled")
-                break
-            except Exception as e:
-                self.logger.error("Error in session monitoring loop", error=str(e))
-                await asyncio.sleep(30)  # Wait before retrying
-    
-    # Public API methods for external components
-    
-    async def start_new_run(self, game_version: str = None) -> str:
+    def _register_handlers(self) -> None:
         """
-        Start a new monitoring run.
-        
-        Args:
-            game_version: Version of the game being monitored
-            
-        Returns:
-            New run ID
+        Implements the Dispatch Pattern. Maps incoming message types from Frida 
+        to handler methods within this class.
         """
-        run_id = self.session_manager.start_new_run()
-        
-        if game_version:
-            self.session_manager.game_version = game_version
-        
-        self.logger.info("Started new run", run_id=run_id, game_version=game_version)
-        
-        # Record run start in database
-        try:
-            await self.database_service.set_setting(f"run_{run_id}_started", "true")
-            if game_version:
-                await self.database_service.set_setting(f"run_{run_id}_game_version", game_version)
-        except Exception as e:
-            self.logger.error("Failed to record run start in database", error=str(e))
-        
-        return run_id
-    
-    async def end_current_run(self) -> None:
-        """End the current monitoring run."""
-        current_run = self.session_manager.current_runId
-        if not current_run:
-            self.logger.warning("No active run to end")
-            return
-        
-        self.logger.info("Ending current run", run_id=current_run)
-        
-        # Record run end in database
-        try:
-            await self.database_service.set_setting(f"run_{current_run}_ended", "true")
-        except Exception as e:
-            self.logger.error("Failed to record run end in database", error=str(e))
-        
-        self.session_manager.end_run()
-    
-    async def get_system_status(self) -> dict:
-        """
-        Get comprehensive system status.
-        
-        Returns:
-            Dictionary containing system status information
-        """
-        docker_healthy = await self.docker_service.is_healthy()
-        session_status = self.session_manager.get_status_summary()
-        
-        return {
-            'controller_running': self._is_running,
-            'startup_complete': self._startup_complete,
-            'docker_healthy': docker_healthy,
-            'session': session_status,
-            'background_tasks': len(self._background_tasks)
+        self._message_handlers = {
+            "game_metric": self._handle_game_metric,
+            "game_event": self._handle_game_event,
+            "hook_log": self._handle_hook_log,
         }
     
-    def is_running(self) -> bool:
-        """Check if the controller is running."""
-        return self._is_running
+    async def _listen_for_frida_messages(self) -> None:
+        """
+        A long-running task that continuously waits for messages from the FridaService queue.
+        """
+        while self._is_running:
+            try:
+                message = await self.frida_service.get_message()  # Blocks until message available
+                handler = self._message_handlers.get(message.get("type"))
+                if handler:
+                    await handler(message)
+                else:
+                    self.logger.warn("unhandled_message", message_type=message.get("type"))
+            except Exception as e:
+                self.logger.error("Error in frida message listener", error=str(e))
+                await asyncio.sleep(1)  # Prevent tight loop on errors
     
-    def is_startup_complete(self) -> bool:
-        """Check if startup is complete."""
-        return self._startup_complete 
+    async def _handle_game_metric(self, message: dict) -> None:
+        """
+        Processes metric data.
+        """
+        try:
+            payload = message.get("payload", {})
+            measurement = payload.get("measurement")
+            fields = payload.get("fields", {})
+            tags = payload.get("tags", {})
+            
+            await self.db_service.write_metric(measurement, fields, tags)
+            
+            # Emit signal for UI
+            for field_name, field_value in fields.items():
+                self.new_metric_received.emit(field_name, field_value)
+                
+        except Exception as e:
+            self.logger.error("Error handling game metric", error=str(e))
+    
+    async def _handle_game_event(self, message: dict) -> None:
+        """
+        Processes discrete game events (e.g., round start, perk chosen).
+        """
+        try:
+            payload = message.get("payload", {})
+            event_type = payload.get("event_type")
+            event_data = payload.get("data", {})
+            
+            await self.db_service.write_event(event_type, event_data)
+            
+            # Manage session state
+            if event_type == "run_started":
+                self.session.start_new_run()
+            elif event_type == "run_ended":
+                self.session.end_run()
+                
+        except Exception as e:
+            self.logger.error("Error handling game event", error=str(e))
+    
+    async def _handle_hook_log(self, message: dict) -> None:
+        """
+        Processes log messages originating from the Frida script.
+        """
+        try:
+            payload = message.get("payload", {})
+            event = payload.get("event", "frida_log")
+            
+            # Forward to structlog system
+            self.logger.info(event, **payload)
+            
+            # Emit signal for UI log viewer
+            self.log_received.emit(payload)
+            
+        except Exception as e:
+            self.logger.error("Error handling hook log", error=str(e))
+    
+    async def _monitor_system_health(self) -> None:
+        """
+        A long-running task that periodically checks the health of backend services.
+        """
+        while self._is_running:
+            try:
+                # Check Docker health
+                docker_healthy = await self.docker_service.is_healthy()
+                self.status_changed.emit("docker", "healthy" if docker_healthy else "unhealthy")
+                
+                # Check emulator connection
+                emulator_connected = await self.emulator_service.is_connected()
+                self.status_changed.emit("emulator", "connected" if emulator_connected else "disconnected")
+                
+                await asyncio.sleep(60)  # Check every minute
+                
+            except Exception as e:
+                self.logger.error("Error in system health monitor", error=str(e))
+                await asyncio.sleep(10)  # Wait before retrying
+    
+ 
