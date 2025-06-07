@@ -11,7 +11,7 @@ readme = "README.md"
 packages = [{include = "tower_iq", from = "src"}]
 
 [tool.poetry.dependencies]
-python = "^3.11"
+python = ">=3.11,<3.13"
 pyqt6 = "^6.6"
 qasync = "^0.24"
 structlog = "^23.2"
