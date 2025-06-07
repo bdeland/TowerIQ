@@ -1,0 +1,36 @@
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.poetry]
+name = "tower-iq"
+version = "1.0.0"
+description = "TowerIQ - Advanced mobile game analysis and monitoring platform"
+authors = ["TowerIQ Team"]
+readme = "README.md"
+packages = [{include = "tower_iq", from = "src"}]
+
+[tool.poetry.dependencies]
+python = "^3.11"
+pyqt6 = "^6.6"
+qasync = "^0.24"
+structlog = "^23.2"
+colorama = "*"
+pyyaml = "^6.0"
+python-dotenv = "^1.0"
+docker = "^7.0"
+influxdb-client = {extras = ["async"], version = "^1.40"}
+aiohttp = "^3.9"
+pycryptodome = "^3.20"
+frida = "^16.2"
+pyinstaller = "^6.3"
+sqlcipher3-wheels = "^0.5.4"
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^7.4"
+pytest-asyncio = "^0.21"
+black = "^23.7"
+isort = "^5.12"
+
+[tool.poetry.scripts]
+tower-iq = "tower_iq.main_app_entry:main" 

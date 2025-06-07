@@ -1,0 +1,77 @@
+# TowerIQ Hook Contract Configuration
+# This file defines the expected structure and validation for Frida hooks
+
+contract_version: "1.0"
+
+# Hook metadata structure
+hook_metadata:
+  required_fields:
+    - name
+    - version
+    - author
+    - game_version_compatibility
+    - signature
+  
+  optional_fields:
+    - description
+    - changelog
+    - performance_impact
+
+# Expected hook exports
+exports:
+  required:
+    - initialize
+    - cleanup
+    - get_metrics
+  
+  optional:
+    - get_events
+    - set_config
+    - get_status
+
+# Data format specifications
+data_formats:
+  metrics:
+    timestamp: "epoch_milliseconds"
+    required_fields:
+      - metric_name
+      - value
+      - timestamp
+    optional_fields:
+      - tags
+      - metadata
+  
+  events:
+    timestamp: "epoch_milliseconds"
+    required_fields:
+      - event_type
+      - timestamp
+    optional_fields:
+      - data
+      - context
+
+# Validation rules
+validation:
+  signature:
+    algorithm: "RSA-SHA256"
+    key_size: 2048
+  
+  performance:
+    max_cpu_percent: 15
+    max_memory_mb: 100
+    max_response_time_ms: 50
+
+# Security constraints
+security:
+  allowed_api_calls:
+    - "Java.choose"
+    - "Java.use"
+    - "Interceptor.attach"
+    - "Memory.read*"
+    - "recv"
+    - "send"
+  
+  restricted_api_calls:
+    - "Process.kill"
+    - "File.write*"
+    - "Process.spawn" 

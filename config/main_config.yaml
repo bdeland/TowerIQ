@@ -1,0 +1,72 @@
+# TowerIQ Main Configuration File
+# This file contains all non-sensitive configuration settings
+
+app:
+  name: "TowerIQ"
+  version: "1.0.0"
+  debug: false
+
+logging:
+  level: "INFO"
+  console:
+    enabled: true
+    level: "INFO"
+  file:
+    enabled: true
+    path: "logs/tower_iq.log"
+    level: "DEBUG"
+    max_size_mb: 50
+    backup_count: 5
+  sources:
+    enabled:
+      - "MainController"
+      - "DockerService"
+      - "DatabaseService"
+      - "EmulatorService"
+      - "FridaService"
+      - "GUI"
+
+database:
+  influxdb:
+    host: "127.0.0.1"
+    port: 8086
+    org: "toweriq"
+    bucket: "game_data"
+    timeout: 30
+  sqlite:
+    db_path: "data/tower_iq.db"
+    backup_path: "data/backups/"
+    backup_retention_days: 30
+
+docker:
+  compose_file: "resources/docker/docker-compose.yml"
+  health_check_endpoints:
+    influxdb: "http://127.0.0.1:8086/health"
+  startup_timeout: 60
+  shutdown_timeout: 30
+
+emulator:
+  adb_path: "adb"
+  connection_timeout: 10
+  package_name: "com.supercell.clashoftitans"
+  activity_name: ".MainActivity"
+
+frida:
+  server_port: 27042
+  script_path: "scripts/"
+  signature_validation: true
+  
+monitoring:
+  default_state: "NORMAL"
+  high_resolution_interval: 100
+  normal_interval: 1000
+  
+gui:
+  theme: "dark"
+  window:
+    width: 1200
+    height: 800
+    min_width: 800
+    min_height: 600
+  auto_start_docker: true
+  auto_connect_emulator: true 

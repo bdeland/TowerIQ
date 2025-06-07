@@ -1,0 +1,67 @@
+version: '3.8'
+
+services:
+  influxdb:
+    image: influxdb:2.7
+    container_name: toweriq-influxdb
+    restart: unless-stopped
+    ports:
+      - "8086:8086"
+    environment:
+      - DOCKER_INFLUXDB_INIT_MODE=setup
+      - DOCKER_INFLUXDB_INIT_USERNAME=admin
+      - DOCKER_INFLUXDB_INIT_PASSWORD=toweriq_admin_2024
+      - DOCKER_INFLUXDB_INIT_ORG=toweriq
+      - DOCKER_INFLUXDB_INIT_BUCKET=game_data
+      - DOCKER_INFLUXDB_INIT_ADMIN_TOKEN=toweriq_super_secret_token_2024
+    volumes:
+      - influxdb_data:/var/lib/influxdb2
+      - influxdb_config:/etc/influxdb2
+    networks:
+      - toweriq_network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8086/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # Backend application container (placeholder for future backend services)
+  toweriq-backend:
+    image: toweriq/backend:latest
+    container_name: toweriq-backend
+    restart: unless-stopped
+    depends_on:
+      influxdb:
+        condition: service_healthy
+    environment:
+      - INFLUXDB_URL=http://influxdb:8086
+      - INFLUXDB_TOKEN=toweriq_super_secret_token_2024
+      - INFLUXDB_ORG=toweriq
+      - INFLUXDB_BUCKET=game_data
+    volumes:
+      - ./toweriq_backend/supervisord.conf:/etc/supervisor/conf.d/supervisord.conf
+    networks:
+      - toweriq_network
+    build:
+      context: ./toweriq_backend
+      dockerfile: Dockerfile
+    healthcheck:
+      test: ["CMD", "supervisorctl", "status"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+volumes:
+  influxdb_data:
+    driver: local
+  influxdb_config:
+    driver: local
+
+networks:
+  toweriq_network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16 
