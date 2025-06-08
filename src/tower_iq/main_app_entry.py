@@ -42,7 +42,7 @@ def main() -> NoReturn:
         config = ConfigurationManager(str(yaml_path), str(env_path))
         config.load_and_validate()
         
-        # Initialize unified logging system immediately
+        # Initialize unified logging system with console output initially
         setup_logging(config)
         logger = structlog.get_logger("main_entry")
         
@@ -64,23 +64,51 @@ def main() -> NoReturn:
         main_window = MainWindow(controller)
         
         # Run the Application
+        controller_task = None
         try:
             logger.info("Showing main window")
             main_window.show()
+            logger.info("Main window shown successfully")
             
-            # Start the controller's main loop in the background
-            logger.info("Starting controller background tasks")
-            asyncio.create_task(controller.run())
+            # Connect Qt app aboutToQuit signal to stop the controller
+            try:
+                def on_app_quit():
+                    logger.info("Application quit signal received")
+                    if controller_task and not controller_task.cancelled():
+                        controller_task.cancel()
+                    loop.stop()
+                
+                qt_app.aboutToQuit.connect(on_app_quit)
+                logger.info("Qt app quit signal connected")
+            except Exception as e:
+                logger.error("Failed to connect quit signal", error=str(e))
+                raise
             
-            # Start the combined Qt/asyncio event loop
+            # Start the event loop and create controller task within it
             logger.info("Starting main event loop")
-            loop.run_forever()
+            try:
+                with loop:
+                    logger.info("Event loop started, creating controller task")
+                    # Create the controller task now that the loop is running
+                    controller_task = loop.create_task(controller.run())
+                    logger.info("Controller task created successfully")
+                    
+                    logger.info("Entering run_forever()")
+                    loop.run_forever()
+                    logger.info("Event loop exited run_forever()")
+            except Exception as e:
+                logger.error("Exception in event loop", error=str(e))
+                raise
             
         finally:
             # Cleanup: gracefully shut down backend services
             logger.info("Shutting down application")
             try:
-                # Create a new event loop for cleanup since the main one is closing
+                # Stop the controller
+                if controller_task and not controller_task.cancelled():
+                    controller_task.cancel()
+                
+                # Run cleanup in a new event loop
                 cleanup_loop = asyncio.new_event_loop()
                 asyncio.set_event_loop(cleanup_loop)
                 cleanup_loop.run_until_complete(controller.stop())

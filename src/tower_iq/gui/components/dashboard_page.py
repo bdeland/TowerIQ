@@ -20,6 +20,11 @@ try:
 except ImportError:
     pg = None
 
+try:
+    import pandas as pd
+except ImportError:
+    pd = None
+
 if TYPE_CHECKING:
     from tower_iq.core.main_controller import MainController
 
@@ -227,6 +232,26 @@ class GraphWidget(QWidget):
         if pg is not None and hasattr(self, 'plot_item'):
             self.plot_item.setData(self.data_x, self.data_y)
     
+    def plot_data(self, df) -> None:
+        """
+        Plot data from a pandas DataFrame.
+        
+        Args:
+            df: pandas DataFrame with 'timestamp' and 'value' columns
+        """
+        if pg is None or not hasattr(self, 'plot_item'):
+            return
+        
+        if df.empty:
+            self.plot_item.clear()
+            return
+        
+        # Clear existing plot items
+        self.plot_item.clear()
+        
+        # Plot the new data
+        self.plot_item.setData(df['timestamp'].values, df['value'].values)
+    
     def clear_data(self) -> None:
         """Clear all data points from the graph."""
         self.data_x.clear()
@@ -258,7 +283,6 @@ class DashboardPage(QWidget):
         self.graphs: Dict[str, GraphWidget] = {}
         
         self._init_ui()
-        self._setup_demo_timer()  # For demonstration purposes
     
     def _init_ui(self) -> None:
         """
@@ -355,51 +379,7 @@ class DashboardPage(QWidget):
         scroll_area.setWidget(content_widget)
         main_layout.addWidget(scroll_area)
     
-    def _setup_demo_timer(self) -> None:
-        """
-        Set up a timer for demonstration purposes.
-        
-        This simulates live data updates to test the UI components.
-        In the actual implementation, this would be replaced by real
-        data from the controller.
-        """
-        self.demo_timer = QTimer()
-        self.demo_timer.timeout.connect(self._update_demo_data)
-        self.demo_timer.start(2000)  # Update every 2 seconds
-        
-        self.demo_counter = 0
-    
-    def _update_demo_data(self) -> None:
-        """Update demo data for testing purposes."""
-        import random
-        
-        self.demo_counter += 1
-        current_time = time.time()
-        
-        # Update metrics with random demo data
-        demo_values = {
-            "coins_per_hour": 1200 + random.randint(-100, 100),
-            "total_coins": 45000 + self.demo_counter * 50,
-            "efficiency": 85 + random.randint(-5, 15),
-            "uptime": self.demo_counter * 2,
-            "level_progress": min(99, self.demo_counter * 3),
-            "session_duration": self.demo_counter * 2
-        }
-        
-        for metric_id, value in demo_values.items():
-            if metric_id in self.metrics:
-                self.metrics[metric_id].set_value(value)
-        
-        # Update graphs
-        if "coins_timeline" in self.graphs:
-            self.graphs["coins_timeline"].append_data_point(
-                current_time, demo_values["total_coins"]
-            )
-        
-        if "efficiency_timeline" in self.graphs:
-            self.graphs["efficiency_timeline"].append_data_point(
-                current_time, demo_values["efficiency"]
-            )
+
     
     @pyqtSlot(str, object)
     def update_metric_display(self, metric_name: str, value: Any) -> None:
@@ -420,16 +400,21 @@ class DashboardPage(QWidget):
         """
         Update a specific graph with new data.
         
-        This slot receives new data points for graphs from the MainController.
+        This slot receives new data from the MainController.
         
         Args:
             graph_name: The name/ID of the graph to update
-            data: The new data (should contain 'x' and 'y' values)
+            data: The new data (pandas DataFrame or dict with 'x' and 'y' values)
         """
-        if graph_name in self.graphs and isinstance(data, dict):
-            x_value = data.get('x', time.time())
-            y_value = data.get('y', 0)
-            self.graphs[graph_name].append_data_point(x_value, y_value)
+        if graph_name in self.graphs:
+            # Handle pandas DataFrame (new format)
+            if pd is not None and hasattr(data, 'empty'):
+                self.graphs[graph_name].plot_data(data)
+            # Handle legacy dict format
+            elif isinstance(data, dict):
+                x_value = data.get('x', time.time())
+                y_value = data.get('y', 0)
+                self.graphs[graph_name].append_data_point(x_value, y_value)
     
     def clear_all_data(self) -> None:
         """Clear all metrics and graph data."""

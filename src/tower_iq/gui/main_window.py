@@ -180,9 +180,9 @@ class MainWindow(QMainWindow):
         )
         
         # Controller signal connections
-        # Note: These signals would be defined in the MainController
-        # self.controller.new_metric_received.connect(self.dashboard_page.update_metric_display)
-        # self.controller.status_changed.connect(self.status_indicator.update_status)
+        self.controller.new_metric_received.connect(self.dashboard_page.update_metric_display)
+        self.controller.new_graph_data.connect(self.dashboard_page.update_graph)
+        self.controller.status_changed.connect(self.status_indicator.update_status)
         # self.controller.status_message_changed.connect(self.status_label.setText)
     
     def _switch_to_page(self, page_widget: QWidget, page_name: str) -> None:

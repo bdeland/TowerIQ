@@ -12,9 +12,7 @@ from PyQt6.QtCore import QObject, pyqtSignal
 
 from .core.config import ConfigurationManager
 from .core.session import SessionManager
-from .services.docker_service import DockerService
 from .services.database_service import DatabaseService
-from .services.setup_service import SetupService
 from .services.emulator_service import EmulatorService
 from .services.frida_service import FridaService
 
@@ -29,6 +27,7 @@ class MainController(QObject):
     log_received = pyqtSignal(dict)
     status_changed = pyqtSignal(str, str)
     new_metric_received = pyqtSignal(str, object)
+    new_graph_data = pyqtSignal(str, object)  # New signal for graph data
     setup_finished = pyqtSignal(bool)
     
     def __init__(self, config: ConfigurationManager, logger: Any) -> None:
@@ -47,8 +46,6 @@ class MainController(QObject):
         # Initialize core services
         self.session = SessionManager()
         self.db_service = DatabaseService(config, logger)
-        self.docker_service = DockerService(config, logger)
-        self.setup_service = SetupService(config, logger, self.docker_service, self.db_service, self)
         self.emulator_service = EmulatorService(config, logger)
         self.frida_service = FridaService(config, logger)
         
@@ -66,16 +63,27 @@ class MainController(QObject):
         """
         self._is_running = True
         
-        # Run initial setup
-        setup_success = await self.setup_service.run_initial_setup()
-        self.setup_finished.emit(setup_success)
+        # Connect to database and run migrations
+        try:
+            await asyncio.to_thread(self.db_service.connect)
+            self.logger.info("Database connection established successfully")
+            self.setup_finished.emit(True)
+        except Exception as e:
+            self.logger.error("Failed to connect to database", error=str(e))
+            self.setup_finished.emit(False)
+            return
         
-        if setup_success:
-            # Start main monitoring tasks
+        # Start main monitoring tasks with proper exception handling
+        try:
             await asyncio.gather(
                 self._listen_for_frida_messages(),
-                self._monitor_system_health()
+                self._monitor_system_health(),
+                return_exceptions=True  # Don't fail if one task has an exception
             )
+        except Exception as e:
+            self.logger.error("Error in main monitoring tasks", error=str(e))
+        finally:
+            self.logger.info("Main controller tasks completed")
     
     async def stop(self) -> None:
         """
@@ -83,8 +91,7 @@ class MainController(QObject):
         """
         self._is_running = False
         await self.frida_service.detach()
-        await self.docker_service.stop_stack()
-        await self.db_service.close()
+        await asyncio.to_thread(self.db_service.close)
     
     def _register_handlers(self) -> None:
         """
@@ -103,12 +110,19 @@ class MainController(QObject):
         """
         while self._is_running:
             try:
-                message = await self.frida_service.get_message()  # Blocks until message available
+                # Add a timeout to prevent indefinite blocking
+                message = await asyncio.wait_for(
+                    self.frida_service.get_message(), 
+                    timeout=1.0
+                )
                 handler = self._message_handlers.get(message.get("type"))
                 if handler:
                     await handler(message)
                 else:
                     self.logger.warn("unhandled_message", message_type=message.get("type"))
+            except asyncio.TimeoutError:
+                # This is normal - no messages available
+                continue
             except Exception as e:
                 self.logger.error("Error in frida message listener", error=str(e))
                 await asyncio.sleep(1)  # Prevent tight loop on errors
@@ -119,15 +133,20 @@ class MainController(QObject):
         """
         try:
             payload = message.get("payload", {})
-            measurement = payload.get("measurement")
-            fields = payload.get("fields", {})
-            tags = payload.get("tags", {})
+            run_id = self.session.current_runId or "default"
+            timestamp = int(payload.get("timestamp", asyncio.get_event_loop().time()))
+            name = payload.get("name", "unknown_metric")
+            value = float(payload.get("value", 0))
             
-            await self.db_service.write_metric(measurement, fields, tags)
+            # Write to database using synchronous call wrapped in thread
+            await asyncio.to_thread(self.db_service.write_metric, run_id, timestamp, name, value)
             
-            # Emit signal for UI
-            for field_name, field_value in fields.items():
-                self.new_metric_received.emit(field_name, field_value)
+            # Emit signal for UI metric display
+            self.new_metric_received.emit(name, value)
+            
+            # Fetch recent data and update graph
+            df = await asyncio.to_thread(self.db_service.get_run_metrics, run_id, name)
+            self.new_graph_data.emit(f"{name}_graph", df)
                 
         except Exception as e:
             self.logger.error("Error handling game metric", error=str(e))
@@ -138,15 +157,18 @@ class MainController(QObject):
         """
         try:
             payload = message.get("payload", {})
-            event_type = payload.get("event_type")
-            event_data = payload.get("data", {})
+            run_id = self.session.current_runId or "default"
+            timestamp = int(payload.get("timestamp", asyncio.get_event_loop().time()))
+            name = payload.get("name", "unknown_event")
+            data = payload.get("data", {})
             
-            await self.db_service.write_event(event_type, event_data)
+            # Write to database using synchronous call wrapped in thread
+            await asyncio.to_thread(self.db_service.write_event, run_id, timestamp, name, data)
             
             # Manage session state
-            if event_type == "run_started":
+            if name == "run_started":
                 self.session.start_new_run()
-            elif event_type == "run_ended":
+            elif name == "run_ended":
                 self.session.end_run()
                 
         except Exception as e:
@@ -171,14 +193,10 @@ class MainController(QObject):
     
     async def _monitor_system_health(self) -> None:
         """
-        A long-running task that periodically checks the health of backend services.
+        A simplified health monitoring task that checks emulator connection.
         """
         while self._is_running:
             try:
-                # Check Docker health
-                docker_healthy = await self.docker_service.is_healthy()
-                self.status_changed.emit("docker", "healthy" if docker_healthy else "unhealthy")
-                
                 # Check emulator connection
                 emulator_connected = await self.emulator_service.is_connected()
                 self.status_changed.emit("emulator", "connected" if emulator_connected else "disconnected")

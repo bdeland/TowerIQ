@@ -20,35 +20,20 @@ logging:
   sources:
     enabled:
       - "MainController"
-      - "DockerService"
       - "DatabaseService"
       - "EmulatorService"
       - "FridaService"
       - "GUI"
 
 database:
-  influxdb:
-    host: "127.0.0.1"
-    port: 8086
-    org: "toweriq"
-    bucket: "game_data"
-    timeout: 30
+  sqlite_path: "data/toweriq.db"
   sqlite:
-    db_path: "data/tower_iq.db"
-    backup_path: "data/backups/"
-    backup_retention_days: 30
-
-docker:
-  compose_file: "resources/docker/docker-compose.yml"
-  health_check_endpoints:
-    influxdb: "http://127.0.0.1:8086/health"
-  startup_timeout: 60
-  shutdown_timeout: 30
+    encryption_key: "default_key"
 
 emulator:
   adb_path: "adb"
   connection_timeout: 10
-  package_name: "com.supercell.clashoftitans"
+  package_name: "com.TechTreeGames.TheTower"
   activity_name: ".MainActivity"
 
 frida:
@@ -68,5 +53,4 @@ gui:
     height: 800
     min_width: 800
     min_height: 600
-  auto_start_docker: true
   auto_connect_emulator: true 

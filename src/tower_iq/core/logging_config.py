@@ -12,6 +12,7 @@ import time
 from datetime import datetime
 from typing import Any, Dict, Set
 from pathlib import Path
+import sys
 
 import structlog
 import colorama
@@ -20,13 +21,14 @@ from colorama import Fore, Style
 from .config import ConfigurationManager
 
 
-def setup_logging(config: ConfigurationManager) -> None:
+def setup_logging(config: ConfigurationManager, db_service=None) -> None:
     """
     Single entry point for initializing the logging system.
     Called once at application startup.
     
     Args:
         config: The fully initialized ConfigurationManager instance
+        db_service: DatabaseService instance for SQLite logging (optional)
     """
     # Initialize colorama for Windows console colors
     colorama.init()
@@ -42,28 +44,22 @@ def setup_logging(config: ConfigurationManager) -> None:
     backup_count = config.get('logging.file.backup_count', 5)
     enabled_sources = set(config.get('logging.sources.enabled', []))
 
-    # Define shared processors
-    shared_processors = [
-        add_epoch_millis_timestamp,
+    # Configure structlog with nice console output
+    timestamper = structlog.processors.TimeStamper(fmt="%Y-%m-%d %H:%M:%S.%f", utc=False)
+    
+    # Define processors for nice console output
+    console_processors = [
         structlog.contextvars.merge_contextvars,
         SourceFilter(enabled_sources),
         structlog.processors.add_log_level,
         structlog.processors.StackInfoRenderer(),
-    ]
-
-    # Define processors for different outputs
-    json_processors = shared_processors + [
-        structlog.processors.JSONRenderer()
-    ]
-    
-    console_processors = shared_processors + [
-        add_human_readable_timestamp,
-        ColoredConsoleRenderer()
+        timestamper,
+        structlog.dev.ConsoleRenderer(colors=True)
     ]
 
     # Configure structlog
     structlog.configure(
-        processors=json_processors,
+        processors=console_processors,
         wrapper_class=structlog.make_filtering_bound_logger(
             getattr(logging, log_level)
         ),
@@ -71,26 +67,28 @@ def setup_logging(config: ConfigurationManager) -> None:
         cache_logger_on_first_use=True,
     )
 
-    # Get root logger and clear existing handlers
+    # Configure standard library logging
+    logging.basicConfig(
+        format="%(message)s",
+        stream=sys.stdout,
+        level=getattr(logging, log_level),
+    )
+
+    # Get root logger and remove default handlers if we want custom ones
     root_logger = logging.getLogger()
-    root_logger.handlers.clear()
-    root_logger.setLevel(getattr(logging, log_level))
-
-    # Create mandatory StdoutJsonHandler
-    stdout_handler = StdoutJsonHandler()
-    stdout_handler.setLevel(getattr(logging, log_level))
-    stdout_handler.setFormatter(StructlogFormatter())
-    root_logger.addHandler(stdout_handler)
-
-    # Create file handler if enabled
+    
+    # Add file handler if enabled
     if file_enabled:
+        # For file output, we want JSON format
         file_handler = create_file_handler(file_path, file_level, max_size_mb, backup_count)
         root_logger.addHandler(file_handler)
 
-    # Create console handler if enabled
-    if console_enabled:
-        console_handler = create_console_handler(console_level, console_processors)
-        root_logger.addHandler(console_handler)
+    # Add SQLite handler if db_service is available
+    if db_service:
+        sqlite_handler = SQLiteLogHandler(db_service)
+        sqlite_handler.setLevel(getattr(logging, log_level))
+        sqlite_handler.setFormatter(StructlogFormatter())
+        root_logger.addHandler(sqlite_handler)
 
 
 def add_epoch_millis_timestamp(logger: Any, method_name: str, event_dict: Dict[str, Any]) -> Dict[str, Any]:
@@ -136,9 +134,11 @@ class SourceFilter:
         Initialize the filter with enabled source names.
         
         Args:
-            enabled_sources: Set of uppercase source names that are allowed to pass
+            enabled_sources: Set of source names that are allowed to pass
         """
-        self.enabled_sources = {source.upper() for source in enabled_sources}
+        self.enabled_sources = enabled_sources
+        # If no sources specified, allow all
+        self.filter_enabled = len(enabled_sources) > 0
     
     def __call__(self, logger: Any, method_name: str, event_dict: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -150,10 +150,19 @@ class SourceFilter:
             event_dict: The event dictionary
             
         Returns:
-            Unmodified event dictionary (filtering is handled at handler level)
+            Unmodified event dictionary
         """
-        # For now, just pass everything through
-        # Filtering will be handled at the handler level if needed
+        # If no filtering enabled, pass everything through
+        if not self.filter_enabled:
+            return event_dict
+            
+        # Check if this source is enabled
+        source = event_dict.get('source', '')
+        if source in self.enabled_sources:
+            return event_dict
+        
+        # If source not enabled, still pass through for now
+        # (Could raise structlog.DropEvent() to actually filter)
         return event_dict
 
 
@@ -190,14 +199,24 @@ class ColoredConsoleRenderer:
         
         level_color = level_colors.get(level, Fore.WHITE)
         
-        # Format the log line
+        # Base format with timestamp, level, source, and event
         formatted = (
             f"{Fore.WHITE}[{timestamp}] "
-            f"{level_color}[{level:^8}] "
+            f"{level_color}[{level:^7}] "
             f"{Fore.BLUE}[{source}] "
             f"{Fore.WHITE}{event}"
-            f"{Style.RESET_ALL}"
         )
+        
+        # Add extra fields if present (excluding standard ones)
+        extra_fields = []
+        for key, value in event_dict.items():
+            if key not in ['display_timestamp', 'level', 'source', 'event', 'timestamp_ms']:
+                extra_fields.append(f"{key}={value}")
+        
+        if extra_fields:
+            formatted += f" {Fore.CYAN}({', '.join(extra_fields)})"
+        
+        formatted += Style.RESET_ALL
         
         return formatted
 
@@ -219,6 +238,54 @@ class StdoutJsonHandler(logging.Handler):
             print(msg, flush=True)
         except Exception:
             self.handleError(record)
+
+
+class SQLiteLogHandler(logging.Handler):
+    """
+    Custom handler that writes logs to the SQLite database.
+    """
+    
+    def __init__(self, db_service) -> None:
+        """
+        Initialize the SQLite log handler.
+        
+        Args:
+            db_service: DatabaseService instance for writing logs
+        """
+        super().__init__()
+        self.db_service = db_service
+    
+    def emit(self, record: logging.LogRecord) -> None:
+        """
+        Emit a log record to the SQLite database.
+        
+        Args:
+            record: The log record to emit
+        """
+        try:
+            # Convert LogRecord to dict for the database service
+            event_dict = {
+                'timestamp': record.created,
+                'level': record.levelname,
+                'source': getattr(record, 'source', 'unknown'),
+                'event': record.getMessage(),
+                'logger': record.name,
+            }
+            
+            # Add any extra fields from the record
+            for key, value in record.__dict__.items():
+                if key not in ['timestamp', 'level', 'source', 'event', 'logger', 
+                             'name', 'msg', 'args', 'levelname', 'levelno', 'pathname',
+                             'filename', 'module', 'lineno', 'funcName', 'created',
+                             'msecs', 'relativeCreated', 'thread', 'threadName',
+                             'processName', 'process', 'getMessage', 'exc_info',
+                             'exc_text', 'stack_info']:
+                    event_dict[key] = value
+            
+            self.db_service.write_log_entry(event_dict)
+        except Exception:
+            # Don't call handleError here to avoid potential recursion
+            pass
 
 
 class StructlogFormatter(logging.Formatter):
@@ -279,13 +346,12 @@ def create_file_handler(file_path: str, level: str, max_size_mb: int, backup_cou
     return handler
 
 
-def create_console_handler(level: str, processors: list) -> logging.Handler:
+def create_console_handler(level: str) -> logging.Handler:
     """
     Create a console handler with colored output.
     
     Args:
         level: Log level for the handler
-        processors: List of structlog processors to use
         
     Returns:
         Configured console handler
@@ -296,24 +362,48 @@ def create_console_handler(level: str, processors: list) -> logging.Handler:
     # Create a custom formatter that uses the console processors
     class ConsoleFormatter(logging.Formatter):
         def format(self, record):
+            # Create local time timestamp
+            local_time = datetime.fromtimestamp(record.created)
+            formatted_time = local_time.strftime('%Y-%m-%d %H:%M:%S.%f')[:-3]
+            
+            # Extract source from record (structlog adds it)
+            source = getattr(record, 'source', None)
+            if not source:
+                # Try to extract from the event dict if it's a structlog record
+                if hasattr(record, 'msg') and isinstance(record.msg, dict):
+                    source = record.msg.get('source', record.name)
+                else:
+                    source = record.name
+            
+            # Build event dict
             event_dict = {
-                'display_timestamp': datetime.fromtimestamp(record.created).strftime('%Y-%m-%d %H:%M:%S.%f')[:-3],
+                'display_timestamp': formatted_time,
                 'level': record.levelname,
-                'source': getattr(record, 'source', 'UNKNOWN'),
+                'source': source,
                 'event': record.getMessage(),
             }
             
-            # Apply console processors
-            for processor in processors:
-                try:
-                    if isinstance(processor, ColoredConsoleRenderer):
-                        return processor(None, None, event_dict)
-                    else:
-                        event_dict = processor(None, None, event_dict)
-                except Exception:
-                    return ""
+            # Add any extra attributes from the record (if it's a structlog record)
+            if hasattr(record, 'msg') and isinstance(record.msg, dict):
+                for key, value in record.msg.items():
+                    if key not in ['display_timestamp', 'level', 'source', 'event', 'timestamp_ms']:
+                        event_dict[key] = value
             
-            return str(event_dict)
+            # Apply the ColoredConsoleRenderer
+            renderer = ColoredConsoleRenderer()
+            return renderer(None, None, event_dict)
     
+    # Use structlog's ProcessorFormatter for better integration
+    handler.setFormatter(
+        structlog.stdlib.ProcessorFormatter(
+            processor=structlog.processors.JSONRenderer(),
+            foreign_pre_chain=[
+                add_human_readable_timestamp,
+                structlog.processors.add_log_level,
+            ],
+        )
+    )
+    
+    # Override with our custom formatter for now
     handler.setFormatter(ConsoleFormatter())
     return handler 

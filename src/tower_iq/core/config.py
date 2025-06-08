@@ -95,8 +95,6 @@ class ConfigurationManager:
             
             # Load specific environment variables that TowerIQ uses
             env_vars = [
-                'INFLUXDB_TOKEN',
-                'INFLUXDB_URL',
                 'SQLITE_ENCRYPTION_KEY',
                 'FRIDA_SIGNATURE_KEY',
                 'DEBUG_MODE'
@@ -123,12 +121,6 @@ class ConfigurationManager:
         self.settings = yaml_config.copy()
         
         # Apply environment variable overrides
-        if 'influxdb_token' in env_config:
-            self.settings.setdefault('database', {}).setdefault('influxdb', {})['token'] = env_config['influxdb_token']
-        
-        if 'influxdb_url' in env_config:
-            self.settings.setdefault('database', {}).setdefault('influxdb', {})['url'] = env_config['influxdb_url']
-        
         if 'sqlite_encryption_key' in env_config:
             self.settings.setdefault('database', {}).setdefault('sqlite', {})['encryption_key'] = env_config['sqlite_encryption_key']
         
@@ -150,12 +142,7 @@ class ConfigurationManager:
             'app.name',
             'app.version',
             'logging.level',
-            'database.influxdb.host',
-            'database.influxdb.port',
-            'database.influxdb.org',
-            'database.influxdb.bucket',
-            'database.sqlite.db_path',
-            'docker.compose_file',
+            'database.sqlite_path',
             'emulator.package_name',
             'frida.server_port'
         ]
@@ -173,11 +160,7 @@ class ConfigurationManager:
         if log_level not in ['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL']:
             raise ValueError(f"Invalid logging level: {log_level}")
         
-        # Validate ports are integers
-        influx_port = self.get('database.influxdb.port')
-        if not isinstance(influx_port, int) or influx_port <= 0:
-            raise ValueError("InfluxDB port must be a positive integer")
-        
+        # Validate frida port is integer
         frida_port = self.get('frida.server_port')
         if not isinstance(frida_port, int) or frida_port <= 0:
             raise ValueError("Frida server port must be a positive integer") 
