@@ -1,15 +1,16 @@
 # TowerIQ v1.0 - Advanced Mobile Game Analysis Platform
 
-TowerIQ is a sophisticated platform for analyzing and monitoring mobile games using advanced instrumentation techniques. This implementation provides the foundational architecture for real-time game data collection, analysis, and visualization.
+TowerIQ is a sophisticated platform for analyzing and monitoring mobile games using advanced instrumentation techniques. This implementation provides a complete backend architecture with PyQt6 GUI for real-time game data collection, analysis, and visualization through Frida instrumentation.
 
 ## 🏗️ Architecture Overview
 
 TowerIQ follows a modular, service-oriented architecture with the following key components:
 
-- **Core Foundation**: Configuration management, unified logging, and session state
-- **Service Layer**: Docker orchestration, database management, emulator control, and Frida instrumentation
-- **GUI Layer**: Modern PyQt6-based user interface with async support
-- **Data Layer**: InfluxDB for time-series data and encrypted SQLite for application state
+- **Core Foundation**: Configuration management, unified logging, and thread-safe session state
+- **Service Layer**: SQLite database management, emulator control, and Frida instrumentation
+- **Controller Layer**: Message dispatch pattern with PyQt signals for UI communication
+- **GUI Layer**: Modern PyQt6-based user interface with PyQtGraph visualization
+- **Data Layer**: Encrypted SQLite for all data storage with time-series metrics support
 
 ## 📁 Project Structure
 
@@ -24,20 +25,30 @@ TowerIQ/
 │   │   ├── logging_config.py # Unified logging system
 │   │   └── session.py        # Session state management
 │   ├── services/              # Service layer
-│   │   ├── docker_service.py # Docker orchestration
-│   │   ├── database_service.py # Database management
-│   │   ├── emulator_service.py # Emulator control (planned)
-│   │   └── frida_service.py   # Frida instrumentation (planned)
-│   ├── gui/                   # User interface (planned)
-│   ├── main_controller.py     # Application orchestrator
+│   │   ├── database_service.py # SQLite database management
+│   │   ├── emulator_service.py # ADB device management
+│   │   └── frida_service.py   # Frida instrumentation
+│   ├── gui/                   # User interface
+│   │   ├── main_window.py    # Main application window
+│   │   ├── assets.py         # Asset management
+│   │   └── components/       # UI components
+│   │       ├── dashboard_page.py   # Dashboard with metrics
+│   │       ├── status_indicator.py # Status display widget
+│   │       ├── history_page.py     # Run history page
+│   │       └── settings_page.py    # Settings page
+│   ├── main_controller.py     # Application orchestrator with PyQt signals
 │   └── main_app_entry.py      # Application entry point
 ├── resources/                 # Static resources
-│   ├── docker/               # Docker configuration
-│   │   ├── docker-compose.yml
-│   │   └── toweriq_backend/  # Backend container
-│   └── assets/               # UI assets (planned)
+│   └── assets/               # UI assets and icons
+├── memory/                   # Development documentation
+│   ├── part1.md             # Foundation implementation (completed)
+│   ├── part2.md             # Core services implementation (completed)
+│   ├── part3.md             # GUI implementation (completed)
+│   └── part4.md             # Embedded refactoring (completed)
+├── data/                     # Application data directory
+├── logs/                     # Application logs
 ├── pyproject.toml            # Project dependencies and metadata
-└── test_foundation.py        # Foundation testing script
+└── README.md                # This file
 ```
 
 ## 🚀 Current Implementation Status
@@ -45,9 +56,9 @@ TowerIQ/
 ### ✅ Completed (Part 1: Foundation)
 
 1. **Project Structure & Dependencies**
-   - Complete directory structure
-   - Poetry-based dependency management
-   - Python 3.11+ requirement
+   - Complete directory structure with proper Python packages
+   - Poetry-based dependency management with PyQt6, PyQtGraph, and all required dependencies
+   - Python 3.11+ support
 
 2. **Core Configuration System**
    - YAML-based configuration with `.env` override support
@@ -58,53 +69,75 @@ TowerIQ/
    - Structlog-based pipeline with multiple output formats
    - JSON logs for machine processing
    - Colored console output for development
-   - Rotating file logs with configurable retention
    - Source-based filtering system
+   - Database integration for log storage
 
 4. **Session Management**
-   - Thread-safe session state management
-   - Run ID generation and tracking
-   - Connection status monitoring
+   - Thread-safe session state management with properties
+   - Run ID generation and tracking with UUIDs
+   - Connection status monitoring (emulator, frida-server, hook)
    - Monitoring state management (NORMAL/HIGH_RESOLUTION)
 
-5. **Docker Service**
-   - Docker Compose orchestration
-   - Health monitoring for containerized services
-   - Async container management
-   - Log retrieval and monitoring
+### ✅ Completed (Part 2: Core Logic & Services)
 
-6. **Database Service**
-   - InfluxDB integration for time-series data
-   - Encrypted SQLite for application state
+5. **Main Controller**
+   - **PyQt QObject** with signal/slot architecture
+   - **Message Dispatch Pattern** for Frida communication
+   - Application lifecycle management with async support
+   - Service orchestration with background task management
+   - Health monitoring and error handling
+
+6. **Database Service (Embedded SQLite)**
+   - **Encrypted SQLite** with mandatory SQLCipher encryption
+   - Time-series metrics storage with run tracking
+   - Application state and settings management
    - Database migrations system
-   - Automated backup and retention
+   - Pandas DataFrame integration for data analysis
 
-7. **Main Controller**
-   - Application lifecycle management
-   - Service orchestration
-   - Background task management
-   - Graceful shutdown handling
+7. **Emulator Service**
+   - **ADB device discovery** and automatic connection
+   - Device architecture detection for frida-server compatibility
+   - **Frida-server installation** and lifecycle management
+   - Game process detection by package name
+   - Connection health monitoring
 
-### 🔄 In Progress (Part 2: Core Services)
+8. **Frida Service**
+   - **Secure script injection** with signature verification
+   - Process attachment and detachment management
+   - **Async message queue** for script communication
+   - Script download and verification workflow
+   - Thread-safe message bridging to asyncio
 
-- Emulator Service (ADB integration)
-- Frida Service (instrumentation framework)
-- GUI Framework (PyQt6 with qasync)
+### ✅ Completed (Part 3: GUI Implementation)
 
-### 📋 Planned (Part 3: Advanced Features)
+9. **Main Window**
+   - PyQt6-based main application window
+   - Navigation and stacked widget layout
+   - Status indicator integration
+   - Asset management for bundled resources
 
-- Real-time data visualization
-- Hook script management
-- Performance monitoring
-- Export and reporting features
+10. **Dashboard Components**
+    - Dashboard page with real-time metric displays
+    - Status indicator widget for connection status
+    - History page for run tracking
+    - Settings page for configuration
+    - PyQtGraph integration for live data visualization
+
+### ✅ Completed (Part 4: Embedded Architecture)
+
+11. **Fully Embedded Stack**
+    - Removed all Docker/WSL dependencies
+    - Self-contained SQLite-only architecture
+    - PyQtGraph-based native visualization
+    - Complete desktop application with no external dependencies
 
 ## 🛠️ Installation & Setup
 
 ### Prerequisites
 
 - Python 3.11 or higher
-- Docker and Docker Compose
-- Poetry (recommended) or pip
+- ADB (Android Debug Bridge) - part of Android SDK Platform Tools
+- Android emulator or physical device with USB debugging enabled
 
 ### Installation
 
@@ -121,9 +154,6 @@ TowerIQ/
    
    # Or using pip
    pip install -e .
-
-# Note: This will install sqlcipher3-wheels which includes 
-# a self-contained SQLCipher implementation with mandatory encryption
    ```
 
 3. **Configure the application**
@@ -131,11 +161,6 @@ TowerIQ/
    # Copy and edit configuration
    cp .env.example .env
    # Edit .env with your specific settings
-   ```
-
-4. **Test the foundation**
-   ```bash
-   python test_foundation.py
    ```
 
 ## 🔧 Configuration
@@ -146,18 +171,17 @@ The main configuration file controls all aspects of the application:
 
 - **Application settings**: Name, version, debug mode
 - **Logging configuration**: Levels, outputs, source filtering
-- **Database settings**: InfluxDB and SQLite configuration
-- **Docker settings**: Compose file location, health endpoints
-- **Emulator settings**: ADB path, target package
-- **Frida settings**: Server port, script validation
-- **GUI settings**: Theme, window size, auto-start options
+- **Database settings**: Encrypted SQLite configuration
+- **Emulator settings**: ADB path, target package (`com.TechTreeGames.TheTower`)
+- **Frida settings**: Server port, script validation, security options
+- **GUI settings**: Theme, window size, auto-connect options
+- **Monitoring settings**: Polling intervals, resolution modes
 
 ### Environment Variables (`.env`)
 
 Sensitive configuration is stored in environment variables:
 
-- `INFLUXDB_TOKEN`: InfluxDB authentication token
-- `SQLITE_ENCRYPTION_KEY`: SQLite database encryption key
+- `SQLITE_ENCRYPTION_KEY`: SQLite database encryption key (mandatory)
 - `FRIDA_SIGNATURE_KEY`: Frida script signature validation key
 - `DEBUG_MODE`: Override debug mode setting
 
@@ -166,49 +190,69 @@ Sensitive configuration is stored in environment variables:
 ### Development Mode
 
 ```bash
-# Run the foundation test
-python test_foundation.py
-
-# Run the main application (when GUI is implemented)
+# Run the main application
 python -m tower_iq.main_app_entry
 
 # Or using Poetry
+poetry run python -m tower_iq.main_app_entry
+
+# Or using the entry point script
 poetry run tower-iq
 ```
 
-### Docker Backend
+### Target Game Setup
 
-The application uses Docker for backend services:
+1. **Install "The Tower" game** on your Android device/emulator
+   - Package name: `com.TechTreeGames.TheTower`
+   - Available on Google Play Store
 
-```bash
-# Start backend services
-docker-compose -f resources/docker/docker-compose.yml up -d
+2. **Enable USB Debugging** on your Android device
 
-# Check service health
-docker-compose -f resources/docker/docker-compose.yml ps
+3. **Connect device** via USB or start emulator
 
-# Stop services
-docker-compose -f resources/docker/docker-compose.yml down
+4. **Launch TowerIQ** - it will automatically:
+   - Discover connected devices
+   - Install frida-server
+   - Detect the game process
+   - Inject monitoring hooks
+
+## 🔄 Application Workflow
+
+### Automatic Connection Flow
+
+TowerIQ implements a zero-touch approach for device connection:
+
+1. **Device Discovery**: Automatically scans for ADB devices on startup
+2. **Frida Setup**: Installs and starts frida-server on the target device
+3. **Game Detection**: Finds the running Tower game process
+4. **Hook Injection**: Securely downloads and injects monitoring scripts
+5. **Data Collection**: Streams metrics and events to the database
+
+### Message Flow Architecture
+
+```
+Game Process → Frida Script → FridaService → MessageQueue → MainController → DatabaseService
+                                                       ↓
+                                              PyQt Signals → GUI Components → PyQtGraph
 ```
 
 ## 📊 Logging and Monitoring
 
-TowerIQ implements a sophisticated logging system:
+TowerIQ implements a sophisticated logging system with database integration:
 
-### Log Outputs
+### Log Storage
 
-1. **JSON Logs**: Machine-readable logs for processing
-2. **Console Logs**: Colored output for development
-3. **File Logs**: Rotating files with configurable retention
+- **SQLite Database**: All logs stored in encrypted database
+- **Console Output**: Colored development logs
+- **Structured Format**: JSON-compatible log entries
 
 ### Log Sources
 
 Logs are tagged by source for easy filtering:
-- `MainController`: Application orchestration
-- `DockerService`: Container management
-- `DatabaseService`: Database operations
-- `EmulatorService`: Device communication
-- `FridaService`: Instrumentation activities
+- `MainController`: Application orchestration and message dispatch
+- `DatabaseService`: Database operations and migrations
+- `EmulatorService`: ADB device management and frida-server control
+- `FridaService`: Script injection and message handling
 - `GUI`: User interface events
 
 ### Example Log Entry
@@ -217,86 +261,107 @@ Logs are tagged by source for easy filtering:
 {
   "timestamp_ms": 1703123456789,
   "level": "INFO",
-  "source": "MainController",
-  "event": "Application started successfully",
-  "version": "1.0.0",
+  "source": "FridaService",
+  "event": "Script injected successfully",
+  "game_version": "1.2.3",
+  "pid": 12345,
   "run_id": "550e8400-e29b-41d4-a716-446655440000"
 }
 ```
 
 ## 🗄️ Database Schema
 
-### InfluxDB (Time-Series Data)
+### SQLite Schema (Encrypted)
 
-- **Measurements**: Game metrics, performance data, events
-- **Tags**: Run ID, game version, device info
-- **Fields**: Numeric values, timestamps, metadata
+- **runs**: `(run_id, start_time, end_time, game_version, tier)`
+- **metrics**: `(run_id, timestamp, name, value)` - Time-series game metrics
+- **events**: `(run_id, timestamp, name, data)` - Discrete game events
+- **logs**: `(timestamp, level, source, event, data)` - Application logs
+- **settings**: `(key, value)` - Application configuration storage
 
-### SQLite (Application State)
-
-- **settings**: Key-value configuration storage
-- **run_sessions**: Monitoring session tracking
-- **hook_activity**: Frida hook execution logs
+All data is encrypted using SQLCipher with mandatory encryption keys.
 
 ## 🔒 Security Features
 
-- **Encrypted SQLite**: Mandatory database encryption for all sensitive data using SQLCipher ([sqlcipher3-wheels](https://github.com/laggykiller/sqlcipher3))
-- **Script Validation**: Frida script signature verification
-- **Secure Configuration**: Environment variable isolation
-- **Access Control**: Source-based log filtering
+- **Mandatory Database Encryption**: All SQLite databases use SQLCipher encryption
+- **Script Signature Verification**: Frida scripts validated before injection
+- **Secure Script Download**: Encrypted script delivery with hash verification
+- **Environment Variable Isolation**: Sensitive data in environment variables
+- **Source-based Access Control**: Log filtering and access management
 
 ## 🧪 Testing
 
-### Foundation Tests
+### Development Testing
 
-Run the foundation test to verify core components:
-
-```bash
-python test_foundation.py
-```
-
-This tests:
-- Configuration loading and validation
-- Logging system initialization
-- Session manager functionality
-- Service initialization
-- Basic health checks
-
-### Unit Tests (Planned)
+Test the application components:
 
 ```bash
-# When implemented
-poetry run pytest tests/
+# Run with Poetry
+poetry run python -m tower_iq.main_app_entry
+
+# Check database connection
+python -c "from src.tower_iq.services.database_service import DatabaseService; print('Database module loaded successfully')"
 ```
 
 ## 📈 Performance Considerations
 
-- **Async Architecture**: Non-blocking I/O for all services
-- **Connection Pooling**: Efficient database connections
-- **Log Rotation**: Automatic cleanup of old log files
-- **Memory Management**: Careful resource cleanup
-- **Background Tasks**: Separate threads for monitoring
+- **Async Architecture**: Non-blocking I/O for all services using asyncio
+- **PyQt Integration**: qasync bridge for seamless Qt/asyncio integration
+- **Thread Safety**: Proper locking in SessionManager and message queues
+- **Memory Management**: Careful resource cleanup with context managers
+- **Background Monitoring**: Efficient health checks and status updates
+- **Database Optimization**: Indexed queries and prepared statements
+- **Native Visualization**: PyQtGraph for efficient real-time plotting
+
+## 🎯 Game Analysis Features
+
+### Real-time Metrics
+- **Coins per Hour (CPH)**: Live calculation and tracking
+- **Elevator Performance**: Speed and efficiency metrics
+- **Resource Management**: Coin generation and spending patterns
+- **Progress Tracking**: Floor progression and achievement monitoring
+
+### Event Detection
+- **Game State Changes**: Round start/end, prestige events
+- **User Actions**: Purchases, upgrades, strategic decisions
+- **Performance Milestones**: Achievement unlocks and progress markers
+
+### Data Visualization
+- **PyQtGraph Charts**: Real-time metric plotting with smooth updates
+- **Dashboard Widgets**: Live metric displays with historical context
+- **Run History**: Complete analysis of past gaming sessions
 
 ## 🤝 Contributing
 
 1. Follow the established architecture patterns
-2. Maintain comprehensive logging
+2. Maintain comprehensive logging with structured output
 3. Add tests for new functionality
-4. Update documentation
-5. Follow Python type hints and docstring conventions
+4. Update documentation and type hints
+5. Follow the message dispatch pattern for new features
 
-## 📄 License
+## 🆘 Troubleshooting
 
-[License information to be added]
+### Common Issues
 
-## 🆘 Support
+1. **Device not detected**: Check ADB installation and USB debugging
+2. **Frida-server fails**: Ensure device has root access or use ADB root
+3. **Game not found**: Verify "The Tower" is installed and running
+4. **Database errors**: Check SQLite encryption key in .env file
+5. **GUI not loading**: Ensure PyQt6 is properly installed
 
-For issues and questions:
-1. Check the logs in `logs/tower_iq.log`
-2. Run the foundation test to verify setup
-3. Review configuration files
-4. Check Docker service status
+### Debug Information
+
+```bash
+# Check ADB devices
+adb devices
+
+# Verify game process
+adb shell ps | grep tower
+
+# Check application logs in database or console output
+poetry run python -m tower_iq.main_app_entry
+```
 
 ---
 
-**Note**: This is Part 1 of the TowerIQ implementation. The foundation is complete and ready for building the remaining components (Emulator Service, Frida Service, and GUI). 
+**Implementation Status**: Complete! All parts 1-4 implemented with fully embedded SQLite architecture, PyQt6 GUI, PyQtGraph visualization, and zero external dependencies. 
