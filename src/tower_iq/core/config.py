@@ -97,6 +97,7 @@ class ConfigurationManager:
             env_vars = [
                 'SQLITE_ENCRYPTION_KEY',
                 'FRIDA_SIGNATURE_KEY',
+                'SCRIPT_ENCRYPTION_KEY',
                 'DEBUG_MODE'
             ]
             
@@ -126,6 +127,9 @@ class ConfigurationManager:
         
         if 'frida_signature_key' in env_config:
             self.settings.setdefault('frida', {})['signature_key'] = env_config['frida_signature_key']
+        
+        if 'script_encryption_key' in env_config:
+            self.settings.setdefault('secrets', {})['script_encryption_key'] = env_config['script_encryption_key']
         
         if 'debug_mode' in env_config:
             self.settings.setdefault('app', {})['debug'] = env_config['debug_mode']

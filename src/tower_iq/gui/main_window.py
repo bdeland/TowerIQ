@@ -168,6 +168,9 @@ class MainWindow(QMainWindow):
         
         Sets up the communication between the UI and the business logic layer.
         """
+        # Set dashboard reference in controller for connection panel updates
+        self.controller.set_dashboard(self.dashboard_page)
+        
         # Navigation button connections
         self.nav_dashboard_button.clicked.connect(
             lambda: self._switch_to_page(self.dashboard_page, "Dashboard")

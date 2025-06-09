@@ -11,6 +11,12 @@ import json
 from pathlib import Path
 from typing import Any, Dict, Optional
 
+import aiohttp
+from Crypto.PublicKey import RSA
+from Crypto.Hash import SHA256
+from Crypto.Signature import pkcs1_15
+from Crypto.Cipher import AES
+
 try:
     import frida
 except ImportError:
@@ -172,6 +178,89 @@ class FridaService:
             self.logger.error("Error injecting script", game_version=game_version, error=str(e))
             return False
     
+    async def check_hook_compatibility(self, game_version: str) -> bool:
+        """
+        Check if a valid, signed hook script exists for the selected game version.
+        
+        This method fetches the remote manifest and checks if an entry exists
+        for the provided game version. It does not download anything, just confirms
+        if a known hook is available.
+        
+        Args:
+            game_version: Version of the game to check compatibility for
+            
+        Returns:
+            True if a compatible hook exists, False otherwise
+        """
+        self.logger.info("Checking hook compatibility", game_version=game_version)
+        
+        try:
+            # Call remote manifest fetch
+            manifest = await self._fetch_remote_manifest()
+            
+            # Check if the manifest dictionary and the manifest['hooks'] list exist
+            if not isinstance(manifest, dict):
+                self.logger.error("Invalid manifest format")
+                return False
+            
+            hooks = manifest.get('hooks')
+            if not isinstance(hooks, list):
+                self.logger.error("Invalid hooks section in manifest")
+                return False
+            
+            # Iterate through the hooks list and check if any dictionary has a 'game_version' key that matches
+            for hook in hooks:
+                if isinstance(hook, dict) and hook.get('game_version') == game_version:
+                    self.logger.info("Hook compatibility confirmed", 
+                                   game_version=game_version)
+                    return True
+            
+            self.logger.warning("No compatible hook found", game_version=game_version)
+            return False
+            
+        except Exception as e:
+            self.logger.error("Error checking hook compatibility", 
+                            game_version=game_version, 
+                            error=str(e))
+            return False
+
+    async def inject_and_run_script(self, device_id: str, pid: int, game_version: str) -> bool:
+        """
+        Complete workflow to attach to process and inject script.
+        
+        Args:
+            device_id: Device serial ID
+            pid: Process ID to attach to
+            game_version: Game version for script selection
+            
+        Returns:
+            True if successful, False otherwise
+        """
+        self.logger.info("Starting inject and run workflow", 
+                        device_id=device_id, 
+                        pid=pid, 
+                        game_version=game_version)
+        
+        try:
+            # First attach to the process
+            if not await self.attach(pid, device_id):
+                self.logger.error("Failed to attach to process")
+                return False
+            
+            # Then inject the script
+            if not await self.inject_script(game_version):
+                self.logger.error("Failed to inject script")
+                await self.detach()  # Clean up
+                return False
+            
+            self.logger.info("Inject and run workflow completed successfully")
+            return True
+            
+        except Exception as e:
+            self.logger.error("Error in inject and run workflow", error=str(e))
+            await self.detach()  # Ensure cleanup
+            return False
+    
     async def _download_and_verify_script(self, game_version: str) -> str:
         """
         Download and verify the script for the specified game version.
@@ -208,11 +297,11 @@ class FridaService:
             encrypted_content = await self._download_encrypted_script(script_info['url'])
             
             # Step 4: Verify signature of encrypted file
-            if not self._verify_signature(encrypted_content, script_info['signature']):
+            if not await self._verify_signature(encrypted_content, script_info['signature']):
                 raise SecurityException("Script signature verification failed")
             
             # Step 5: Decrypt file in memory
-            decrypted_content = self._decrypt_script(encrypted_content, script_info['key'])
+            decrypted_content = self._decrypt_script(encrypted_content)
             
             # Step 6: Verify SHA256 hash of decrypted content
             expected_hash = script_info['hash']
@@ -233,74 +322,140 @@ class FridaService:
         """
         Fetch the remote script manifest.
         
-        Note: This is a placeholder implementation. In production,
-        this would fetch from a secure CDN or API endpoint.
-        """
-        # For now, look for a local manifest file
-        manifest_path = self.script_cache_dir / "manifest.json"
-        
-        if not manifest_path.exists():
-            # Create a dummy manifest for testing
-            dummy_manifest = {
-                "version": "1.0",
-                "scripts": {
-                    "1.0.0": {
-                        "url": "https://example.com/scripts/script_1.0.0.enc",
-                        "signature": "dummy_signature",
-                        "key": "dummy_key",
-                        "hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
-                    }
-                }
-            }
+        Returns:
+            Dictionary representing the remote manifest
             
-            with open(manifest_path, 'w') as f:
-                json.dump(dummy_manifest, f)
+        Raises:
+            aiohttp.ClientError: If network request fails
+            json.JSONDecodeError: If response is not valid JSON
+        """
+        manifest_url = self.config.get("frida.manifest_url")
+        if not manifest_url:
+            raise SecurityException("Manifest URL not configured")
         
-        with open(manifest_path, 'r') as f:
-            return json.load(f)
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(manifest_url) as response:
+                    response.raise_for_status()  # Raise exception for HTTP errors
+                    return await response.json()
+        except aiohttp.ClientError as e:
+            self.logger.error("Failed to fetch remote manifest", url=manifest_url, error=str(e))
+            raise
+        except json.JSONDecodeError as e:
+            self.logger.error("Invalid JSON in remote manifest", url=manifest_url, error=str(e))
+            raise
     
     async def _download_encrypted_script(self, url: str) -> bytes:
         """
         Download the encrypted script from the specified URL.
         
-        Note: This is a placeholder implementation.
+        Args:
+            url: URL to download the encrypted script from
+            
+        Returns:
+            Raw bytes of the encrypted script
+            
+        Raises:
+            aiohttp.ClientError: If network request fails
         """
-        # For now, return dummy encrypted content
-        return b"dummy_encrypted_content"
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(url) as response:
+                    response.raise_for_status()  # Raise exception for HTTP errors
+                    return await response.read()
+        except aiohttp.ClientError as e:
+            self.logger.error("Failed to download encrypted script", url=url, error=str(e))
+            raise
     
-    def _verify_signature(self, content: bytes, signature: str) -> bool:
+    async def _verify_signature(self, content: bytes, signature_hex: str) -> bool:
         """
         Verify the cryptographic signature of the content.
         
-        Note: This is a placeholder implementation.
-        """
-        # In production, this would use proper cryptographic verification
-        return True
-    
-    def _decrypt_script(self, encrypted_content: bytes, key: str) -> str:
-        """
-        Decrypt the script content using the provided key.
-        
-        Note: This is a placeholder implementation.
-        """
-        # For now, return a basic Frida script
-        return """
-        console.log("TowerIQ Hook Script Loaded");
-        
-        // Basic hook example
-        Java.perform(function() {
-            console.log("Java runtime available");
+        Args:
+            content: The content to verify (encrypted bytes)
+            signature_hex: Hexadecimal string representation of the signature
             
-            // Send test message
-            send({
-                "type": "hook_log",
-                "payload": {
-                    "event": "script_loaded",
-                    "timestamp": Date.now()
-                }
-            });
-        });
+        Returns:
+            True if signature is valid, False otherwise
         """
+        try:
+            # Load the public key from configuration
+            public_key_path = self.config.get("frida.public_key_path")
+            if not public_key_path:
+                self.logger.error("Public key path not configured")
+                return False
+            
+            # Resolve relative path
+            if not Path(public_key_path).is_absolute():
+                # Assume relative to project root
+                current_file = Path(__file__)
+                project_root = current_file.parent.parent.parent.parent
+                public_key_path = project_root / public_key_path
+            
+            if not Path(public_key_path).exists():
+                self.logger.error("Public key file not found", path=public_key_path)
+                return False
+            
+            # Load the RSA public key
+            with open(public_key_path, 'rb') as key_file:
+                public_key = RSA.import_key(key_file.read())
+            
+            # Create SHA256 hash of the content
+            hash_obj = SHA256.new(content)
+            
+            # Verify signature
+            try:
+                pkcs1_15.new(public_key).verify(hash_obj, bytes.fromhex(signature_hex))
+                return True
+            except ValueError:
+                # Signature verification failed
+                return False
+                
+        except Exception as e:
+            self.logger.error("Error during signature verification", error=str(e))
+            return False
+    
+    def _decrypt_script(self, encrypted_content: bytes) -> str:
+        """
+        Decrypt the script content using AES GCM.
+        
+        Args:
+            encrypted_content: Encrypted bytes containing nonce, tag, and ciphertext
+            
+        Returns:
+            Decrypted script content as string
+            
+        Raises:
+            SecurityException: If decryption fails
+        """
+        try:
+            # Get the AES key from configuration
+            aes_key_hex = self.config.get("secrets.script_encryption_key")
+            if not aes_key_hex:
+                raise SecurityException("Script encryption key not configured")
+            
+            aes_key = bytes.fromhex(aes_key_hex)
+            
+            # Unpack the payload: nonce (16 bytes) + tag (16 bytes) + ciphertext (rest)
+            if len(encrypted_content) < 32:
+                raise SecurityException("Invalid encrypted content length")
+            
+            nonce = encrypted_content[:16]
+            tag = encrypted_content[16:32]
+            ciphertext = encrypted_content[32:]
+            
+            # Create AES cipher and decrypt
+            cipher = AES.new(aes_key, AES.MODE_GCM, nonce=nonce)
+            try:
+                decrypted_bytes = cipher.decrypt_and_verify(ciphertext, tag)
+                return decrypted_bytes.decode('utf-8')
+            except ValueError as e:
+                raise SecurityException(f"Decryption failed - content may be tampered with: {str(e)}")
+                
+        except SecurityException:
+            raise
+        except Exception as e:
+            raise SecurityException(f"Script decryption failed: {str(e)}")
     
     def _on_message(self, message: dict, data: Any) -> None:
         """

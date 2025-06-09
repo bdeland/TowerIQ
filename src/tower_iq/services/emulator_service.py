@@ -198,15 +198,238 @@ class EmulatorService:
             if result.returncode == 0:
                 pid_str = stdout.decode().strip()
                 if pid_str:
-                    pid = int(pid_str)
-                    self.logger.info("Game process found", device=device_id, package=package_name, pid=pid)
-                    return pid
+                    return int(pid_str)
             
             return None
             
         except Exception as e:
-            self.logger.error("Error finding game PID", device=device_id, package=package_name, error=str(e))
+            self.logger.error("Error getting game PID", device=device_id, package=package_name, error=str(e))
             return None
+    
+    async def get_installed_third_party_packages(self, device_id: str) -> list[dict]:
+        """
+        Get a list of all user-installed apps and their status.
+        
+        This method provides enriched information about third-party packages
+        including user-friendly application names, versions, and running status.
+        
+        Args:
+            device_id: The device serial ID to query
+            
+        Returns:
+            A list of dictionaries with keys: 'name', 'package', 'version', 'is_running', 'pid'
+        """
+        self.logger.info("Getting installed third-party packages", device=device_id)
+        
+        try:
+            # Step 1: Get running processes mapping
+            running_processes = await self._get_running_processes_map(device_id)
+            
+            # Step 2: Get third-party packages list
+            third_party_packages = await self._get_third_party_packages_list(device_id)
+            
+            # Step 3: Create results list
+            results = []
+            
+            # Step 4: Loop through each package and get rich info
+            for package_name in third_party_packages:
+                try:
+                    # Get rich package info
+                    package_info = await self._get_package_rich_info(device_id, package_name)
+                    
+                    # Check running status
+                    is_running = package_name in running_processes
+                    pid = running_processes.get(package_name) if is_running else None
+                    
+                    # Assemble the dictionary
+                    package_dict = {
+                        'name': package_info.get('name', package_name),
+                        'package': package_name,
+                        'version': package_info.get('version', 'Unknown'),
+                        'is_running': is_running,
+                        'pid': pid
+                    }
+                    
+                    results.append(package_dict)
+                    
+                except Exception as e:
+                    self.logger.warning("Error getting info for package", package=package_name, error=str(e))
+                    # Add basic info even if rich info fails
+                    results.append({
+                        'name': package_name,
+                        'package': package_name,
+                        'version': 'Unknown',
+                        'is_running': package_name in running_processes,
+                        'pid': running_processes.get(package_name)
+                    })
+            
+            # Step 5: Return sorted results
+            results.sort(key=lambda x: x['name'].lower())
+            self.logger.info("Retrieved package information", device=device_id, count=len(results))
+            return results
+            
+        except Exception as e:
+            self.logger.error("Error getting installed third-party packages", device=device_id, error=str(e))
+            return []
+
+    async def _get_running_processes_map(self, device_id: str) -> dict[str, int]:
+        """Get a mapping of running package names to their PIDs."""
+        try:
+            result = await asyncio.create_subprocess_exec(
+                "adb", "-s", device_id, "shell", "ps", "-A",
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE
+            )
+            
+            stdout, stderr = await result.communicate()
+            
+            if result.returncode != 0:
+                self.logger.warning("Failed to get running processes", device=device_id, error=stderr.decode().strip())
+                return {}
+            
+            running_processes = {}
+            lines = stdout.decode().strip().split('\n')
+            
+            # Skip header line
+            for line in lines[1:]:
+                fields = line.split()
+                if len(fields) >= 9:  # Standard ps output has at least 9 fields
+                    try:
+                        pid = int(fields[1])
+                        # The last field is typically the process name/package
+                        process_name = fields[-1]
+                        
+                        # Only include package names (containing dots)
+                        if '.' in process_name and not process_name.startswith('['):
+                            running_processes[process_name] = pid
+                    except (ValueError, IndexError):
+                        continue
+            
+            return running_processes
+            
+        except Exception as e:
+            self.logger.error("Error getting running processes map", device=device_id, error=str(e))
+            return {}
+
+    async def _get_third_party_packages_list(self, device_id: str) -> list[str]:
+        """Get list of third-party (user-installed) package names."""
+        try:
+            result = await asyncio.create_subprocess_exec(
+                "adb", "-s", device_id, "shell", "pm", "list", "packages", "-3",
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE
+            )
+            
+            stdout, stderr = await result.communicate()
+            
+            if result.returncode != 0:
+                self.logger.warning("Failed to get third-party packages", device=device_id, error=stderr.decode().strip())
+                return []
+            
+            packages = []
+            lines = stdout.decode().strip().split('\n')
+            
+            for line in lines:
+                if line.startswith('package:'):
+                    package_name = line.replace('package:', '').strip()
+                    if package_name:
+                        packages.append(package_name)
+            
+            return packages
+            
+        except Exception as e:
+            self.logger.error("Error getting third-party packages list", device=device_id, error=str(e))
+            return []
+
+    async def _get_package_rich_info(self, device_id: str, package_name: str) -> dict:
+        """Get rich information for a specific package including user-friendly name and version."""
+        try:
+            result = await asyncio.create_subprocess_exec(
+                "adb", "-s", device_id, "shell", 
+                f"dumpsys package {package_name} | grep -E 'versionName|application-label:'",
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE
+            )
+            
+            stdout, stderr = await result.communicate()
+            
+            package_info = {'name': package_name, 'version': 'Unknown'}
+            
+            if result.returncode == 0:
+                lines = stdout.decode().strip().split('\n')
+                
+                for line in lines:
+                    line = line.strip()
+                    if line.startswith('versionName='):
+                        version = line.replace('versionName=', '').strip()
+                        package_info['version'] = version
+                    elif line.startswith('application-label:'):
+                        label = line.replace('application-label:', '').strip()
+                        # Remove quotes if present
+                        if label.startswith("'") and label.endswith("'"):
+                            label = label[1:-1]
+                        elif label.startswith('"') and label.endswith('"'):
+                            label = label[1:-1]
+                        package_info['name'] = label
+            
+            return package_info
+            
+        except Exception as e:
+            self.logger.warning("Error getting rich package info", device=device_id, package=package_name, error=str(e))
+            return {'name': package_name, 'version': 'Unknown'}
+
+    async def find_connected_devices(self) -> list[dict]:
+        """
+        Find all connected ADB devices and return detailed information.
+        
+        Returns:
+            List of dictionaries with device information including 'serial', 'name', 'status'
+        """
+        self.logger.info("Scanning for connected ADB devices")
+        
+        try:
+            devices = await self._get_connected_devices()
+            
+            detailed_devices = []
+            for device_serial in devices:
+                device_info = await self._get_device_info(device_serial)
+                detailed_devices.append({
+                    'serial': device_serial,
+                    'name': device_info.get('name', f'Device {device_serial}'),
+                    'status': 'connected'
+                })
+            
+            self.logger.info("Found connected devices", count=len(detailed_devices))
+            return detailed_devices
+            
+        except Exception as e:
+            self.logger.error("Error finding connected devices", error=str(e))
+            return []
+
+    async def _get_device_info(self, device_id: str) -> dict:
+        """Get basic information about a device."""
+        try:
+            # Get device model/name
+            result = await asyncio.create_subprocess_exec(
+                "adb", "-s", device_id, "shell", "getprop", "ro.product.model",
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE
+            )
+            
+            stdout, stderr = await result.communicate()
+            
+            device_info = {}
+            if result.returncode == 0:
+                model = stdout.decode().strip()
+                device_info['name'] = model if model else f"Device {device_id}"
+            else:
+                device_info['name'] = f"Device {device_id}"
+            
+            return device_info
+            
+        except Exception as e:
+            self.logger.warning("Error getting device info", device=device_id, error=str(e))
+            return {'name': f"Device {device_id}"}
     
     async def is_connected(self) -> bool:
         """Check if there's an active device connection."""

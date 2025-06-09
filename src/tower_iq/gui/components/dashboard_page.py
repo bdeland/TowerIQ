@@ -10,10 +10,12 @@ import time
 
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QLabel, 
-    QFrame, QScrollArea, QSizePolicy
+    QFrame, QScrollArea, QSizePolicy, QStackedLayout, QGraphicsBlurEffect
 )
 from PyQt6.QtCore import Qt, pyqtSlot, QTimer
 from PyQt6.QtGui import QFont, QPalette
+
+from .connection_state_panel import ConnectionStatePanel
 
 try:
     import pyqtgraph as pg
@@ -282,15 +284,37 @@ class DashboardPage(QWidget):
         self.metrics: Dict[str, MetricDisplayWidget] = {}
         self.graphs: Dict[str, GraphWidget] = {}
         
+        # Create the connection panel
+        self.connection_panel = ConnectionStatePanel(self)
+        
         self._init_ui()
     
     def _init_ui(self) -> None:
         """
         Set up the layout and create all child display widgets.
         
-        Creates a grid layout with metric cards at the top and graphs below.
+        Creates a stacked layout with dashboard content and connection overlay.
         """
+        # Create the main layout
         main_layout = QVBoxLayout(self)
+        main_layout.setContentsMargins(0, 0, 0, 0)
+        main_layout.setSpacing(0)
+        
+        # Create the dashboard content
+        self.dashboard_widget = self._create_dashboard_content()
+        main_layout.addWidget(self.dashboard_widget)
+        
+        # Create the connection overlay widget (initially hidden)
+        self.connection_overlay_widget = self._create_connection_overlay()
+        self.connection_overlay_widget.hide()
+        
+        # Add overlay as a child widget with absolute positioning
+        self.connection_overlay_widget.setParent(self)
+    
+    def _create_dashboard_content(self) -> QWidget:
+        """Create the main dashboard content widget."""
+        dashboard_widget = QWidget()
+        main_layout = QVBoxLayout(dashboard_widget)
         main_layout.setContentsMargins(20, 20, 20, 20)
         main_layout.setSpacing(20)
         
@@ -378,8 +402,54 @@ class DashboardPage(QWidget):
         
         scroll_area.setWidget(content_widget)
         main_layout.addWidget(scroll_area)
+        
+        return dashboard_widget
     
-
+    def _create_connection_overlay(self) -> QWidget:
+        """Create the connection overlay with proper full-screen coverage."""
+        overlay_widget = QWidget()
+        overlay_widget.setStyleSheet("""
+            QWidget {
+                background-color: rgba(0, 0, 0, 0.75);
+            }
+        """)
+        
+        # Create layout for the connection panel
+        overlay_layout = QVBoxLayout(overlay_widget)
+        overlay_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        overlay_layout.setContentsMargins(40, 40, 40, 40)
+        
+        # Add the connection panel
+        overlay_layout.addWidget(self.connection_panel)
+        
+        return overlay_widget
+    
+    def resizeEvent(self, event):
+        """Handle resize event to keep overlay positioned correctly."""
+        super().resizeEvent(event)
+        
+        # Resize the overlay to match the parent size
+        if hasattr(self, 'connection_overlay_widget'):
+            self.connection_overlay_widget.resize(self.size())
+    
+    def set_connection_active(self, is_active: bool) -> None:
+        """
+        Set the connection active state and show/hide the connection panel.
+        
+        Args:
+            is_active: True to show dashboard (connection active), 
+                      False to show connection panel (connection inactive)
+        """
+        if is_active:
+            # Hide the connection overlay
+            if hasattr(self, 'connection_overlay_widget'):
+                self.connection_overlay_widget.hide()
+        else:
+            # Show the connection overlay
+            if hasattr(self, 'connection_overlay_widget'):
+                self.connection_overlay_widget.resize(self.size())
+                self.connection_overlay_widget.show()
+                self.connection_overlay_widget.raise_()  # Bring to front
     
     @pyqtSlot(str, object)
     def update_metric_display(self, metric_name: str, value: Any) -> None:

@@ -40,6 +40,8 @@ frida:
   server_port: 27042
   script_path: "scripts/"
   signature_validation: true
+  manifest_url: "https://github.com/bdeland/toweriq-hooks/raw/main/manifest.json"
+  public_key_path: "resources/public_key.pem"
   
 monitoring:
   default_state: "NORMAL"
@@ -53,4 +55,4 @@ gui:
     height: 800
     min_width: 800
     min_height: 600
-  auto_connect_emulator: true 
+  auto_connect_emulator: false 
