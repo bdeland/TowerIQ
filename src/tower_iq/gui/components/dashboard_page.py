@@ -147,14 +147,14 @@ class GraphWidget(QWidget):
         if pg is not None and hasattr(self, 'plot_item'):
             self.plot_item.setData(self.data_x, self.data_y)
             
-            # Auto-scale the view to fit data
-            if len(self.data_x) > 1:
-                x_max = max(self.data_x)
-                y_max = max(self.data_y) if self.data_y else 100
+            # # Auto-scale the view to fit data - REMOVED TO PREVENT FLICKER
+            # if len(self.data_x) > 1:
+            #     x_max = max(self.data_x)
+            #     y_max = max(self.data_y) if self.data_y else 100
                 
-                # Set ranges with some padding
-                self.plot_widget.setXRange(0, max(x_max * 1.1, 10), padding=0)
-                self.plot_widget.setYRange(0, max(y_max * 1.1, 100), padding=0)
+            #     # Set ranges with some padding
+            #     self.plot_widget.setXRange(0, max(x_max * 1.1, 10), padding=0)
+            #     self.plot_widget.setYRange(0, max(y_max * 1.1, 100), padding=0)
     
     def plot_data(self, df) -> None:
         """
@@ -169,11 +169,16 @@ class GraphWidget(QWidget):
         if df.empty:
             return
         
-        # Convert timestamps to relative time if we have data
         if len(df) > 0:
+            # Set start time to the earliest timestamp in the dataframe
+            # to ensure the timeline is always correct, even with historical data.
+            current_start_time = df['timestamp'].min()
             if self.start_time is None:
-                self.start_time = df['timestamp'].iloc[0]
-            
+                self.start_time = current_start_time
+            else:
+                # Adjust existing start time if new data is older
+                self.start_time = min(self.start_time, current_start_time)
+
             relative_times = df['timestamp'] - self.start_time
             values = df['value']
             
@@ -184,13 +189,13 @@ class GraphWidget(QWidget):
             # Plot the data
             self.plot_item.setData(self.data_x, self.data_y)
             
-            # Auto-scale the view
-            if len(self.data_x) > 1:
-                x_max = max(self.data_x)
-                y_max = max(self.data_y) if self.data_y else 100
+            # # Auto-scale the view - REMOVED TO PREVENT FLICKER
+            # if len(self.data_x) > 1:
+            #     x_max = max(self.data_x)
+            #     y_max = max(self.data_y) if self.data_y else 100
                 
-                self.plot_widget.setXRange(0, max(x_max * 1.1, 10), padding=0)
-                self.plot_widget.setYRange(0, max(y_max * 1.1, 100), padding=0)
+            #     self.plot_widget.setXRange(0, max(x_max * 1.1, 10), padding=0)
+            #     self.plot_widget.setYRange(0, max(y_max * 1.1, 100), padding=0)
     
     def clear_data(self) -> None:
         """Clear all data points from the graph."""
