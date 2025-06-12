@@ -87,10 +87,21 @@ class MainController(QObject):
                 self.logger.debug("QApplication is shutting down, skipping signal emission")
                 return
             
+            # Additional check: ensure we're not in the middle of Qt shutdown
+            try:
+                # Try to access Qt's main thread - this will fail if Qt is shutting down
+                from PyQt6.QtCore import QThread
+                if QThread.currentThread() != app.thread():
+                    # We're not on the main thread, which is expected for asyncio tasks
+                    pass
+            except (RuntimeError, AttributeError):
+                self.logger.debug("Qt threading system unavailable, skipping signal emission")
+                return
+            
             def emit_signal():
                 try:
-                    # Double-check we're not shutting down before emitting
-                    if not self._is_shutting_down:
+                    # Triple-check we're not shutting down before emitting
+                    if not self._is_shutting_down and app and not app.closingDown():
                         signal.emit(*args)
                 except Exception as e:
                     self.logger.debug("Error emitting signal", error=str(e))
@@ -130,10 +141,10 @@ class MainController(QObject):
         try:
             await asyncio.to_thread(self.db_service.connect)
             self.logger.info("Database connection established successfully")
-            self.setup_finished.emit(True)
+            self._emit_signal_safely(self.setup_finished, True)
         except Exception as e:
             self.logger.error("Failed to connect to database", error=str(e))
-            self.setup_finished.emit(False)
+            self._emit_signal_safely(self.setup_finished, False)
             return
         
         # Check if automatic connection is enabled in config
@@ -145,7 +156,7 @@ class MainController(QObject):
             
             if connection_successful:
                 # Emit signal to dashboard to go into "active" mode
-                self.connection_state_changed.emit(True)
+                self._emit_signal_safely(self.connection_state_changed, True)
                 if self.dashboard:
                     self.dashboard.set_connection_active(True)
             else:
@@ -154,7 +165,7 @@ class MainController(QObject):
                 if self.session.is_hook_active:
                     self.set_hook_active(False)
                 self.session.reset_connection_state()
-                self.connection_state_changed.emit(False)
+                self._emit_signal_safely(self.connection_state_changed, False)
                 if self.dashboard:
                     self.dashboard.set_connection_active(False)
                     self.dashboard.connection_panel.update_state(self.session)
@@ -164,7 +175,7 @@ class MainController(QObject):
             if self.session.is_hook_active:
                 self.set_hook_active(False)
             self.session.reset_connection_state()
-            self.connection_state_changed.emit(False)
+            self._emit_signal_safely(self.connection_state_changed, False)
             if self.dashboard:
                 self.dashboard.set_connection_active(False)
                 self.dashboard.connection_panel.update_state(self.session)
@@ -408,7 +419,7 @@ class MainController(QObject):
             
             if success:
                 self.set_hook_active(True)
-                self.connection_state_changed.emit(True)
+                self._emit_signal_safely(self.connection_state_changed, True)
                 
                 if self.dashboard:
                     self.dashboard.set_connection_active(True)
@@ -479,10 +490,10 @@ class MainController(QObject):
             try:
                 self.logger.info("Detaching from Frida service")
                 # Add timeout to prevent hanging on Frida detachment
-                await asyncio.wait_for(self.frida_service.detach(), timeout=3.0)
+                await asyncio.wait_for(self.frida_service.detach(), timeout=1.0)
                 self.logger.info("Frida detachment completed")
             except asyncio.TimeoutError:
-                self.logger.warning("Frida detachment timed out after 3 seconds")
+                self.logger.warning("Frida detachment timed out after 1 second")
             except Exception as e:
                 self.logger.error("Error during Frida detachment", error=str(e))
         
@@ -492,11 +503,11 @@ class MainController(QObject):
                 self.logger.info("Cleaning up frida-server on device", device=self.emulator_service.connected_device)
                 await asyncio.wait_for(
                     self.emulator_service._kill_frida_server(self.emulator_service.connected_device), 
-                    timeout=5.0
+                    timeout=2.0
                 )
                 self.logger.info("Frida-server cleanup completed")
             except asyncio.TimeoutError:
-                self.logger.warning("Frida-server cleanup timed out after 5 seconds")
+                self.logger.warning("Frida-server cleanup timed out after 2 seconds")
             except Exception as e:
                 self.logger.error("Error during frida-server cleanup", error=str(e))
         
@@ -564,12 +575,12 @@ class MainController(QObject):
         
         try:
             message_count = 0
-            while self._is_running and self.session.is_hook_active:
+            while self._is_running and self.session.is_hook_active and not self._is_shutting_down:
                 try:
                     # Add a timeout to prevent indefinite blocking
                     message = await asyncio.wait_for(
                         self.frida_service.get_message(), 
-                        timeout=1.0
+                        timeout=5.0
                     )
                     
                     message_count += 1
@@ -577,7 +588,7 @@ class MainController(QObject):
                                    message_type=message.get("type"), 
                                    payload_keys=list(message.get("payload", {}).keys()),
                                    message_count=message_count,
-                                   queue_size=self.frida_service.message_queue.qsize())
+                                   queue_size=self.frida_service.queue_size)
                     
                     handler = self._message_handlers.get(message.get("type"))
                     if handler:
@@ -591,7 +602,7 @@ class MainController(QObject):
                 except asyncio.TimeoutError:
                     # This is normal - no messages available
                     # Only log if there are messages in queue but we're not getting them
-                    queue_size = self.frida_service.message_queue.qsize() if hasattr(self.frida_service, '_message_queue') and self.frida_service._message_queue else 0
+                    queue_size = self.frida_service.queue_size
                     if queue_size > 0:
                         self.logger.warning("Message listener timeout but queue has messages", queue_size=queue_size)
                     continue
@@ -694,11 +705,11 @@ class MainController(QObject):
         """
         A simplified health monitoring task that checks emulator connection.
         """
-        while self._is_running:
+        while self._is_running and not self._is_shutting_down:
             try:
                 # Check emulator connection
                 emulator_connected = await self.emulator_service.is_connected()
-                self.status_changed.emit("emulator", "connected" if emulator_connected else "disconnected")
+                self._emit_signal_safely(self.status_changed, "emulator", "connected" if emulator_connected else "disconnected")
                 
                 await asyncio.sleep(60)  # Check every minute
                 

@@ -60,7 +60,7 @@ class FridaService:
         self.script = None
         self.attached_pid: Optional[int] = None
         
-        # Message handling - create queue lazily to ensure it's in the right event loop
+        # Message handling
         self._message_queue: Optional[asyncio.Queue] = None
         self._event_loop: Optional[asyncio.AbstractEventLoop] = None
         
@@ -70,36 +70,22 @@ class FridaService:
     
     def set_event_loop(self, loop: asyncio.AbstractEventLoop) -> None:
         """
-        Set the event loop for message handling.
+        Set the event loop for message handling and create the message queue.
         Should be called from the main thread before injecting scripts.
         """
         self._event_loop = loop
+        # Create the message queue here to ensure it's bound to the correct loop
+        if self._message_queue is None:
+            self._message_queue = asyncio.Queue()
+            self.logger.info("Frida message queue created in the correct event loop")
         self.logger.info("Event loop set for Frida message handling")
     
     @property
-    def message_queue(self) -> asyncio.Queue:
-        """Get or create the message queue in the current event loop."""
-        if self._message_queue is None:
-            try:
-                # Try to get the running event loop
-                current_loop = asyncio.get_running_loop()
-                
-                # If we have a stored loop and it's the same as current, use it
-                if self._event_loop is None or self._event_loop == current_loop:
-                    self._event_loop = current_loop
-                    self._message_queue = asyncio.Queue()
-                    self.logger.debug("Created message queue in current event loop")
-                else:
-                    # Create queue in the stored event loop
-                    self._message_queue = asyncio.Queue()
-                    self.logger.debug("Created message queue for stored event loop")
-                    
-            except RuntimeError:
-                # No event loop running - create without loop reference
-                self._message_queue = asyncio.Queue()
-                self.logger.debug("Created message queue as fallback (no running loop)")
-                
-        return self._message_queue
+    def queue_size(self) -> int:
+        """Get the current size of the message queue."""
+        if self._message_queue:
+            return self._message_queue.qsize()
+        return 0
     
     async def get_message(self) -> dict:
         """
@@ -110,7 +96,22 @@ class FridaService:
         Returns:
             Message dictionary from the injected script
         """
-        return await self.message_queue.get()
+        if self._message_queue is None:
+            self.logger.error("Message queue not initialized.")
+            raise RuntimeError("Message queue not initialized.")
+            
+        # Add debugging to understand queue state
+        queue = self._message_queue
+        queue_size = queue.qsize()
+        self.logger.debug(f"get_message called, queue size: {queue_size}, queue id: {id(queue)}")
+        
+        try:
+            message = await queue.get()
+            self.logger.debug(f"Successfully got message from queue, new size: {queue.qsize()}")
+            return message
+        except Exception as e:
+            self.logger.error(f"Error getting message from queue: {e}, queue size: {queue.qsize()}")
+            raise
     
     async def attach(self, pid: int, device_id: Optional[str] = None) -> bool:
         """
@@ -429,36 +430,34 @@ class FridaService:
         This method handles the thread-safe queuing of messages from Frida's thread
         to the main asyncio event loop.
         """
+        if self._message_queue is None:
+            self.logger.error("Cannot queue message: queue not initialized.")
+            return
+            
         try:
             if self._event_loop is not None and not self._event_loop.is_closed():
                 # Schedule the put operation on the correct event loop from this thread
                 if self._event_loop.is_running():
+                    # Use call_soon_threadsafe to directly schedule put_nowait
+                    # This avoids the overhead and race condition of creating async tasks
                     self._event_loop.call_soon_threadsafe(
-                        lambda: asyncio.create_task(self._async_queue_message(message))
+                        self._message_queue.put_nowait, message
                     )
-                    self.logger.debug("Message scheduled via call_soon_threadsafe")
+                    self.logger.debug(f"Message scheduled via call_soon_threadsafe, queue id: {id(self._message_queue)}")
                 else:
                     self.logger.debug("Event loop not running, queuing directly")
-                    self.message_queue.put_nowait(message)
+                    self._message_queue.put_nowait(message)
             else:
                 self.logger.debug("No event loop available, attempting direct queue")
                 # Fallback to direct queuing
-                self.message_queue.put_nowait(message)
+                self._message_queue.put_nowait(message)
                 
-            self.logger.debug(f"Message queue size: {self.message_queue.qsize()}")
+            self.logger.debug(f"Message queue size: {self._message_queue.qsize()}")
                 
         except Exception as e:
             self.logger.error("Failed to queue message", error=str(e))
     
-    async def _async_queue_message(self, message: dict) -> None:
-        """
-        Async helper to put message in queue.
-        """
-        try:
-            await self.message_queue.put(message)
-            self.logger.debug(f"Message queued successfully, queue size: {self.message_queue.qsize()}")
-        except Exception as e:
-            self.logger.error("Failed to queue message async", error=str(e))
+
     
     def is_attached(self) -> bool:
         """Check if Frida is currently attached to a process."""

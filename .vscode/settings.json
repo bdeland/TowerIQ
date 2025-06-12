@@ -1,4 +1,12 @@
 {
     "python.analysis.typeCheckingMode": "basic",
-    "python.analysis.autoImportCompletions": true
+    "python.analysis.autoImportCompletions": true,
+    "sqltools.connections": [
+        {
+            "previewLimit": 50,
+            "driver": "SQLite",
+            "name": "db",
+            "database": "${workspaceFolder:TowerIQ}/data/toweriq.db"
+        }
+    ]
 }

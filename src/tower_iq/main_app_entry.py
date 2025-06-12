@@ -69,24 +69,6 @@ def main() -> None:
             main_window.show()
             logger.info("Main window shown successfully")
             
-            # Connect Qt app aboutToQuit signal to stop the controller
-            try:
-                def on_app_quit():
-                    logger.info("Application quit signal received")
-                    try:
-                        # Stop the event loop gracefully
-                        if loop.is_running():
-                            logger.info("Stopping event loop")
-                            loop.stop()
-                    except Exception as quit_error:
-                        logger.error("Error stopping event loop", error=str(quit_error))
-                
-                qt_app.aboutToQuit.connect(on_app_quit)
-                logger.info("Qt app quit signal connected")
-            except Exception as e:
-                logger.error("Failed to connect quit signal", error=str(e))
-                raise
-            
             # Start the event loop and create controller task within it
             logger.info("Starting main event loop")
             try:
@@ -95,6 +77,27 @@ def main() -> None:
                     # Create the controller task now that the loop is running
                     controller_task = loop.create_task(controller.run())
                     logger.info("Controller task created successfully")
+                    
+                    # Connect Qt app aboutToQuit signal to stop the controller
+                    try:
+                        def on_app_quit():
+                            logger.info("Application quit signal received")
+                            try:
+                                # Set shutdown flag immediately to prevent Qt timer creation
+                                controller._is_shutting_down = True
+                                
+                                # Stop the event loop gracefully
+                                if loop.is_running():
+                                    logger.info("Stopping event loop")
+                                    loop.stop()
+                            except Exception as quit_error:
+                                logger.error("Error stopping event loop", error=str(quit_error))
+                        
+                        qt_app.aboutToQuit.connect(on_app_quit)
+                        logger.info("Qt app quit signal connected")
+                    except Exception as e:
+                        logger.error("Failed to connect quit signal", error=str(e))
+                        raise
                     
                     # Trigger initial device scan after a short delay to ensure UI is ready
                     def trigger_initial_scan():
@@ -137,12 +140,12 @@ def main() -> None:
                     # Use the existing loop for cleanup if it's still running
                     if loop and not loop.is_closed():
                         try:
-                            # Run cleanup with a timeout to prevent hanging
+                            # Run cleanup with a shorter timeout to prevent hanging
                             cleanup_task = loop.create_task(controller.stop())
-                            loop.run_until_complete(asyncio.wait_for(cleanup_task, timeout=3.0))
+                            loop.run_until_complete(asyncio.wait_for(cleanup_task, timeout=1.0))
                             logger.info("Controller cleanup completed")
                         except asyncio.TimeoutError:
-                            logger.warning("Controller cleanup timed out after 3 seconds")
+                            logger.warning("Controller cleanup timed out after 1 second")
                         except Exception as cleanup_error:
                             logger.error("Error during controller cleanup", error=str(cleanup_error))
                     else:
