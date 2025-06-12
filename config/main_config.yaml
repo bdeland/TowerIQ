@@ -42,6 +42,7 @@ frida:
   signature_validation: true
   manifest_url: "https://github.com/bdeland/toweriq-hooks/raw/main/manifest.json"
   public_key_path: "resources/public_key.pem"
+  hook_contract_path: "config/hook_contract.yaml"
   
 monitoring:
   default_state: "NORMAL"

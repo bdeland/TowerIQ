@@ -7,7 +7,7 @@ multi-stage connection panel with intelligent filtering and manual user confirma
 
 from typing import Dict, List, Any, Optional
 
-from PyQt6.QtCore import QObject, pyqtSignal, pyqtSlot, Qt
+from PyQt6.QtCore import QObject, pyqtSignal, pyqtSlot, Qt, QTimer
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, 
     QListWidget, QListWidgetItem, QFrame, QProgressBar, QTextEdit, QSizePolicy
@@ -39,6 +39,17 @@ class ConnectionStatePanel(QWidget):
         self.selected_device_id: Optional[str] = None
         self.selected_device_data: Optional[Dict[str, Any]] = None
         self.selected_process_info: Optional[Dict[str, Any]] = None
+        
+        # Animation timer for scanning feedback
+        self.animation_timer = QTimer()
+        self.animation_timer.timeout.connect(self._update_scanning_animation)
+        self.animation_dots = 0
+        self.original_scan_text = "Scan for Devices"
+        
+        # Safety timeout to prevent infinite scanning animation
+        self.safety_timer = QTimer()
+        self.safety_timer.setSingleShot(True)
+        self.safety_timer.timeout.connect(self._on_scanning_timeout)
         
         self._setup_ui()
         self._setup_styles()
@@ -393,12 +404,42 @@ class ConnectionStatePanel(QWidget):
     @pyqtSlot()
     def _on_scan_devices(self) -> None:
         """Handle the scan devices button click."""
-        self.scan_button.setText("Scanning...")
         self.scan_button.setEnabled(False)
         self.device_list.clear()
         self.selected_device_data = None
+        
+        # Start scanning animation
+        self.animation_dots = 0
+        self.animation_timer.start(500)  # Update every 500ms
+        
+        # Start safety timeout (15 seconds)
+        self.safety_timer.start(15000)
+        
+        # Add a temporary status message
+        if hasattr(self, 'status_text') and self.status_text.isVisible():
+            self.status_text.setText("Scanning for connected devices... This may take a few seconds.")
+        
         self._update_navigation_buttons()
         self.scan_devices_requested.emit()
+    
+    def _update_scanning_animation(self) -> None:
+        """Update the scanning animation dots."""
+        self.animation_dots = (self.animation_dots + 1) % 4
+        dots = "." * self.animation_dots
+        self.scan_button.setText(f"Scanning{dots}")
+    
+    def _stop_scanning_animation(self) -> None:
+        """Stop the scanning animation and reset button text."""
+        self.animation_timer.stop()
+        self.safety_timer.stop()
+        self.scan_button.setText(self.original_scan_text)
+        self.scan_button.setEnabled(True)
+    
+    def _on_scanning_timeout(self) -> None:
+        """Handle scanning timeout - force stop animation and show error."""
+        self._stop_scanning_animation()
+        if hasattr(self, 'status_text') and self.status_text.isVisible():
+            self.status_text.setText("Error: Device scanning timed out. ADB may be unresponsive.")
     
     @pyqtSlot(QListWidgetItem)
     def _on_device_item_clicked(self, item: QListWidgetItem) -> None:
@@ -471,9 +512,9 @@ class ConnectionStatePanel(QWidget):
         Args:
             session: SessionManager instance with current state
         """
-        # Update device list if we have available emulators
+        # Update device list - ALWAYS call this if available_emulators is set (even if empty)
         available_emulators = session.available_emulators
-        if available_emulators:
+        if available_emulators is not None:  # Changed from "if available_emulators:" to handle empty lists
             self._populate_device_list(available_emulators)
         
         # Update process list if we have available processes
@@ -490,14 +531,30 @@ class ConnectionStatePanel(QWidget):
     def _populate_device_list(self, devices: List[Dict[str, Any]]) -> None:
         """Populate the device list with available devices."""
         self.device_list.clear()
-        self.scan_button.setText("Scan for Devices")
-        self.scan_button.setEnabled(True)
+        self._stop_scanning_animation()
         
-        for device in devices:
+        if not devices:
+            # Add a message item if no devices found
             item = QListWidgetItem()
-            item.setText(f"{device['name']} ({device['serial']})")
-            item.setData(Qt.ItemDataRole.UserRole, device)
+            item.setText("No devices found - click 'Scan for Devices' to try again")
+            item.setData(Qt.ItemDataRole.UserRole, None)
+            item.setData(Qt.ItemDataRole.ForegroundRole, QColor("#888888"))
+            item.setFlags(Qt.ItemFlag.NoItemFlags)  # Make it non-selectable
             self.device_list.addItem(item)
+            
+            # Update status message
+            if hasattr(self, 'status_text') and self.status_text.isVisible():
+                self.status_text.setText("No devices found. Make sure ADB is running and devices are connected.")
+        else:
+            for device in devices:
+                item = QListWidgetItem()
+                item.setText(f"{device['name']} ({device['serial']})")
+                item.setData(Qt.ItemDataRole.UserRole, device)
+                self.device_list.addItem(item)
+            
+            # Clear status message when devices are found
+            if hasattr(self, 'status_text') and self.status_text.isVisible():
+                self.status_text.setText("Select a device to connect to.")
         
         self._update_navigation_buttons()
     
@@ -558,9 +615,8 @@ class ConnectionStatePanel(QWidget):
         if hasattr(self, 'status_text') and self.status_text.isVisible():
             self.status_text.setText(f"Error: {message}")
         
-        # Reset button states
-        self.scan_button.setText("Scan for Devices")
-        self.scan_button.setEnabled(True)
+        # Stop animation and reset button states
+        self._stop_scanning_animation()
         self.refresh_button.setText("Refresh Process List")
         self.refresh_button.setEnabled(True)
         self.next_button.setText("Activate" if self.current_stage == 3 else "Next")
@@ -569,4 +625,8 @@ class ConnectionStatePanel(QWidget):
     def show_success(self, message: str) -> None:
         """Show a success message and potentially hide the panel."""
         if hasattr(self, 'status_text') and self.status_text.isVisible():
-            self.status_text.setText(f"Success: {message}") 
+            self.status_text.setText(f"Success: {message}")
+    
+    def stop_scanning(self) -> None:
+        """Public method to stop scanning animation - can be called from MainController."""
+        self._stop_scanning_animation() 

@@ -1,77 +1,17 @@
-# TowerIQ Hook Contract Configuration
-# This file defines the expected structure and validation for Frida hooks
+# config/hook_contract.yaml
 
+# Describes the local hook script bundled with this version of TowerIQ.
 contract_version: "1.0"
 
-# Hook metadata structure
-hook_metadata:
-  required_fields:
-    - name
-    - version
-    - author
-    - game_version_compatibility
-    - signature
+script_info:
+  # The relative path to the script file from the project root.
+  path: "src/tower_iq/scripts/dummy_coins.js"
   
-  optional_fields:
-    - description
-    - changelog
-    - performance_impact
-
-# Expected hook exports
-exports:
-  required:
-    - initialize
-    - cleanup
-    - get_metrics
+  # The target package name this script is designed for
+  target_package: "com.TechTreeGames.TheTower"
   
-  optional:
-    - get_events
-    - set_config
-    - get_status
-
-# Data format specifications
-data_formats:
-  metrics:
-    timestamp: "epoch_milliseconds"
-    required_fields:
-      - metric_name
-      - value
-      - timestamp
-    optional_fields:
-      - tags
-      - metadata
-  
-  events:
-    timestamp: "epoch_milliseconds"
-    required_fields:
-      - event_type
-      - timestamp
-    optional_fields:
-      - data
-      - context
-
-# Validation rules
-validation:
-  signature:
-    algorithm: "RSA-SHA256"
-    key_size: 2048
-  
-  performance:
-    max_cpu_percent: 15
-    max_memory_mb: 100
-    max_response_time_ms: 50
-
-# Security constraints
-security:
-  allowed_api_calls:
-    - "Java.choose"
-    - "Java.use"
-    - "Interceptor.attach"
-    - "Memory.read*"
-    - "recv"
-    - "send"
-  
-  restricted_api_calls:
-    - "Process.kill"
-    - "File.write*"
-    - "Process.spawn" 
+  # An explicit list of game versions this script is known to work with.
+  # The application will only allow injection if both the package name matches
+  # AND the detected game version is present in this list.
+  supported_versions:
+    - "26.3.4"

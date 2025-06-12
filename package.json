@@ -1,0 +1,24 @@
+{
+  "dependencies": {
+    "frida-compile": "^19.0.4",
+    "frida-il2cpp-bridge": "^0.11.0"
+  },
+  "name": "toweriq",
+  "version": "1.0.0",
+  "description": "TowerIQ is a sophisticated platform for analyzing and monitoring mobile games using advanced instrumentation techniques. This implementation provides a complete backend architecture with PyQt6 GUI for real-time game data collection, analysis, and visualization through Frida instrumentation.",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/bdeland/TowerIQ.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/bdeland/TowerIQ/issues"
+  },
+  "homepage": "https://github.com/bdeland/TowerIQ#readme"
+}

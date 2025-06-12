@@ -8,6 +8,7 @@ script loading, and secure communication with injected scripts.
 import asyncio
 import hashlib
 import json
+import yaml
 from pathlib import Path
 from typing import Any, Dict, Optional
 
@@ -59,12 +60,46 @@ class FridaService:
         self.script = None
         self.attached_pid: Optional[int] = None
         
-        # Message handling
-        self.message_queue: asyncio.Queue = asyncio.Queue()
+        # Message handling - create queue lazily to ensure it's in the right event loop
+        self._message_queue: Optional[asyncio.Queue] = None
+        self._event_loop: Optional[asyncio.AbstractEventLoop] = None
         
         # Security settings
         self.script_cache_dir = Path.home() / ".toweriq" / "scripts"
         self.script_cache_dir.mkdir(parents=True, exist_ok=True)
+    
+    def set_event_loop(self, loop: asyncio.AbstractEventLoop) -> None:
+        """
+        Set the event loop for message handling.
+        Should be called from the main thread before injecting scripts.
+        """
+        self._event_loop = loop
+        self.logger.info("Event loop set for Frida message handling")
+    
+    @property
+    def message_queue(self) -> asyncio.Queue:
+        """Get or create the message queue in the current event loop."""
+        if self._message_queue is None:
+            try:
+                # Try to get the running event loop
+                current_loop = asyncio.get_running_loop()
+                
+                # If we have a stored loop and it's the same as current, use it
+                if self._event_loop is None or self._event_loop == current_loop:
+                    self._event_loop = current_loop
+                    self._message_queue = asyncio.Queue()
+                    self.logger.debug("Created message queue in current event loop")
+                else:
+                    # Create queue in the stored event loop
+                    self._message_queue = asyncio.Queue()
+                    self.logger.debug("Created message queue for stored event loop")
+                    
+            except RuntimeError:
+                # No event loop running - create without loop reference
+                self._message_queue = asyncio.Queue()
+                self.logger.debug("Created message queue as fallback (no running loop)")
+                
+        return self._message_queue
     
     async def get_message(self) -> dict:
         """
@@ -77,7 +112,7 @@ class FridaService:
         """
         return await self.message_queue.get()
     
-    async def attach(self, pid: int, device_id: str = None) -> bool:
+    async def attach(self, pid: int, device_id: Optional[str] = None) -> bool:
         """
         Attach Frida to the specified process.
         
@@ -129,11 +164,12 @@ class FridaService:
             self.attached_pid = None
             
             # Clear any remaining messages
-            while not self.message_queue.empty():
-                try:
-                    self.message_queue.get_nowait()
-                except asyncio.QueueEmpty:
-                    break
+            if self._message_queue is not None:
+                while not self._message_queue.empty():
+                    try:
+                        self._message_queue.get_nowait()
+                    except asyncio.QueueEmpty:
+                        break
             
             self.logger.info("Successfully detached from process")
             
@@ -142,13 +178,14 @@ class FridaService:
     
     async def inject_script(self, game_version: str) -> bool:
         """
-        Inject the appropriate script for the specified game version.
+        Inject the local script for the specified game version.
         
-        This method implements the secure script download and verification
-        workflow as specified in the security requirements.
+        This method loads the bundled local script from the path specified
+        in the hook contract file. Compatibility checking should be done
+        before calling this method.
         
         Args:
-            game_version: Version of the game to inject script for
+            game_version: Version of the game to inject script for (for logging)
             
         Returns:
             True if injection was successful, False otherwise
@@ -157,69 +194,136 @@ class FridaService:
             self.logger.error("No active session - cannot inject script")
             return False
         
-        self.logger.info("Injecting script", game_version=game_version)
+        self.logger.info("Injecting local script", game_version=game_version)
         
         try:
-            # Download and verify the script
-            script_content = await self._download_and_verify_script(game_version)
+            # Get the path to the hook contract from configuration
+            contract_path = self.config.get("frida.hook_contract_path")
+            if not contract_path:
+                self.logger.error("Hook contract path not configured")
+                return False
+            
+            # Build full path relative to project root
+            project_root = self.config.get_project_root()
+            full_contract_path = Path(project_root) / contract_path
+            
+            # Load and parse the contract YAML file
+            with open(full_contract_path, 'r', encoding='utf-8') as f:
+                contract = yaml.safe_load(f)
+            
+            # Get the script path from the contract
+            script_info = contract.get('script_info', {})
+            script_path = script_info.get('path')
+            if not script_path:
+                self.logger.error("Script path not specified in hook contract")
+                return False
+            
+            # Resolve script path relative to the project root
+            full_script_path = Path(project_root) / script_path
+            
+            if not full_script_path.exists():
+                self.logger.error("Script file not found", path=str(full_script_path))
+                return False
+            
+            # Read the script content
+            with open(full_script_path, 'r', encoding='utf-8') as f:
+                script_content = f.read()
             
             # Create and load the script
             self.script = self.session.create_script(script_content)
             self.script.on('message', self._on_message)
             self.script.load()
             
-            self.logger.info("Script injected successfully", game_version=game_version)
+            self.logger.info("Local script injected successfully", 
+                           game_version=game_version,
+                           script_path=str(full_script_path))
             return True
             
-        except SecurityException as e:
-            self.logger.error("Security validation failed", error=str(e))
+        except FileNotFoundError as e:
+            self.logger.error("File not found during script injection", error=str(e))
+            return False
+        except yaml.YAMLError as e:
+            self.logger.error("Error parsing hook contract YAML during injection", error=str(e))
             return False
         except Exception as e:
-            self.logger.error("Error injecting script", game_version=game_version, error=str(e))
+            self.logger.error("Error injecting local script", 
+                            game_version=game_version, 
+                            error=str(e))
             return False
     
-    async def check_hook_compatibility(self, game_version: str) -> bool:
+    def check_local_hook_compatibility(self, package_name: str, game_version: str) -> bool:
         """
-        Check if a valid, signed hook script exists for the selected game version.
+        Check if the local hook script is compatible with the selected package and game version.
         
-        This method fetches the remote manifest and checks if an entry exists
-        for the provided game version. It does not download anything, just confirms
-        if a known hook is available.
+        This method reads the local hook_contract.yaml file and checks if both the
+        package name matches the target_package AND the game_version is in the supported_versions list.
         
         Args:
+            package_name: Package name of the game to check compatibility for
             game_version: Version of the game to check compatibility for
             
         Returns:
-            True if a compatible hook exists, False otherwise
+            True if the local hook is compatible, False otherwise
         """
-        self.logger.info("Checking hook compatibility", game_version=game_version)
+        self.logger.info("Checking local hook compatibility", 
+                        package_name=package_name, 
+                        game_version=game_version)
         
         try:
-            # Call remote manifest fetch
-            manifest = await self._fetch_remote_manifest()
-            
-            # Check if the manifest dictionary and the manifest['hooks'] list exist
-            if not isinstance(manifest, dict):
-                self.logger.error("Invalid manifest format")
+            # Get the path to the hook contract from configuration
+            contract_path = self.config.get("frida.hook_contract_path")
+            if not contract_path:
+                self.logger.error("Hook contract path not configured")
                 return False
             
-            hooks = manifest.get('hooks')
-            if not isinstance(hooks, list):
-                self.logger.error("Invalid hooks section in manifest")
+            # Build full path relative to project root
+            project_root = self.config.get_project_root()
+            full_contract_path = Path(project_root) / contract_path
+            
+            # Load and parse the YAML file
+            with open(full_contract_path, 'r', encoding='utf-8') as f:
+                contract = yaml.safe_load(f)
+            
+            # Safely access the script info
+            script_info = contract.get('script_info', {})
+            target_package = script_info.get('target_package')
+            supported_versions = script_info.get('supported_versions', [])
+            
+            # Check package name compatibility
+            if not target_package:
+                self.logger.error("Target package not specified in hook contract")
                 return False
             
-            # Iterate through the hooks list and check if any dictionary has a 'game_version' key that matches
-            for hook in hooks:
-                if isinstance(hook, dict) and hook.get('game_version') == game_version:
-                    self.logger.info("Hook compatibility confirmed", 
-                                   game_version=game_version)
-                    return True
+            if package_name != target_package:
+                self.logger.warning("Package name does not match hook target", 
+                                  detected_package=package_name,
+                                  target_package=target_package)
+                return False
             
-            self.logger.warning("No compatible hook found", game_version=game_version)
+            # Check version compatibility
+            version_compatible = game_version in supported_versions
+            
+            if not version_compatible:
+                self.logger.warning("Game version not supported by local hook", 
+                                  game_version=game_version,
+                                  supported_versions=supported_versions)
+                return False
+            
+            # Both package and version are compatible
+            self.logger.info("Local hook compatibility confirmed", 
+                           package_name=package_name,
+                           game_version=game_version)
+            return True
+            
+        except FileNotFoundError:
+            self.logger.error("Hook contract file not found", path=contract_path)
             return False
-            
+        except yaml.YAMLError as e:
+            self.logger.error("Error parsing hook contract YAML", error=str(e))
+            return False
         except Exception as e:
-            self.logger.error("Error checking hook compatibility", 
+            self.logger.error("Error checking local hook compatibility", 
+                            package_name=package_name,
                             game_version=game_version, 
                             error=str(e))
             return False
@@ -261,202 +365,6 @@ class FridaService:
             await self.detach()  # Ensure cleanup
             return False
     
-    async def _download_and_verify_script(self, game_version: str) -> str:
-        """
-        Download and verify the script for the specified game version.
-        
-        This implements the secure hook update workflow:
-        1. Fetch remote manifest
-        2. Find entry for game version
-        3. Download encrypted script
-        4. Verify signature of encrypted file
-        5. Decrypt file in memory
-        6. Verify SHA256 hash of decrypted content
-        
-        Args:
-            game_version: Game version to download script for
-            
-        Returns:
-            Decrypted script content as string
-            
-        Raises:
-            SecurityException: If any security validation fails
-        """
-        self.logger.info("Downloading and verifying script", game_version=game_version)
-        
-        try:
-            # Step 1: Fetch remote manifest
-            manifest = await self._fetch_remote_manifest()
-            
-            # Step 2: Find entry for game version
-            script_info = manifest.get('scripts', {}).get(game_version)
-            if not script_info:
-                raise SecurityException(f"No script available for game version: {game_version}")
-            
-            # Step 3: Download encrypted script
-            encrypted_content = await self._download_encrypted_script(script_info['url'])
-            
-            # Step 4: Verify signature of encrypted file
-            if not await self._verify_signature(encrypted_content, script_info['signature']):
-                raise SecurityException("Script signature verification failed")
-            
-            # Step 5: Decrypt file in memory
-            decrypted_content = self._decrypt_script(encrypted_content)
-            
-            # Step 6: Verify SHA256 hash of decrypted content
-            expected_hash = script_info['hash']
-            actual_hash = hashlib.sha256(decrypted_content.encode()).hexdigest()
-            
-            if actual_hash != expected_hash:
-                raise SecurityException(f"Script hash mismatch: expected {expected_hash}, got {actual_hash}")
-            
-            self.logger.info("Script verification successful", game_version=game_version)
-            return decrypted_content
-            
-        except SecurityException:
-            raise
-        except Exception as e:
-            raise SecurityException(f"Script download/verification failed: {str(e)}")
-    
-    async def _fetch_remote_manifest(self) -> dict:
-        """
-        Fetch the remote script manifest.
-        
-        Returns:
-            Dictionary representing the remote manifest
-            
-        Raises:
-            aiohttp.ClientError: If network request fails
-            json.JSONDecodeError: If response is not valid JSON
-        """
-        manifest_url = self.config.get("frida.manifest_url")
-        if not manifest_url:
-            raise SecurityException("Manifest URL not configured")
-        
-        try:
-            async with aiohttp.ClientSession() as session:
-                async with session.get(manifest_url) as response:
-                    response.raise_for_status()  # Raise exception for HTTP errors
-                    return await response.json()
-        except aiohttp.ClientError as e:
-            self.logger.error("Failed to fetch remote manifest", url=manifest_url, error=str(e))
-            raise
-        except json.JSONDecodeError as e:
-            self.logger.error("Invalid JSON in remote manifest", url=manifest_url, error=str(e))
-            raise
-    
-    async def _download_encrypted_script(self, url: str) -> bytes:
-        """
-        Download the encrypted script from the specified URL.
-        
-        Args:
-            url: URL to download the encrypted script from
-            
-        Returns:
-            Raw bytes of the encrypted script
-            
-        Raises:
-            aiohttp.ClientError: If network request fails
-        """
-        try:
-            async with aiohttp.ClientSession() as session:
-                async with session.get(url) as response:
-                    response.raise_for_status()  # Raise exception for HTTP errors
-                    return await response.read()
-        except aiohttp.ClientError as e:
-            self.logger.error("Failed to download encrypted script", url=url, error=str(e))
-            raise
-    
-    async def _verify_signature(self, content: bytes, signature_hex: str) -> bool:
-        """
-        Verify the cryptographic signature of the content.
-        
-        Args:
-            content: The content to verify (encrypted bytes)
-            signature_hex: Hexadecimal string representation of the signature
-            
-        Returns:
-            True if signature is valid, False otherwise
-        """
-        try:
-            # Load the public key from configuration
-            public_key_path = self.config.get("frida.public_key_path")
-            if not public_key_path:
-                self.logger.error("Public key path not configured")
-                return False
-            
-            # Resolve relative path
-            if not Path(public_key_path).is_absolute():
-                # Assume relative to project root
-                current_file = Path(__file__)
-                project_root = current_file.parent.parent.parent.parent
-                public_key_path = project_root / public_key_path
-            
-            if not Path(public_key_path).exists():
-                self.logger.error("Public key file not found", path=public_key_path)
-                return False
-            
-            # Load the RSA public key
-            with open(public_key_path, 'rb') as key_file:
-                public_key = RSA.import_key(key_file.read())
-            
-            # Create SHA256 hash of the content
-            hash_obj = SHA256.new(content)
-            
-            # Verify signature
-            try:
-                pkcs1_15.new(public_key).verify(hash_obj, bytes.fromhex(signature_hex))
-                return True
-            except ValueError:
-                # Signature verification failed
-                return False
-                
-        except Exception as e:
-            self.logger.error("Error during signature verification", error=str(e))
-            return False
-    
-    def _decrypt_script(self, encrypted_content: bytes) -> str:
-        """
-        Decrypt the script content using AES GCM.
-        
-        Args:
-            encrypted_content: Encrypted bytes containing nonce, tag, and ciphertext
-            
-        Returns:
-            Decrypted script content as string
-            
-        Raises:
-            SecurityException: If decryption fails
-        """
-        try:
-            # Get the AES key from configuration
-            aes_key_hex = self.config.get("secrets.script_encryption_key")
-            if not aes_key_hex:
-                raise SecurityException("Script encryption key not configured")
-            
-            aes_key = bytes.fromhex(aes_key_hex)
-            
-            # Unpack the payload: nonce (16 bytes) + tag (16 bytes) + ciphertext (rest)
-            if len(encrypted_content) < 32:
-                raise SecurityException("Invalid encrypted content length")
-            
-            nonce = encrypted_content[:16]
-            tag = encrypted_content[16:32]
-            ciphertext = encrypted_content[32:]
-            
-            # Create AES cipher and decrypt
-            cipher = AES.new(aes_key, AES.MODE_GCM, nonce=nonce)
-            try:
-                decrypted_bytes = cipher.decrypt_and_verify(ciphertext, tag)
-                return decrypted_bytes.decode('utf-8')
-            except ValueError as e:
-                raise SecurityException(f"Decryption failed - content may be tampered with: {str(e)}")
-                
-        except SecurityException:
-            raise
-        except Exception as e:
-            raise SecurityException(f"Script decryption failed: {str(e)}")
-    
     def _on_message(self, message: dict, data: Any) -> None:
         """
         Handle messages from the injected Frida script.
@@ -469,9 +377,12 @@ class FridaService:
             data: Optional binary data from Frida
         """
         try:
+            self.logger.debug(f"_on_message received: {message}")
+            
             # Parse the message type
             if message['type'] == 'send':
                 payload = message['payload']
+                self.logger.debug(f"Processing 'send' message with payload: {payload}")
                 
                 # Add metadata
                 parsed_message = {
@@ -481,12 +392,15 @@ class FridaService:
                     'pid': self.attached_pid
                 }
                 
-                # Put message on async queue (thread-safe)
-                self.message_queue.put_nowait(parsed_message)
+                self.logger.debug(f"Parsed message: {parsed_message}")
+                
+                # Put message on async queue - use thread-safe approach
+                self._queue_message_safely(parsed_message)
                 
                 self.logger.debug("Message received from script", message_type=parsed_message['type'])
                 
             elif message['type'] == 'error':
+                self.logger.debug(f"Processing 'error' message: {message}")
                 # Handle script errors
                 error_message = {
                     'type': 'script_error',
@@ -500,11 +414,51 @@ class FridaService:
                     'pid': self.attached_pid
                 }
                 
-                self.message_queue.put_nowait(error_message)
+                # Put error message on async queue
+                self._queue_message_safely(error_message)
+                
                 self.logger.error("Script error", error=message.get('description'))
                 
         except Exception as e:
             self.logger.error("Error processing message from script", error=str(e))
+    
+    def _queue_message_safely(self, message: dict) -> None:
+        """
+        Safely queue a message for async processing.
+        
+        This method handles the thread-safe queuing of messages from Frida's thread
+        to the main asyncio event loop.
+        """
+        try:
+            if self._event_loop is not None and not self._event_loop.is_closed():
+                # Schedule the put operation on the correct event loop from this thread
+                if self._event_loop.is_running():
+                    self._event_loop.call_soon_threadsafe(
+                        lambda: asyncio.create_task(self._async_queue_message(message))
+                    )
+                    self.logger.debug("Message scheduled via call_soon_threadsafe")
+                else:
+                    self.logger.debug("Event loop not running, queuing directly")
+                    self.message_queue.put_nowait(message)
+            else:
+                self.logger.debug("No event loop available, attempting direct queue")
+                # Fallback to direct queuing
+                self.message_queue.put_nowait(message)
+                
+            self.logger.debug(f"Message queue size: {self.message_queue.qsize()}")
+                
+        except Exception as e:
+            self.logger.error("Failed to queue message", error=str(e))
+    
+    async def _async_queue_message(self, message: dict) -> None:
+        """
+        Async helper to put message in queue.
+        """
+        try:
+            await self.message_queue.put(message)
+            self.logger.debug(f"Message queued successfully, queue size: {self.message_queue.qsize()}")
+        except Exception as e:
+            self.logger.error("Failed to queue message async", error=str(e))
     
     def is_attached(self) -> bool:
         """Check if Frida is currently attached to a process."""

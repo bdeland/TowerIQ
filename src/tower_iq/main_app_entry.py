@@ -19,8 +19,7 @@ from tower_iq.core.logging_config import setup_logging
 from tower_iq.main_controller import MainController
 from tower_iq.gui.main_window import MainWindow
 
-
-def main() -> NoReturn:
+def main() -> None:
     """
     Orchestrates the entire application startup sequence.
     
@@ -74,9 +73,13 @@ def main() -> NoReturn:
             try:
                 def on_app_quit():
                     logger.info("Application quit signal received")
-                    if controller_task and not controller_task.cancelled():
-                        controller_task.cancel()
-                    loop.stop()
+                    try:
+                        # Stop the event loop gracefully
+                        if loop.is_running():
+                            logger.info("Stopping event loop")
+                            loop.stop()
+                    except Exception as quit_error:
+                        logger.error("Error stopping event loop", error=str(quit_error))
                 
                 qt_app.aboutToQuit.connect(on_app_quit)
                 logger.info("Qt app quit signal connected")
@@ -93,6 +96,17 @@ def main() -> NoReturn:
                     controller_task = loop.create_task(controller.run())
                     logger.info("Controller task created successfully")
                     
+                    # Trigger initial device scan after a short delay to ensure UI is ready
+                    def trigger_initial_scan():
+                        logger.info("Triggering initial device scan")
+                        try:
+                            controller.on_scan_devices_requested()
+                        except Exception as scan_error:
+                            logger.error("Error triggering initial device scan", error=str(scan_error))
+                    
+                    # Schedule the initial scan to run after 1 second
+                    loop.call_later(1.0, trigger_initial_scan)
+                    
                     logger.info("Entering run_forever()")
                     loop.run_forever()
                     logger.info("Event loop exited run_forever()")
@@ -104,17 +118,63 @@ def main() -> NoReturn:
             # Cleanup: gracefully shut down backend services
             logger.info("Shutting down application")
             try:
-                # Stop the controller
+                # Stop the controller task first
                 if controller_task and not controller_task.cancelled():
+                    logger.info("Cancelling controller task")
                     controller_task.cancel()
+                    
+                    # Wait a bit for the cancellation to take effect
+                    try:
+                        # Give the task a moment to cancel gracefully
+                        import time
+                        time.sleep(0.1)
+                    except Exception:
+                        pass
                 
-                # Run cleanup in a new event loop
-                cleanup_loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(cleanup_loop)
-                cleanup_loop.run_until_complete(controller.stop())
-                cleanup_loop.close()
+                # Run cleanup with timeout to prevent hanging
+                logger.info("Running controller cleanup")
+                try:
+                    # Use the existing loop for cleanup if it's still running
+                    if loop and not loop.is_closed():
+                        try:
+                            # Run cleanup with a timeout to prevent hanging
+                            cleanup_task = loop.create_task(controller.stop())
+                            loop.run_until_complete(asyncio.wait_for(cleanup_task, timeout=3.0))
+                            logger.info("Controller cleanup completed")
+                        except asyncio.TimeoutError:
+                            logger.warning("Controller cleanup timed out after 3 seconds")
+                        except Exception as cleanup_error:
+                            logger.error("Error during controller cleanup", error=str(cleanup_error))
+                    else:
+                        logger.info("Event loop already closed, skipping controller cleanup")
+                    
+                except Exception as cleanup_error:
+                    logger.error("Error during controller cleanup", error=str(cleanup_error))
+                
             except Exception as e:
-                logger.error("Error during cleanup", error=str(e))
+                logger.error("Error during application cleanup", error=str(e))
+            
+            # Close the event loop more gracefully
+            try:
+                if loop and not loop.is_closed():
+                    # Cancel any remaining tasks
+                    pending_tasks = [task for task in asyncio.all_tasks(loop) if not task.done()]
+                    if pending_tasks:
+                        logger.info(f"Cancelling {len(pending_tasks)} pending tasks")
+                        for task in pending_tasks:
+                            task.cancel()
+                        
+                        # Give tasks a moment to cancel
+                        try:
+                            loop.run_until_complete(asyncio.gather(*pending_tasks, return_exceptions=True))
+                        except Exception:
+                            pass  # Ignore exceptions during task cancellation
+                    
+                    logger.info("Closing event loop")
+                    # Don't explicitly close the loop here - let qasync handle it
+                    
+            except Exception as e:
+                logger.error("Error during event loop cleanup", error=str(e))
             
             logger.info("TowerIQ application shutdown complete")
     

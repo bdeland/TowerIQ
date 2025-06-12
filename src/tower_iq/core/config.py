@@ -28,6 +28,11 @@ class ConfigurationManager:
         self.yaml_path = yaml_path
         self.env_path = env_path
         self.settings: Dict[str, Any] = {}
+        
+        # Store project root for relative path resolution
+        # yaml_path is like "/path/to/project/config/main_config.yaml"
+        # We want "/path/to/project"
+        self.project_root = os.path.dirname(os.path.dirname(os.path.abspath(yaml_path)))
 
     def load_and_validate(self) -> None:
         """
@@ -60,6 +65,15 @@ class ConfigurationManager:
             return value
         except (KeyError, TypeError):
             return default
+    
+    def get_project_root(self) -> str:
+        """
+        Get the project root directory.
+        
+        Returns:
+            Absolute path to the project root directory
+        """
+        return self.project_root
 
     def _load_yaml(self) -> Dict[str, Any]:
         """

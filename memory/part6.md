@@ -1,120 +1,82 @@
-Of course. The design process is complete. We have a final, vetted, and robust architecture.
 
-Here is the **complete, multi-part, exhaustive master development task list** to build TowerIQ v1.0 from your current codebase. This list is designed to be executed by an AI coding agent, with each task being a logical, self-contained unit of work that builds upon the solid foundation you already have.
+### **Task 1.2: Implement Intelligent `frida-server` Management in `EmulatorService` (Revised with Live Download)**
 
----
-
-### **TowerIQ v1.0 - Master Development Task List (Final)**
-
-**Objective:** To build the complete TowerIQ application by implementing the final controller logic, refactoring the UI to a state-driven model, and replacing all placeholder code in the backend services with production-ready implementations.
-
----
-
-### **Part 1: Service Layer Finalization & Hardening**
-
-**Goal:** To complete the backend services by replacing all placeholder logic with the final, robust implementations we designed.
-
-#### **Task 1.1: Finalize `FridaService` Security and Compatibility Logic**
-
-*   **Component:** `src/tower_iq/services/frida_service.py`
+*   **Component to Modify:** `src/tower_iq/services/emulator_service.py`
 *   **Actions:**
-    1.  **Implement `check_hook_compatibility`:** Rewrite the method to correctly parse the `config/hook_contract.yaml` file. It should load the YAML and check if the provided `game_version` exists within a `supported_versions` list in the manifest.
-    2.  **Implement Real Network Fetching:** Rewrite `_fetch_remote_manifest` to use `aiohttp` to perform a `GET` request to the manifest URL defined in `main_config.yaml`. It must handle network errors and invalid JSON responses.
-    3.  **Implement Real Script Downloading:** Rewrite `_download_encrypted_script` to use `aiohttp` to download the binary content (`bytes`) from the URL specified in the manifest.
-    4.  **Implement Real Signature Verification:** Rewrite `_verify_signature` to use the `pycryptodome` library. It must load a bundled public key, create a SHA256 hash of the downloaded encrypted content, and use the appropriate signature scheme (e.g., `PKCS1_v1_5` or `pss`) to validate the signature from the manifest.
-    5.  **Implement Real Decryption:** Rewrite `_decrypt_script` to use `pycryptodome`. It must use the secret key from the manifest to decrypt the script content using a secure mode like AES-GCM.
 
-#### **Task 1.2: Implement Intelligent `frida-server` Management in `EmulatorService`**
-
-*   **Component:** `src/tower_iq/services/emulator_service.py`
-*   **Actions:**
     1.  **Create the Orchestration Method:**
-        *   **New Method:** `async def ensure_frida_server_is_running(self, device_id: str) -> None:`
-        *   **Purpose:** This method will execute the full idempotent setup logic.
-        *   **Implementation:** It will call the helper methods below in sequence: get arch -> ensure local binary -> check if outdated -> push if needed -> start if needed. It must raise a specific `FridaServerSetupError` on any failure.
+        *   **Method:** `async def ensure_frida_server_is_running(self, device_id: str) -> None:`
+        *   **Purpose:** To execute the full idempotent setup logic for `frida-server`.
+        *   **Implementation:** It will call the helper methods below in sequence. This method must raise a specific `FridaServerSetupError` with a clear message on any failure.
+            ```python
+            # Inside ensure_frida_server_is_running...
+            try:
+                self.logger.info("Starting frida-server setup...", device=device_id)
+                arch = await self.get_device_architecture(device_id)
+                
+                # This single method now handles download/caching.
+                local_path, version = await self._get_latest_frida_server_local(arch)
+                
+                device_path = "/data/local/tmp/frida-server"
+                
+                needs_push = await self._check_if_device_server_is_outdated(device_id, local_path, device_path)
+                
+                if needs_push:
+                    self.logger.info("Device frida-server is outdated or missing. Pushing new version.", version=version)
+                    await self.push_file(device_id, local_path, device_path)
+                else:
+                    self.logger.info("Device frida-server is up-to-date. No push needed.")
+
+                is_running = await self.is_frida_server_running(device_id, version) # Pass version to check
+                if not is_running:
+                    self.logger.info("Frida-server process not running. Starting it now.")
+                    await self.start_frida_server(device_id, device_path)
+                else:
+                    self.logger.info("Frida-server process is already running.")
+
+                self.logger.info("Frida-server setup complete.", device=device_id, version=version)
+            
+            except Exception as e:
+                self.logger.error("Frida-server setup failed.", error=str(e))
+                raise FridaServerSetupError(str(e)) from e
+            ```
+
     2.  **Implement Helper Methods:**
-        *   **`_ensure_local_frida_server_exists(self, arch: str) -> Path:`** Checks for the pre-bundled `frida-server` binary in the `resources/` directory for the given architecture. (The download logic can be a future enhancement; for now, assume it's bundled).
-        *   **`_check_if_device_server_is_outdated(self, device_id: str, local_path: Path, device_path: str) -> bool:`** Implements the hash comparison. It must execute `adb shell md5sum <device_path>` (or similar), parse the output, calculate the hash of the local file, and return `True` if the remote file is missing or the hashes do not match.
-        *   **`push_file(self, device_id: str, local_path: Path, device_path: str) -> None:`** A new robust method that first attempts to `rm` the old server file on the device before running `adb push`.
 
----
+        *   **NEW/REWRITTEN Method:** `async def _get_latest_frida_server_local(self, arch: str) -> tuple[Path, str]:`
+            *   **Purpose:** This is the core of the new logic. It ensures the latest version of `frida-server` for the given architecture is available locally, downloading it if necessary.
+            *   **Returns:** A tuple containing the `Path` to the local binary and its `version` string.
+            *   **Implementation:**
+                1.  **Get Latest Version:** Use `aiohttp` to make a GET request to the Frida GitHub API releases endpoint: `https://api.github.com/repos/frida/frida/releases/latest`.
+                2.  Parse the JSON response to get the latest version tag (e.g., `"16.3.5"`).
+                3.  **Construct Paths:** Define a local cache directory (e.g., `data/frida-server/`) and the expected filename for the binary: `frida-server-<version>-android-<arch>`.
+                4.  **Check Cache:** Check if this specific version already exists locally. If it does, log "Using cached version" and return the path and version.
+                5.  **Download if Missing:** If the file doesn't exist:
+                    *   Construct the download URL for the `.xz` archive from the GitHub release assets (e.g., `https://github.com/frida/frida/releases/download/<version>/frida-server-<version>-android-<arch>.xz`).
+                    *   Use `aiohttp` to download the `.xz` file into memory or a temporary file.
+                    *   Use the `lzma` library to decompress the archive.
+                    *   Save the resulting binary to the local cache path.
+                    *   Log "Successfully downloaded and cached frida-server."
+                6.  Return the final local path and the version string.
 
-### **Part 2: The Core Logic - Controller Implementation**
+        *   **REVISED Method:** `async def _check_if_device_server_is_outdated(self, device_id: str, local_path: Path, device_path: str) -> bool:`
+            *   **Action:** No change in logic, but it's now more important than ever. It compares the hash of the local binary (which we now know is the latest version) with the hash of the binary on the device.
 
-**Goal:** To implement the central `MainController` logic that drives the entire application by orchestrating the UI and the backend services.
+        *   **REVISED Method:** `async def is_frida_server_running(self, device_id: str, expected_version: str) -> bool:`
+            *   **Action:** This method must be enhanced to not only check if the process is running, but if the *correct version* is running.
+            *   **New Logic:**
+                1.  Check if `frida-server` is in the `ps -A` output. If not, return `False`.
+                2.  If it is running, execute `adb shell "<device_path> --version"`.
+                3.  Parse the output and compare it to the `expected_version` string.
+                4.  If the versions don't match, log a warning, run a command to `killall frida-server` on the device, and return `False` (this will trigger the `start_frida_server` method to launch the correct version).
+                5.  If the versions match, return `True`.
 
-#### **Task 2.1: Implement the `MainController`'s Connection State Machine**
+        *   **REVISED Method:** `async def start_frida_server(self, device_id: str, device_path: str) -> None:`
+            *   **Action:** This method's logic is mostly the same, but it must now perform a post-start verification.
+            *   **New Logic:**
+                1.  Run `adb shell "su -c <device_path> &"` to start the server.
+                2.  `await asyncio.sleep(2)` to give it a moment to initialize.
+                3.  Call `await self.is_frida_server_running(...)` again to confirm that the process has actually started and is the correct version. If this final check fails, raise an exception.
 
-*   **Component:** `src/tower_iq/main_controller.py`
-*   **Actions:**
-    1.  **Define Public Slots:** Create the public slot methods that will be connected to the UI's signals. These methods are the entry points for all user-driven connection actions.
-        *   `@pyqtSlot() on_scan_devices_requested(self)`
-        *   `@pyqtSlot(str) on_connect_device_requested(self, device_id)`
-        *   `@pyqtSlot() on_refresh_processes_requested(self)`
-        *   `@pyqtSlot(dict) on_select_process_requested(self, process_info)`
-        *   `@pyqtSlot(bool) on_activate_hook_requested(self, remember_settings)`
-    2.  **Implement Slot Logic:**
-        *   For each slot, implement the logic to call the appropriate `EmulatorService` or `FridaService` method.
-        *   After each service call, update the `SessionManager` with the new state (e.g., `self.session.available_emulators = devices`).
-        *   After updating the session, emit a signal to the UI to trigger a visual refresh: `self.connection_state_updated.emit(self.session)`.
-        *   The `on_connect_device_requested` slot should orchestrate the call to `emulator_service.ensure_frida_server_is_running` and, on success, automatically trigger `on_refresh_processes_requested`.
-    3.  **Wrap Blocking Calls:** All synchronous calls to services (especially the `DatabaseService`) must be wrapped in `await asyncio.to_thread(...)` to prevent blocking the async event loop.
-
-#### **Task 2.2: Implement the Automatic Connection Flow**
-
-*   **Component:** `src/tower_iq/main_controller.py`
-*   **Actions:**
-    1.  **Create `_run_automatic_connection` Method:**
-        *   **Method:** `async def _run_automatic_connection(self) -> bool:`
-        *   **Logic:**
-            1.  Loads `auto_connect_serial` and `auto_connect_package` settings from the `DatabaseService`. Returns `False` if not found.
-            2.  Executes the entire connection and hooking sequence non-interactively by calling the same service methods as the manual flow.
-            3.  If any step fails, it immediately logs the error and returns `False`.
-            4.  If all steps succeed, it updates all `SessionManager` state variables and returns `True`.
-    2.  **Update Main `run` Method:**
-        *   In the `MainController`'s main `run` method, it should first `await self._run_automatic_connection()`.
-        *   Based on the result, it will either set the session to the fully "Hooked" state or leave it in the default "Disconnected" state, letting the UI decide which panel to show.
-
----
-
-### **Part 3: The User Interface - Refactoring and Integration**
-
-**Goal:** To build the user-facing connection UI and connect it to the `MainController`'s logic, creating a polished, state-driven experience.
-
-#### **Task 3.1: Create the `ConnectionStatePanel` UI**
-
-*   **File:** `src/tower_iq/gui/components/connection_panel.py`
-*   **Action:** Create the `ConnectionStatePanel(QWidget)` class.
-    1.  **Define Custom Signals:** `scan_devices_requested`, `connect_device_requested(str)`, `refresh_processes_requested`, `select_process_requested(dict)`, `activate_hook_requested(bool)`.
-    2.  **Build UI:** Create the three-stage layout. Use `QTableWidget` for the device and process lists. The "Action" column in these tables will contain `QPushButton`s.
-    3.  **Connect Internal Signals:** Connect the `clicked` signal of each button (e.g., "Scan", "Connect" in a table row) to a lambda that emits the appropriate custom signal from the panel itself.
-    4.  **Implement `update_state(self, session: SessionManager)`:** This is the core method for redrawing the UI. It should be able to take a `SessionManager` object and make the entire panel's visual state (enabled/disabled boxes, table contents, status labels) perfectly reflect the state of the session object.
-
-#### **Task 3.2: Integrate Panel into `DashboardPage`**
-
-*   **Component:** `src/tower_iq/gui/components/dashboard_page.py`
-*   **Actions:**
-    1.  In `__init__`, create an instance of `ConnectionStatePanel`.
-    2.  Use a `QStackedLayout` to manage the content. Layer 0: the dashboard graphs. Layer 1: a semi-transparent overlay. Layer 2: the `ConnectionStatePanel`.
-    3.  **Create Public Slot:** `def on_connection_status_changed(self, is_active: bool)`
-        *   If `is_active` is `True`, hide the overlay and panel.
-        *   If `is_active` is `False`, show the overlay and panel.
-
-#### **Task 3.3: Connect UI to Controller**
-
-*   **Component:** `src/tower_iq/main_controller.py`
-*   **Action:** In the controller's `__init__`, after the `MainWindow` is created, connect all signals and slots.
-    *   **Connect UI to Controller:** `main_window.dashboard_page.connection_panel.scan_devices_requested.connect(self.on_scan_devices_requested)` (and so on for all UI-driven actions).
-    *   **Connect Controller to UI:** `self.connection_state_updated.connect(main_window.dashboard_page.connection_panel.update_state)` and `self.hook_status_changed.connect(main_window.dashboard_page.on_connection_status_changed)`.
-
-#### **Task 3.4: Finalize the Main Application Entry Point**
-
-*   **Component:** `src/tower_iq/main_app_entry.py`
-*   **Action:** Ensure the `main` function correctly orchestrates the startup sequence.
-    1.  Create `ConfigurationManager` and load config.
-    2.  Create `DatabaseService` and connect/migrate.
-    3.  Call `setup_logging`, passing the config and `db_service`.
-    4.  Instantiate the `QApplication`, `qasync` loop, `MainController`, and `MainWindow`.
-    5.  Start the `controller.run()` task and the event loop.
-
-This completes the master task list. Executing these tasks will result in a fully functional application that matches the final, robust architecture we have designed.
+        *   **Method:** `async def push_file(self, device_id: str, local_path: Path, device_path: str) -> None:`
+            *   **Action:** No change. The existing logic to `rm` the old file and then `push` the new one is correct.
