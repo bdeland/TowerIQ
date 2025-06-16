@@ -26,7 +26,7 @@ logging:
       - "GUI"
 
 database:
-  sqlite_path: "data/toweriq.db"
+  sqlite_path: "data/toweriq.sqlite"
   sqlite:
     encryption_key: "default_key"
 

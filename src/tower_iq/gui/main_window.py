@@ -265,6 +265,40 @@ class MainWindow(QMainWindow):
         Args:
             event: The close event
         """
-        # Could add confirmation dialog here if needed
-        # For now, just accept the close event
-        event.accept() 
+        try:
+            # Stop all timers to prevent threading issues during shutdown
+            self._cleanup_timers()
+            
+            # Set controller shutdown flag to prevent new operations
+            if hasattr(self.controller, '_is_shutting_down'):
+                self.controller._is_shutting_down = True
+            
+            # Stop status indicator animation if running
+            if hasattr(self.status_indicator, 'animation_timer'):
+                self.status_indicator.animation_timer.stop()
+            
+            # Clean up any connection panel timers
+            if (hasattr(self.dashboard_page, 'connection_panel') and 
+                hasattr(self.dashboard_page.connection_panel, 'animation_timer')):
+                self.dashboard_page.connection_panel.animation_timer.stop()
+                self.dashboard_page.connection_panel.safety_timer.stop()
+            
+        except Exception as e:
+            print(f"Error during main window cleanup: {e}")
+        
+        # Accept the close event
+        event.accept()
+    
+    def _cleanup_timers(self) -> None:
+        """Clean up all QTimer instances to prevent threading issues during shutdown."""
+        try:
+            from PyQt6.QtCore import QTimer
+            
+            # Find all QTimer objects in the main window and its children
+            timers = self.findChildren(QTimer)
+            for timer in timers:
+                if timer.isActive():
+                    timer.stop()
+            
+        except Exception as e:
+            print(f"Error cleaning up timers: {e}") 

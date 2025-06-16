@@ -78,7 +78,7 @@ class MainController(QObject):
             
         try:
             # Use QTimer.singleShot to schedule signal emission on the Qt main thread
-            from PyQt6.QtCore import QTimer
+            from PyQt6.QtCore import QTimer, QThread
             from PyQt6.QtWidgets import QApplication
             
             # Check if QApplication still exists and is not closing
@@ -87,31 +87,34 @@ class MainController(QObject):
                 self.logger.debug("QApplication is shutting down, skipping signal emission")
                 return
             
-            # Additional check: ensure we're not in the middle of Qt shutdown
+            # Additional shutdown safety checks
             try:
-                # Try to access Qt's main thread - this will fail if Qt is shutting down
-                from PyQt6.QtCore import QThread
-                if QThread.currentThread() != app.thread():
-                    # We're not on the main thread, which is expected for asyncio tasks
-                    pass
+                # Check if we're in the main thread - if so, emit directly
+                if QThread.currentThread() == app.thread():
+                    # We're already on the main thread, emit directly
+                    if not self._is_shutting_down and app and not app.closingDown():
+                        signal.emit(*args)
+                    return
             except (RuntimeError, AttributeError):
                 self.logger.debug("Qt threading system unavailable, skipping signal emission")
                 return
             
-            def emit_signal():
+            # Only use QTimer if we're not shutting down and not already on main thread
+            if not self._is_shutting_down and app and not app.closingDown():
+                def emit_signal():
+                    try:
+                        # Final check before emitting
+                        if not self._is_shutting_down and app and not app.closingDown():
+                            signal.emit(*args)
+                    except Exception as e:
+                        self.logger.debug("Error emitting signal", error=str(e))
+                
+                # Schedule the emission on the Qt main thread using QTimer
                 try:
-                    # Triple-check we're not shutting down before emitting
-                    if not self._is_shutting_down and app and not app.closingDown():
-                        signal.emit(*args)
-                except Exception as e:
-                    self.logger.debug("Error emitting signal", error=str(e))
-            
-            # Schedule the emission on the Qt main thread using QTimer
-            try:
-                QTimer.singleShot(0, emit_signal)
-            except RuntimeError as e:
-                # This can happen if Qt is shutting down
-                self.logger.debug("Could not schedule signal emission", error=str(e))
+                    QTimer.singleShot(0, emit_signal)
+                except RuntimeError as e:
+                    # This can happen if Qt is shutting down
+                    self.logger.debug("Could not schedule signal emission", error=str(e))
             
         except Exception as e:
             self.logger.debug("Error scheduling signal emission", error=str(e))
@@ -511,10 +514,12 @@ class MainController(QObject):
             except Exception as e:
                 self.logger.error("Error during frida-server cleanup", error=str(e))
         
-        # Close database connection
+        # Close database connection - call directly instead of using to_thread to avoid executor shutdown issues
         try:
             self.logger.info("Closing database connection")
-            await asyncio.to_thread(self.db_service.close)
+            # Don't use asyncio.to_thread during shutdown as the thread pool executor may be shutting down
+            # The database close method is synchronous and safe to call directly
+            self.db_service.close()
             self.logger.info("Database connection closed")
         except Exception as e:
             self.logger.error("Error closing database", error=str(e))
@@ -577,11 +582,8 @@ class MainController(QObject):
             message_count = 0
             while self._is_running and self.session.is_hook_active and not self._is_shutting_down:
                 try:
-                    # Add a timeout to prevent indefinite blocking
-                    message = await asyncio.wait_for(
-                        self.frida_service.get_message(), 
-                        timeout=5.0
-                    )
+                    # The FridaService.get_message() now has internal timeout and shutdown handling
+                    message = await self.frida_service.get_message()
                     
                     message_count += 1
                     self.logger.debug("Received message from Frida", 
@@ -599,15 +601,24 @@ class MainController(QObject):
                         self.logger.debug("Handler completed successfully")
                     else:
                         self.logger.warn("unhandled_message", message_type=message.get("type"))
+                        
                 except asyncio.TimeoutError:
-                    # This is normal - no messages available
-                    # Only log if there are messages in queue but we're not getting them
-                    queue_size = self.frida_service.queue_size
-                    if queue_size > 0:
-                        self.logger.warning("Message listener timeout but queue has messages", queue_size=queue_size)
+                    # This is normal - no messages available, continue checking shutdown flags
                     continue
+                except RuntimeError as e:
+                    # This is expected during shutdown when FridaService signals completion
+                    if "shutdown" in str(e).lower():
+                        self.logger.info("Frida message listener received shutdown signal")
+                        break
+                    else:
+                        self.logger.error("Runtime error in frida message listener", error=str(e))
+                        break
                 except Exception as e:
                     self.logger.error("Error in frida message listener", error=str(e))
+                    # Check if we should continue or break
+                    if self._is_shutting_down:
+                        self.logger.info("Shutting down, exiting message listener")
+                        break
                     await asyncio.sleep(1)  # Prevent tight loop on errors
         except asyncio.CancelledError:
             self.logger.info("Frida message listener cancelled")
@@ -631,29 +642,16 @@ class MainController(QObject):
                            value=value, 
                            run_id=run_id)
             
-            # Write to database using synchronous call wrapped in thread
-            await asyncio.to_thread(self.db_service.write_metric, run_id, timestamp, name, value)
+            # Write to database using protected method that checks shutdown state
+            await self._write_metric_to_db(run_id, timestamp, name, value)
             self.logger.debug("Wrote metric to database", metric_name=name, value=value)
             
             # Emit signal for UI metric display - use thread-safe emission
             self._emit_signal_safely(self.new_metric_received, name, value)
             self.logger.debug("Emitted metric signal to UI", metric_name=name, value=value)
             
-            # Fetch recent data and update graph with proper graph names
-            df = await asyncio.to_thread(self.db_service.get_run_metrics, run_id, name)
-            
-            # Map metric names to graph names
-            graph_name_mapping = {
-                "coins": "coins_timeline",
-                "total_coins": "coins_timeline",
-                "efficiency": "efficiency_timeline"
-            }
-            
-            graph_name = graph_name_mapping.get(name, f"{name}_graph")
-            self._emit_signal_safely(self.new_graph_data, graph_name, df)
-            self.logger.debug("Emitted graph data signal", 
-                            graph_name=graph_name, 
-                            data_points=len(df))
+            # Fetch recent data and update graph with proper graph names using protected method
+            await self._get_run_metrics_for_graph(run_id, name)
                 
         except Exception as e:
             self.logger.error("Error handling game metric", error=str(e))
@@ -669,8 +667,8 @@ class MainController(QObject):
             name = payload.get("name", "unknown_event")
             data = payload.get("data", {})
             
-            # Write to database using synchronous call wrapped in thread
-            await asyncio.to_thread(self.db_service.write_event, run_id, timestamp, name, data)
+            # Write to database using protected method that checks shutdown state
+            await self._write_event_to_db(run_id, timestamp, name, data)
             
             # Manage session state
             if name == "run_started":
@@ -717,4 +715,49 @@ class MainController(QObject):
                 self.logger.error("Error in system health monitor", error=str(e))
                 await asyncio.sleep(10)  # Wait before retrying
     
+    async def _write_metric_to_db(self, run_id: str, timestamp: int, name: str, value: float) -> None:
+        """Write a metric to the database."""
+        # Don't write to database during shutdown
+        if self._is_shutting_down:
+            return
+            
+        try:
+            await asyncio.to_thread(self.db_service.write_metric, run_id, timestamp, name, value)
+        except Exception as e:
+            self.logger.error("Failed to write metric to database", error=str(e), run_id=run_id, name=name)
+    
+    async def _get_run_metrics_for_graph(self, run_id: str, name: str) -> None:
+        """Fetch metrics and emit graph data with proper graph name mapping."""
+        # Don't fetch from database during shutdown
+        if self._is_shutting_down:
+            return
+            
+        try:
+            df = await asyncio.to_thread(self.db_service.get_run_metrics, run_id, name)
+            
+            # Map metric names to graph names
+            graph_name_mapping = {
+                "coins": "coins_timeline",
+                "total_coins": "coins_timeline",
+                "efficiency": "efficiency_timeline"
+            }
+            
+            graph_name = graph_name_mapping.get(name, f"{name}_graph")
+            self._emit_signal_safely(self.new_graph_data, graph_name, df)
+            self.logger.debug("Emitted graph data signal", 
+                            graph_name=graph_name, 
+                            data_points=len(df))
+        except Exception as e:
+            self.logger.error("Failed to get run metrics for graph", error=str(e), run_id=run_id, name=name)
+    
+    async def _write_event_to_db(self, run_id: str, timestamp: int, name: str, data: dict) -> None:
+        """Write an event to the database."""
+        # Don't write to database during shutdown
+        if self._is_shutting_down:
+            return
+            
+        try:
+            await asyncio.to_thread(self.db_service.write_event, run_id, timestamp, name, data)
+        except Exception as e:
+            self.logger.error("Failed to write event to database", error=str(e), run_id=run_id, name=name)
  

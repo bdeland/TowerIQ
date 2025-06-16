@@ -12,8 +12,6 @@ from pathlib import Path
 from datetime import datetime
 import pandas as pd
 
-import sqlcipher3 as sqlcipher
-
 from ..core.config import ConfigurationManager
 
 
@@ -34,11 +32,10 @@ class DatabaseService:
         self.logger = logger.bind(source="DatabaseService")
         
         # SQLite configuration
-        self.db_path = config.get('database.sqlite_path', 'data/toweriq.db')
-        self.encryption_key = config.get('database.sqlite.encryption_key', 'default_key')
+        self.db_path = config.get('database.sqlite_path', 'data/toweriq.sqlite')
         
         # Database connection
-        self.sqlite_conn: Optional[sqlcipher.Connection] = None
+        self.sqlite_conn: Optional[sqlite3.Connection] = None
     
     def connect(self) -> None:
         """
@@ -52,11 +49,8 @@ class DatabaseService:
             
             self.logger.info("Connecting to SQLite database", path=self.db_path)
             
-            # Connect with encryption
-            self.sqlite_conn = sqlcipher.connect(self.db_path, check_same_thread=False)
-            
-            # Set encryption key (required for SQLCipher)
-            self.sqlite_conn.execute(f"PRAGMA key = '{self.encryption_key}'")
+            # Connect to standard SQLite database
+            self.sqlite_conn = sqlite3.connect(self.db_path, check_same_thread=False)
             
             # Enable WAL mode for better concurrency
             self.sqlite_conn.execute("PRAGMA journal_mode=WAL;")
@@ -75,13 +69,30 @@ class DatabaseService:
             raise
     
     def close(self) -> None:
-        """Gracefully close the database connection."""
+        """Gracefully close the database connection and clean up WAL files."""
         if self.sqlite_conn:
             try:
+                # Checkpoint the WAL file to merge changes back to main database
+                self.logger.debug("Checkpointing WAL file before closing")
+                self.sqlite_conn.execute("PRAGMA wal_checkpoint(TRUNCATE);")
+                
+                # Switch back to DELETE mode to clean up WAL and SHM files
+                self.logger.debug("Switching to DELETE journal mode for cleanup")
+                self.sqlite_conn.execute("PRAGMA journal_mode=DELETE;")
+                
+                # Commit any pending transactions
+                self.sqlite_conn.commit()
+                
+                # Close the connection
                 self.sqlite_conn.close()
-                self.logger.info("SQLite connection closed")
+                self.logger.info("SQLite connection closed and WAL files cleaned up")
             except Exception as e:
                 self.logger.error("Error closing SQLite connection", error=str(e))
+                # Still try to close the connection even if cleanup failed
+                try:
+                    self.sqlite_conn.close()
+                except:
+                    pass
             finally:
                 self.sqlite_conn = None
     

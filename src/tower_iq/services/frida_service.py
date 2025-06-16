@@ -63,6 +63,7 @@ class FridaService:
         # Message handling
         self._message_queue: Optional[asyncio.Queue] = None
         self._event_loop: Optional[asyncio.AbstractEventLoop] = None
+        self._shutdown_requested = False  # Flag to signal shutdown to message handling
         
         # Security settings
         self.script_cache_dir = Path.home() / ".toweriq" / "scripts"
@@ -91,14 +92,21 @@ class FridaService:
         """
         Get the next message from the Frida script queue.
         
-        This method blocks until a message is available.
+        This method blocks until a message is available or shutdown is requested.
         
         Returns:
             Message dictionary from the injected script
+            
+        Raises:
+            RuntimeError: If shutdown was requested or queue not initialized
         """
         if self._message_queue is None:
             self.logger.error("Message queue not initialized.")
             raise RuntimeError("Message queue not initialized.")
+        
+        # Check for shutdown before blocking
+        if self._shutdown_requested:
+            raise RuntimeError("Shutdown requested - no more messages will be processed")
             
         # Add debugging to understand queue state
         queue = self._message_queue
@@ -106,11 +114,24 @@ class FridaService:
         self.logger.debug(f"get_message called, queue size: {queue_size}, queue id: {id(queue)}")
         
         try:
-            message = await queue.get()
+            # Use asyncio.wait_for with a shorter timeout to check shutdown flag more frequently
+            message = await asyncio.wait_for(queue.get(), timeout=2.0)
+            
+            # Check for poison pill (shutdown signal)
+            if isinstance(message, dict) and message.get('type') == '_shutdown_signal':
+                self.logger.debug("Received shutdown signal in message queue")
+                raise RuntimeError("Shutdown requested via poison pill")
+            
             self.logger.debug(f"Successfully got message from queue, new size: {queue.qsize()}")
             return message
+        except asyncio.TimeoutError:
+            # Check shutdown flag on timeout
+            if self._shutdown_requested:
+                raise RuntimeError("Shutdown requested during message wait")
+            # Re-raise timeout for the caller to handle
+            raise
         except Exception as e:
-            self.logger.error(f"Error getting message from queue: {e}, queue size: {queue.qsize()}")
+            self.logger.debug(f"Error getting message from queue: {e}, queue size: {queue.qsize()}")
             raise
     
     async def attach(self, pid: int, device_id: Optional[str] = None) -> bool:
@@ -152,30 +173,84 @@ class FridaService:
         """Detach from the current process and clean up resources."""
         self.logger.info("Detaching from process")
         
+        # Set shutdown flag to prevent new message processing
+        self._shutdown_requested = True
+        
+        # Send poison pill to unblock any waiting get_message() calls
+        if self._message_queue is not None:
+            try:
+                self._message_queue.put_nowait({'type': '_shutdown_signal'})
+                self.logger.debug("Sent shutdown signal to message queue")
+            except asyncio.QueueFull:
+                # If queue is full, that's fine - the poison pill will be processed eventually
+                self.logger.debug("Message queue full, poison pill may be delayed")
+        
         try:
+            # Forcefully unload script first - this stops message generation
             if self.script:
-                self.script.unload()
-                self.script = None
+                try:
+                    # Give the script a moment to clean up gracefully
+                    await asyncio.wait_for(
+                        asyncio.to_thread(self.script.unload), 
+                        timeout=0.5
+                    )
+                    self.logger.debug("Script unloaded gracefully")
+                except asyncio.TimeoutError:
+                    self.logger.warning("Script unload timed out - forcing cleanup")
+                    # Force cleanup without waiting
+                    try:
+                        self.script.unload()
+                    except Exception as e:
+                        self.logger.debug(f"Error during forced script unload: {e}")
+                except Exception as e:
+                    self.logger.warning(f"Error during script unload: {e}")
+                finally:
+                    self.script = None
             
+            # Detach from session
             if self.session:
-                self.session.detach()
-                self.session = None
+                try:
+                    await asyncio.wait_for(
+                        asyncio.to_thread(self.session.detach), 
+                        timeout=1.0
+                    )
+                    self.logger.debug("Session detached gracefully")
+                except asyncio.TimeoutError:
+                    self.logger.warning("Session detach timed out - forcing cleanup")
+                    # Force cleanup without waiting
+                    try:
+                        self.session.detach()
+                    except Exception as e:
+                        self.logger.debug(f"Error during forced session detach: {e}")
+                except Exception as e:
+                    self.logger.warning(f"Error during session detach: {e}")
+                finally:
+                    self.session = None
             
             self.device = None
             self.attached_pid = None
             
             # Clear any remaining messages
             if self._message_queue is not None:
+                cleared_count = 0
                 while not self._message_queue.empty():
                     try:
                         self._message_queue.get_nowait()
+                        cleared_count += 1
                     except asyncio.QueueEmpty:
                         break
+                if cleared_count > 0:
+                    self.logger.debug(f"Cleared {cleared_count} remaining messages from queue")
             
             self.logger.info("Successfully detached from process")
             
         except Exception as e:
             self.logger.error("Error during detachment", error=str(e))
+            # Ensure cleanup even if there were errors
+            self.script = None
+            self.session = None
+            self.device = None
+            self.attached_pid = None
     
     async def inject_script(self, game_version: str) -> bool:
         """
@@ -256,77 +331,266 @@ class FridaService:
         """
         Check if the local hook script is compatible with the selected package and game version.
         
-        This method reads the local hook_contract.yaml file and checks if both the
-        package name matches the target_package AND the game_version is in the supported_versions list.
+        This method orchestrates the compatibility checking process by:
+        1. Loading the hook contract configuration
+        2. Checking package name compatibility
+        3. Checking version compatibility
+        4. Verifying the script file exists
         
         Args:
             package_name: Package name of the game to check compatibility for
             game_version: Version of the game to check compatibility for
             
         Returns:
-            True if the local hook is compatible, False otherwise
+            True if the local hook is compatible and the script file exists, False otherwise
         """
-        self.logger.info("Checking local hook compatibility", 
-                        package_name=package_name, 
-                        game_version=game_version)
+        self.logger.info("Validating hook script compatibility with selected package and version", 
+                        selected_package_name=package_name, 
+                        selected_package_version=game_version)
         
         try:
-            # Get the path to the hook contract from configuration
-            contract_path = self.config.get("frida.hook_contract_path")
-            if not contract_path:
-                self.logger.error("Hook contract path not configured")
+            # Load the hook contract
+            contract = self._load_hook_contract()
+            if not contract:
                 return False
             
-            # Build full path relative to project root
-            project_root = self.config.get_project_root()
-            full_contract_path = Path(project_root) / contract_path
+            # Check all compatibility requirements
+            if not self._check_script_file_exists(contract):
+                return False
             
-            # Load and parse the YAML file
-            with open(full_contract_path, 'r', encoding='utf-8') as f:
-                contract = yaml.safe_load(f)
+            if not self._check_package_and_version_compatibility(package_name, game_version, contract):
+                return False
             
-            # Safely access the script info
+            # All checks passed - log with script path for confirmation
             script_info = contract.get('script_info', {})
-            target_package = script_info.get('target_package')
-            supported_versions = script_info.get('supported_versions', [])
+            script_path = script_info.get('path', '')
+            project_root = self.config.get_project_root()
+            full_script_path = Path(project_root) / script_path
             
-            # Check package name compatibility
-            if not target_package:
-                self.logger.error("Target package not specified in hook contract")
-                return False
-            
-            if package_name != target_package:
-                self.logger.warning("Package name does not match hook target", 
-                                  detected_package=package_name,
-                                  target_package=target_package)
-                return False
-            
-            # Check version compatibility
-            version_compatible = game_version in supported_versions
-            
-            if not version_compatible:
-                self.logger.warning("Game version not supported by local hook", 
-                                  game_version=game_version,
-                                  supported_versions=supported_versions)
-                return False
-            
-            # Both package and version are compatible
             self.logger.info("Local hook compatibility confirmed", 
                            package_name=package_name,
-                           game_version=game_version)
+                           game_version=game_version,
+                           script_path=str(full_script_path))
             return True
             
-        except FileNotFoundError:
-            self.logger.error("Hook contract file not found", path=contract_path)
-            return False
-        except yaml.YAMLError as e:
-            self.logger.error("Error parsing hook contract YAML", error=str(e))
-            return False
         except Exception as e:
             self.logger.error("Error checking local hook compatibility", 
                             package_name=package_name,
                             game_version=game_version, 
                             error=str(e))
+            return False
+
+    def _load_hook_contract(self) -> Optional[dict]:
+        """
+        Load and parse the hook contract YAML file.
+        
+        Returns:
+            Parsed contract dictionary, or None if loading failed
+        """
+        self.logger.debug("Loading hook contract")
+        try:
+            # Get the path to the hook contract from configuration
+            contract_path = self.config.get("frida.hook_contract_path")
+            if not contract_path:
+                self.logger.error("Hook contract path not configured", contract_path=contract_path)
+                return None
+            else:
+                self.logger.debug("Hook contract path configured", contract_path=contract_path)
+            
+            # Build full path relative to project root
+            project_root = self.config.get_project_root()
+            self.logger.debug("Project root", project_root=project_root)
+            full_contract_path = Path(project_root) / contract_path
+            self.logger.debug("Full hook contract path", full_contract_path=full_contract_path)
+            # Load and parse the YAML file
+            with open(full_contract_path, 'r', encoding='utf-8') as f:
+                contract = yaml.safe_load(f)
+            self.logger.debug("Hook contract loaded", contract=contract)
+            return contract
+            
+        except FileNotFoundError:
+            self.logger.error("Hook contract file not found", path=contract_path, full_contract_path=full_contract_path)
+            return None
+        except yaml.YAMLError as e:
+            self.logger.error("Error parsing hook contract YAML", error=str(e), full_contract_path=full_contract_path)
+            return None
+
+    def _check_package_and_version_compatibility(self, package_name: str, package_version: str, contract: dict) -> bool:
+        """
+        Check if the package name and version are compatible with the hook contract.
+        
+        This method validates all compatibility requirements in one block:
+        - Hook contract must define target_package
+        - Hook contract must define supported_versions
+        - Package name must match target_package
+        - Package version must be in supported_versions list
+        
+        Args:
+            package_name: Package name to check
+            package_version: Package version to check
+            contract: Full hook contract dictionary
+            
+        Returns:
+            True if both package and version are compatible, False otherwise
+        """
+        self.logger.debug("Checking package and version compatibility", 
+                         package_name=package_name, 
+                         package_version=package_version, 
+                         contract_keys=list(contract.keys()) if isinstance(contract, dict) else None)
+        
+        try:
+            # Validate input parameters
+            if not isinstance(contract, dict):
+                self.logger.error("Invalid contract parameter: must be a dictionary",
+                                current_type=type(contract).__name__,
+                                expected_type="dict")
+                return False
+            
+            if not package_name or not isinstance(package_name, str):
+                self.logger.error("Invalid package_name parameter: must be a non-empty string",
+                                current_value=package_name,
+                                current_type=type(package_name).__name__)
+                return False
+            
+            if not package_version or not isinstance(package_version, str):
+                self.logger.error("Invalid package_version parameter: must be a non-empty string",
+                                current_value=package_version,
+                                current_type=type(package_version).__name__)
+                return False
+            
+            # Extract script info from contract
+            script_info = contract.get('script_info', {})
+            if not isinstance(script_info, dict):
+                self.logger.error("script_info section missing or invalid in hook contract",
+                                current_type=type(script_info).__name__,
+                                expected_type="dict")
+                return False
+            
+            # Extract contract requirements
+            target_package = script_info.get('target_package')
+            supported_versions = script_info.get('supported_versions')
+            
+            # Validate all compatibility requirements in one block
+            # Check if target_package is defined in the contract
+            if not target_package:
+                self.logger.error("Target package not defined in hook contract",
+                                contract_section="script_info",
+                                missing_field="target_package",
+                                action_required="Update hook contract to specify target_package")
+                return False
+            
+            # Check if supported_versions is defined in the contract
+            if not supported_versions:
+                self.logger.error("Supported package versions not defined in hook contract",
+                                contract_section="script_info", 
+                                missing_field="supported_versions",
+                                action_required="Update hook contract to specify supported_versions list")
+                return False
+            
+            # Check if supported_versions is a list
+            if not isinstance(supported_versions, list):
+                self.logger.error("supported_versions in hook contractmust be a list",
+                                contract_section="script_info",
+                                current_type=type(supported_versions).__name__,
+                                expected_type="list",
+                                action_required="Update hook contract to make supported_versions a list")
+                return False
+            
+            # Check if package name matches target_package
+            if package_name != target_package:
+                self.logger.error("Package mismatch: wrong package targeted for hook contract",
+                                detected_package=package_name,
+                                target_package=target_package,
+                                action_required="Either select correct package or update hook contract target_package")
+                return False
+            
+            # Check if package version is in supported_versions
+            if package_version not in supported_versions:
+                self.logger.error("Version mismatch: package version not supported by hook contract",
+                                detected_version=package_version,
+                                supported_versions=supported_versions,
+                                action_required="Either select supported version or update hook contract supported_versions")
+                return False
+            
+            # All compatibility checks passed
+            self.logger.debug("Package and version compatibility confirmed", 
+                             package_name=package_name,
+                             package_version=package_version,
+                             target_package=target_package,
+                             supported_versions=supported_versions)
+            return True
+            
+        except TypeError as e:
+            self.logger.error("Type error during compatibility check",
+                            error=str(e),
+                            package_name=package_name,
+                            package_version=package_version,
+                            script_info_type=type(script_info).__name__)
+            return False
+        except AttributeError as e:
+            self.logger.error("Attribute error during compatibility check",
+                            error=str(e),
+                            package_name=package_name,
+                            package_version=package_version)
+            return False
+        except Exception as e:
+            self.logger.error("Unexpected error during compatibility check",
+                            error=str(e),
+                            error_type=type(e).__name__,
+                            package_name=package_name,
+                            package_version=package_version)
+            return False
+
+    def _check_script_file_exists(self, contract: dict) -> bool:
+        """
+        Check if the hook script file actually exists at the specified path.
+        
+        Args:
+            contract: Full hook contract dictionary
+            
+        Returns:
+            True if script file exists, False otherwise
+        """
+        try:
+            # Validate contract parameter
+            if not isinstance(contract, dict):
+                self.logger.error("Invalid contract parameter: must be a dictionary",
+                                current_type=type(contract).__name__,
+                                expected_type="dict")
+                return False
+            
+            # Extract script info from contract
+            script_info = contract.get('script_info', {})
+            if not isinstance(script_info, dict):
+                self.logger.error("script_info section missing or invalid in hook contract",
+                                current_type=type(script_info).__name__,
+                                expected_type="dict")
+                return False
+            
+            script_path = script_info.get('path')
+            if not script_path:
+                self.logger.error("Script path not specified in hook contract",
+                                contract_section="script_info",
+                                missing_field="path")
+                return False
+            
+            # Resolve script path relative to the project root
+            project_root = self.config.get_project_root()
+            full_script_path = Path(project_root) / script_path
+            
+            if not full_script_path.exists():
+                self.logger.error("Hook script file not found", 
+                                path=str(full_script_path),
+                                action_required="Ensure hook script file exists at specified path")
+                return False
+            
+            self.logger.debug("Hook script file exists", path=str(full_script_path))
+            return True
+            
+        except Exception as e:
+            self.logger.error("Error checking script file existence",
+                            error=str(e),
+                            error_type=type(e).__name__)
             return False
 
     async def inject_and_run_script(self, device_id: str, pid: int, game_version: str) -> bool:
@@ -465,4 +729,9 @@ class FridaService:
     
     def get_attached_pid(self) -> Optional[int]:
         """Get the PID of the currently attached process."""
-        return self.attached_pid 
+        return self.attached_pid
+    
+    def reset_shutdown_state(self) -> None:
+        """Reset the shutdown state - useful if the service needs to be reused."""
+        self._shutdown_requested = False
+        self.logger.debug("Frida service shutdown state reset") 

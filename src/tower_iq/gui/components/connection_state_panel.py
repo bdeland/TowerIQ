@@ -40,6 +40,9 @@ class ConnectionStatePanel(QWidget):
         self.selected_device_data: Optional[Dict[str, Any]] = None
         self.selected_process_info: Optional[Dict[str, Any]] = None
         
+        # Track whether a device scan has been performed
+        self.scan_performed = False
+        
         # Animation timer for scanning feedback
         self.animation_timer = QTimer()
         self.animation_timer.timeout.connect(self._update_scanning_animation)
@@ -141,6 +144,11 @@ class ConnectionStatePanel(QWidget):
         
         # Update the initial stage
         self._update_stage_indicator()
+        
+        # Initialize with empty device list to show initial message
+        self._populate_device_list([], update_navigation=False)
+        
+        # Update navigation buttons after everything is set up
         self._update_navigation_buttons()
     
     def _create_progress_indicator(self) -> None:
@@ -408,6 +416,9 @@ class ConnectionStatePanel(QWidget):
         self.device_list.clear()
         self.selected_device_data = None
         
+        # Mark that a scan has been performed
+        self.scan_performed = True
+        
         # Start scanning animation
         self.animation_dots = 0
         self.animation_timer.start(500)  # Update every 500ms
@@ -528,7 +539,7 @@ class ConnectionStatePanel(QWidget):
             session.selected_target_version):
             self._update_stage3_info(session)
     
-    def _populate_device_list(self, devices: List[Dict[str, Any]]) -> None:
+    def _populate_device_list(self, devices: List[Dict[str, Any]], update_navigation: bool = True) -> None:
         """Populate the device list with available devices."""
         self.device_list.clear()
         self._stop_scanning_animation()
@@ -536,15 +547,21 @@ class ConnectionStatePanel(QWidget):
         if not devices:
             # Add a message item if no devices found
             item = QListWidgetItem()
-            item.setText("No devices found - click 'Scan for Devices' to try again")
+            if self.scan_performed:
+                item.setText("No devices found - click 'Scan for Devices' to try again")
+                # Update status message for completed scan with no results
+                if hasattr(self, 'status_text') and self.status_text.isVisible():
+                    self.status_text.setText("No devices found. Make sure ADB is running and devices are connected.")
+            else:
+                item.setText("Scan for devices using button above")
+                # Update status message for no scan performed yet
+                if hasattr(self, 'status_text') and self.status_text.isVisible():
+                    self.status_text.setText("Click 'Scan for Devices' to find connected Android devices.")
+            
             item.setData(Qt.ItemDataRole.UserRole, None)
             item.setData(Qt.ItemDataRole.ForegroundRole, QColor("#888888"))
             item.setFlags(Qt.ItemFlag.NoItemFlags)  # Make it non-selectable
             self.device_list.addItem(item)
-            
-            # Update status message
-            if hasattr(self, 'status_text') and self.status_text.isVisible():
-                self.status_text.setText("No devices found. Make sure ADB is running and devices are connected.")
         else:
             for device in devices:
                 item = QListWidgetItem()
@@ -556,7 +573,8 @@ class ConnectionStatePanel(QWidget):
             if hasattr(self, 'status_text') and self.status_text.isVisible():
                 self.status_text.setText("Select a device to connect to.")
         
-        self._update_navigation_buttons()
+        if update_navigation:
+            self._update_navigation_buttons()
     
     def _populate_process_list(self, processes: List[Dict[str, Any]]) -> None:
         """Populate the process list with available running processes only."""

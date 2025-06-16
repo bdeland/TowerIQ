@@ -99,16 +99,7 @@ def main() -> None:
                         logger.error("Failed to connect quit signal", error=str(e))
                         raise
                     
-                    # Trigger initial device scan after a short delay to ensure UI is ready
-                    def trigger_initial_scan():
-                        logger.info("Triggering initial device scan")
-                        try:
-                            controller.on_scan_devices_requested()
-                        except Exception as scan_error:
-                            logger.error("Error triggering initial device scan", error=str(scan_error))
-                    
-                    # Schedule the initial scan to run after 1 second
-                    loop.call_later(1.0, trigger_initial_scan)
+
                     
                     logger.info("Entering run_forever()")
                     loop.run_forever()
@@ -126,30 +117,39 @@ def main() -> None:
                     logger.info("Cancelling controller task")
                     controller_task.cancel()
                     
-                    # Wait a bit for the cancellation to take effect
-                    try:
-                        # Give the task a moment to cancel gracefully
-                        import time
-                        time.sleep(0.1)
-                    except Exception:
-                        pass
-                
-                # Run cleanup with timeout to prevent hanging
+                # Run cleanup with aggressive timeout to prevent hanging
                 logger.info("Running controller cleanup")
                 try:
                     # Use the existing loop for cleanup if it's still running
                     if loop and not loop.is_closed():
                         try:
-                            # Run cleanup with a shorter timeout to prevent hanging
+                            # Run cleanup with a very short timeout to prevent hanging
                             cleanup_task = loop.create_task(controller.stop())
-                            loop.run_until_complete(asyncio.wait_for(cleanup_task, timeout=1.0))
+                            loop.run_until_complete(asyncio.wait_for(cleanup_task, timeout=2.0))  # Increased from 0.5 to 2.0 seconds for Frida cleanup
                             logger.info("Controller cleanup completed")
                         except asyncio.TimeoutError:
-                            logger.warning("Controller cleanup timed out after 1 second")
+                            logger.warning("Controller cleanup timed out after 2.0 seconds, forcing shutdown")
+                            # Cancel the cleanup task if it's still running
+                            if not cleanup_task.done():
+                                cleanup_task.cancel()
+                                try:
+                                    loop.run_until_complete(asyncio.wait_for(cleanup_task, timeout=0.5))
+                                except (asyncio.TimeoutError, asyncio.CancelledError):
+                                    logger.warning("Cleanup task cancellation also timed out")
                         except Exception as cleanup_error:
                             logger.error("Error during controller cleanup", error=str(cleanup_error))
                     else:
-                        logger.info("Event loop already closed, skipping controller cleanup")
+                        logger.info("Event loop already closed, calling controller cleanup directly")
+                        # If the loop is closed, try calling controller stop directly without asyncio
+                        try:
+                            # Since the loop is closed, manually clean up what we can
+                            controller._is_shutting_down = True
+                            controller._is_running = False
+                            # Call database close directly
+                            controller.db_service.close()
+                            logger.info("Direct cleanup completed")
+                        except Exception as direct_cleanup_error:
+                            logger.error("Error during direct cleanup", error=str(direct_cleanup_error))
                     
                 except Exception as cleanup_error:
                     logger.error("Error during controller cleanup", error=str(cleanup_error))
@@ -157,19 +157,28 @@ def main() -> None:
             except Exception as e:
                 logger.error("Error during application cleanup", error=str(e))
             
-            # Close the event loop more gracefully
+            # Close the event loop more gracefully with aggressive task cancellation
             try:
                 if loop and not loop.is_closed():
-                    # Cancel any remaining tasks
+                    # Cancel any remaining tasks with shorter timeout
                     pending_tasks = [task for task in asyncio.all_tasks(loop) if not task.done()]
                     if pending_tasks:
                         logger.info(f"Cancelling {len(pending_tasks)} pending tasks")
                         for task in pending_tasks:
                             task.cancel()
                         
-                        # Give tasks a moment to cancel
+                        # Give tasks less time to cancel to prevent hanging - but more time for Frida cleanup
                         try:
-                            loop.run_until_complete(asyncio.gather(*pending_tasks, return_exceptions=True))
+                            loop.run_until_complete(asyncio.wait_for(
+                                asyncio.gather(*pending_tasks, return_exceptions=True), 
+                                timeout=1.0  # Increased from 0.2 to 1.0 seconds for Frida cleanup
+                            ))
+                        except asyncio.TimeoutError:
+                            logger.warning("Task cancellation timed out after 1.0 seconds, forcing shutdown")
+                            # Double-check if any tasks are still running and force kill them
+                            still_pending = [task for task in pending_tasks if not task.done()]
+                            if still_pending:
+                                logger.warning(f"{len(still_pending)} tasks still running after timeout - these will be abandoned")
                         except Exception:
                             pass  # Ignore exceptions during task cancellation
                     

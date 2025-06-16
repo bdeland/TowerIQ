@@ -5,8 +5,9 @@
         {
             "previewLimit": 50,
             "driver": "SQLite",
-            "name": "db",
-            "database": "${workspaceFolder:TowerIQ}/data/toweriq.db"
+            "name": "TowerIQ",
+            "database": "${workspaceFolder:TowerIQ}/data/toweriq.sqlite",
+            "group": "tower"
         }
     ]
 }
