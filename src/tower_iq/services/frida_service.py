@@ -159,10 +159,10 @@ class FridaService:
                 self.device = frida.get_local_device()
             
             # Attach to the process
-            self.session = self.device.attach(pid)
+            self.session = self.device.attach(pid, realm='emulated')
             self.attached_pid = pid
             
-            self.logger.info("Successfully attached to process", pid=pid)
+            self.logger.info("Successfully attached to process with emulated realm", pid=pid)
             return True
             
         except Exception as e:

@@ -1,17 +1,39 @@
 📦
-313 /src/tower_iq/scripts/test.js.map
-271 /src/tower_iq/scripts/test.js
+1105 /tower_hook_readonly_final.js.map
+1433 /tower_hook_readonly_final.js
 157866 /node_modules/frida-il2cpp-bridge/dist/index.js
 ↻ frida-il2cpp-bridge
 ✄
-{"version":3,"file":"test.js","sourceRoot":"C:/Users/delan/Documents/GitHub/TowerIQ/","sources":["src/tower_iq/scripts/test.js"],"names":[],"mappings":"AAAA,qBAAqB;AACrB,OAAO,qBAAqB,CAAC;AAE7B,iCAAiC;AACjC,oEAAoE;AACpE,sEAAsE;AACtE,OAAO,CAAC,GAAG,CAAC,IAAI,CAAC,SAAS,CAAC,MAAM,EAAE,IAAI,EAAE,CAAC,CAAC,CAAC,CAAC"}
+{"version":3,"file":"tower_hook_readonly_final.js","sourceRoot":"C:/Users/delan/Documents/GitHub/TowerIQ/","sources":["tower_hook_readonly_final.js"],"names":[],"mappings":"AAAA,+BAA+B;AAE/B,oEAAoE;AACpE,oEAAoE;AAEpE,OAAO,qBAAqB,CAAC;AAE7B,MAAM,CAAC,OAAO,CAAC,GAAG,EAAE;IAChB,OAAO,CAAC,GAAG,CAAC,+DAA+D,CAAC,CAAC;IAE7E,IAAI;QACA,MAAM,cAAc,GAAG,MAAM,CAAC,MAAM,CAAC,QAAQ,CAAC,iBAAiB,CAAC,CAAC;QACjE,MAAM,IAAI,GAAG,cAAc,CAAC,KAAK,CAAC,KAAK,CAAC,MAAM,CAAC,CAAC;QAChD,MAAM,aAAa,GAAG,IAAI,CAAC,MAAM,CAAC,SAAS,CAAC,CAAC,CAAC,iBAAiB;QAE/D,OAAO,CAAC,GAAG,CAAC,qCAAqC,aAAa,CAAC,MAAM,EAAE,CAAC,CAAC;QACzE,OAAO,CAAC,GAAG,CAAC,oDAAoD,CAAC,CAAC;QAElE,wDAAwD;QACxD,aAAa,CAAC,cAAc,GAAG,UAAU,GAAG,IAAI;YAC5C,OAAO,CAAC,GAAG,CAAC,mCAAmC,CAAC,CAAC;YAEjD,iDAAiD;YACjD,MAAM,YAAY,GAAG,IAAI,CAAC,KAAK,CAAC,OAAO,CAAC,CAAC,KAAK,CAAC;YAC/C,OAAO,CAAC,GAAG,CAAC,kCAAkC,YAAY,EAAE,CAAC,CAAC;YAE9D,iCAAiC;YAEjC,+CAA+C;YAC/C,gFAAgF;YAChF,OAAO,IAAI,CAAC,MAAM,CAAC,SAAS,CAAC,CAAC,MAAM,CAAC,GAAG,IAAI,CAAC,CAAC;QAClD,CAAC,CAAC;KAEL;IAAC,OAAM,CAAC,EAAE;QACP,OAAO,CAAC,KAAK,CAAC,wCAAwC,CAAC,CAAC,KAAK,EAAE,CAAC,CAAC;KACpE;AACL,CAAC,CAAC,CAAC"}
 ✄
-// src/test_bridge.js
+// tower_hook_readonly_final.js
+// This script is designed to be run with the --realm=emulated flag.
+// It will only log information and will NOT modify any game values.
 import "frida-il2cpp-bridge";
-// This is the only test we need.
-// If the bridge initializes correctly, it will print a large object
-// full of functions. If it fails, it will print 'undefined' or crash.
-console.log(JSON.stringify(Il2Cpp, null, 2));
+Il2Cpp.perform(() => {
+    console.log("[+] Il2Cpp Bridge is ready and running in the emulated realm.");
+    try {
+        const AssemblyCSharp = Il2Cpp.domain.assembly("Assembly-CSharp");
+        const Main = AssemblyCSharp.image.class("Main");
+        const newWaveMethod = Main.method("NewWave"); // Correct casing
+        console.log(`[+] Found Main.NewWave method at: ${newWaveMethod.handle}`);
+        console.log("[+] Hook is live. Waiting for the game to call it.");
+        // Attach to the method using the bridge's clean syntax.
+        newWaveMethod.implementation = function (...args) {
+            console.log("\n[+] Intercepted Main.NewWave()!");
+            // READ-ONLY: Access the field and log its value.
+            const currentCoins = this.field("coins").value;
+            console.log(`[+] Current coins (read-only): ${currentCoins}`);
+            // --- NO MEMORY MODIFICATION ---
+            // THE FIX: Call the original method correctly.
+            // We get the method from the instance (`this`) and pass the original arguments.
+            return this.method("NewWave").invoke(...args);
+        };
+    }
+    catch (e) {
+        console.error(`[-] An error occurred in the bridge: ${e.stack}`);
+    }
+});
 ✄
 "use strict";
 var __decorate = (this && this.__decorate) || function (decorators, target, key, desc) {
