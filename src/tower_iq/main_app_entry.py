@@ -10,6 +10,7 @@ import asyncio
 from pathlib import Path
 from typing import NoReturn
 import argparse
+import os
 
 import qasync
 import structlog
@@ -144,7 +145,6 @@ def main() -> None:
                 if controller_task and not controller_task.cancelled():
                     logger.info("Cancelling controller task")
                     controller_task.cancel()
-                    
                 # Run cleanup with aggressive timeout to prevent hanging
                 logger.info("Running controller cleanup")
                 try:
@@ -164,8 +164,12 @@ def main() -> None:
                                     loop.run_until_complete(asyncio.wait_for(cleanup_task, timeout=0.5))
                                 except (asyncio.TimeoutError, asyncio.CancelledError):
                                     logger.warning("Cleanup task cancellation also timed out")
+                            # Force exit if cleanup still not done
+                            logger.error("Force exiting application after cleanup timeout.")
+                            os._exit(0)
                         except Exception as cleanup_error:
                             logger.error("Error during controller cleanup", error=str(cleanup_error))
+                            os._exit(1)
                     else:
                         logger.info("Event loop already closed, calling controller cleanup directly")
                         # If the loop is closed, try calling controller stop directly without asyncio
@@ -178,12 +182,13 @@ def main() -> None:
                             logger.info("Direct cleanup completed")
                         except Exception as direct_cleanup_error:
                             logger.error("Error during direct cleanup", error=str(direct_cleanup_error))
-                    
+                            os._exit(1)
                 except Exception as cleanup_error:
                     logger.error("Error during controller cleanup", error=str(cleanup_error))
-                
+                    os._exit(1)
             except Exception as e:
                 logger.error("Error during application cleanup", error=str(e))
+                os._exit(1)
             
             # Close the event loop more gracefully with aggressive task cancellation
             try:

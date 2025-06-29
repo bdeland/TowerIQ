@@ -6,10 +6,14 @@ that contains navigation, dashboard panels, and status indicators.
 """
 
 from typing import TYPE_CHECKING
+import asyncio
+import os
+import time
 
 from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QHBoxLayout, QVBoxLayout, QFrame, 
-    QPushButton, QStackedWidget, QStatusBar, QLabel
+    QPushButton, QStackedWidget, QStatusBar, QLabel,
+    QMessageBox  # Add QMessageBox for confirmation dialogs
 )
 from PyQt6.QtCore import Qt, pyqtSlot
 from PyQt6.QtGui import QIcon, QPixmap
@@ -19,9 +23,6 @@ from tower_iq.gui.components.settings_page import SettingsPage
 from tower_iq.gui.components.history_page import HistoryPage
 from tower_iq.gui.components.status_indicator import StatusIndicator
 from tower_iq.gui.assets import get_asset_path
-
-if TYPE_CHECKING:
-    from tower_iq.core.main_controller import MainController
 
 
 class MainWindow(QMainWindow):
@@ -33,7 +34,7 @@ class MainWindow(QMainWindow):
     different pages (Dashboard, History, Settings, etc.).
     """
     
-    def __init__(self, controller: "MainController") -> None:
+    def __init__(self, controller) -> None:
         """
         Initialize the main window.
         
@@ -242,51 +243,84 @@ class MainWindow(QMainWindow):
             message: The message to display
         """
         self.status_label.setText(message)
-        
-    @pyqtSlot()
-    def show_setup_wizard(self) -> None:
-        """
-        Show the setup wizard dialog.
-        
-        This slot can be connected to controller signals that indicate
-        setup is needed (e.g., on first run).
-        """
-        from tower_iq.gui.setup_wizard_dialog import SetupWizardDialog
-        
-        wizard = SetupWizardDialog(self.controller)
-        wizard.exec()
     
     def closeEvent(self, event) -> None:
         """
         Handle the window close event.
-        
-        Ensures proper cleanup when the user closes the main window.
-        
+        Ensures robust, unified shutdown when the user closes the main window.
+        Blocks until shutdown is complete or a timeout is reached, then force-exits if needed.
         Args:
             event: The close event
         """
+        if getattr(self, '_shutdown_in_progress', False):
+            event.accept()
+            return
+        # Check if a round is active and prompt the user
+        try:
+            if hasattr(self.controller, 'session') and getattr(self.controller.session, 'is_round_active', False):
+                if self.controller.session.is_round_active:
+                    msg_box = QMessageBox(self)
+                    msg_box.setIcon(QMessageBox.Icon.Warning)
+                    msg_box.setWindowTitle("Active Round Detected")
+                    msg_box.setText("You are currently monitoring an active round. Are you sure that you want to exit?")
+                    exit_button = msg_box.addButton("Exit", QMessageBox.ButtonRole.AcceptRole)
+                    dont_exit_button = msg_box.addButton("Don't Exit", QMessageBox.ButtonRole.RejectRole)
+                    msg_box.setDefaultButton(dont_exit_button)
+                    msg_box.exec()
+                    if msg_box.clickedButton() == dont_exit_button:
+                        event.ignore()
+                        return
+                    # else, proceed with shutdown
+        except Exception as e:
+            print(f"Error checking round active state: {e}")
+        self._shutdown_in_progress = True
         try:
             # Stop all timers to prevent threading issues during shutdown
             self._cleanup_timers()
-            
             # Set controller shutdown flag to prevent new operations
             if hasattr(self.controller, '_is_shutting_down'):
                 self.controller._is_shutting_down = True
-            
             # Stop status indicator animation if running
             if hasattr(self.status_indicator, 'animation_timer'):
                 self.status_indicator.animation_timer.stop()
-            
             # Clean up any connection panel timers
             if (hasattr(self.dashboard_page, 'connection_panel') and 
                 hasattr(self.dashboard_page.connection_panel, 'animation_timer')):
                 self.dashboard_page.connection_panel.animation_timer.stop()
                 self.dashboard_page.connection_panel.safety_timer.stop()
-            
+            # Await controller shutdown (robust, with timeout)
+            loop = None
+            try:
+                loop = asyncio.get_event_loop()
+            except RuntimeError:
+                pass
+            shutdown_done = False
+            start_time = time.time()
+            if loop and loop.is_running():
+                try:
+                    coro = self.controller.stop()
+                    fut = asyncio.run_coroutine_threadsafe(coro, loop)
+                    fut.result(timeout=3.0)
+                    shutdown_done = True
+                except Exception as e:
+                    print(f"Error during async controller shutdown: {e}")
+            else:
+                try:
+                    # Fallback: call stop synchronously if possible
+                    if hasattr(self.controller, 'stop'):
+                        self.controller.stop()
+                        shutdown_done = True
+                except Exception as e:
+                    print(f"Error during sync controller shutdown: {e}")
+            # Wait up to 3 seconds for shutdown
+            while not shutdown_done and (time.time() - start_time) < 3.0:
+                time.sleep(0.1)
+            if not shutdown_done:
+                print("Shutdown did not complete in 3 seconds. Forcing exit.")
+                os._exit(0)
         except Exception as e:
             print(f"Error during main window cleanup: {e}")
-        
-        # Accept the close event
+            os._exit(1)
         event.accept()
     
     def _cleanup_timers(self) -> None:

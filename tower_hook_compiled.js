@@ -1,20 +1,41 @@
 📦
-3733 /tower_hook.js.map
-5470 /tower_hook.js
+3650 /tower_hook.js.map
+5548 /tower_hook.js
 157866 /node_modules/frida-il2cpp-bridge/dist/index.js
 ↻ frida-il2cpp-bridge
 ✄
-{"version":3,"file":"tower_hook.js","sourceRoot":"C:/Users/delan/Documents/GitHub/TowerIQ/","sources":["tower_hook.js"],"names":[],"mappings":"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"}
+{"version":3,"file":"tower_hook.js","sourceRoot":"C:/Users/delan/Documents/GitHub/TowerIQ/","sources":["tower_hook.js"],"names":[],"mappings":"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"}
 ✄
-// tower_hook_integrated_v3.js
+// tower_hook_integrated_v6.js
 // This script is a long-running data logger.
-// v3: Adds a hook for Main.GameOver to capture end-of-round statistics
-// and signal the end of the data logging for that round.
+// v6: Makes 'timestamp' a standard item in the generic message sender,
+//     ensuring all events are consistently time-stamped.
 import "frida-il2cpp-bridge";
 Il2Cpp.perform(() => {
     console.log("[+] Il2Cpp Bridge is ready and running in the emulated realm.");
     // --- SHARED STATE ---
     let currentRoundSeed = 0;
+    // --- GENERIC MESSAGE SENDER ---
+    /**
+     * A centralized function to send messages with standard state information attached.
+     * @param {Il2Cpp.Object} context - The 'this' object from a hook, or a found instance.
+     * @param {string} messageType - The type of the event (e.g., 'game_metric', 'round_over').
+     * @param {object} customPayload - The specific data unique to this message.
+     */
+    function sendStatefulMessage(context, messageType, customPayload = {}) {
+        // Create the base payload with standard items we want in every message.
+        const basePayload = {
+            timestamp: Date.now(),
+            roundSeed: currentRoundSeed,
+            roundActive: context.field("roundActiveBool").value,
+            currentWave: context.field("currentWave").value
+        };
+        const finalPayload = { ...basePayload, ...customPayload };
+        send({
+            type: messageType,
+            payload: finalPayload
+        });
+    }
     /**
      * Finds the single, active instance of the Main class.
      * @returns {Il2Cpp.Object | null} The Main instance object or null if not found.
@@ -42,7 +63,8 @@ Il2Cpp.perform(() => {
                 if (mainInstance.field("roundActiveBool").value === true) {
                     currentRoundSeed = mainInstance.field("roundSeed").value;
                     console.log(`[+] Proactive check successful. Joined active round with Seed: ${currentRoundSeed}`);
-                    send({ type: "new_round_started", payload: { roundSeed: currentRoundSeed, timestamp: Date.now() } });
+                    // The custom payload is now empty, as the sender handles everything.
+                    sendStatefulMessage(mainInstance, "new_round_started");
                 }
                 else {
                     console.log("[*] Proactive check: Game is not currently in a round.");
@@ -54,58 +76,41 @@ Il2Cpp.perform(() => {
         const startRoundMethod = Main.method("StartNewRound");
         startRoundMethod.implementation = function (...args) {
             const returnValue = this.method("StartNewRound").invoke(...args);
-            const newSeed = this.field("roundSeed").value;
-            currentRoundSeed = newSeed;
+            currentRoundSeed = this.field("roundSeed").value;
             console.log(`\n[+] New round detected! Seed updated to: ${currentRoundSeed}`);
-            send({ type: "new_round_started", payload: { roundSeed: currentRoundSeed, timestamp: Date.now() } });
+            // The custom payload is now empty.
+            sendStatefulMessage(this, "new_round_started");
             return returnValue;
         };
         console.log("[+] Hook on Main.StartNewRound is live.");
-        // --- 3. HOOK FOR GAME OVER (END OF ROUND) ---
-        // We use .method(name, argCount) to select the correct overload.
+        // --- 3. HOOK FOR GAME OVER ---
         const gameOverMethod = Main.method("GameOver", 1);
         gameOverMethod.implementation = function (allowSecondWind) {
             console.log(`\n[+] Intercepted Main.GameOver(bool)! allowSecondWind: ${allowSecondWind}`);
-            // Only process game over if we are tracking an active round.
             if (currentRoundSeed !== 0) {
                 console.log(`[+] Capturing final stats for round seed: ${currentRoundSeed}`);
-                // Send a single, comprehensive "round_over" event with all final stats.
-                send({
-                    type: "round_over",
-                    payload: {
-                        roundSeed: currentRoundSeed,
-                        timestamp: Date.now(),
-                        finalWave: this.field("currentWave").value,
-                        roundTime: this.field("roundTime").value,
-                        coinsEarned: this.field("coinsEarnedThisRound").value,
-                        cashEarned: this.field("cashEarnedThisRound").value,
-                        damageDealt: this.field("damageDealtThisRound").value,
-                        enemiesKilled: this.field("totalEnemiesDestroyedThisRound").value,
-                        // Add any other '...ThisRound' fields you find interesting here.
-                    }
+                // The custom payload only contains data specific to this event.
+                sendStatefulMessage(this, "round_over", {
+                    roundTime: this.field("roundTime").value,
+                    coinsEarned: this.field("coinsEarnedThisRound").value,
+                    cashEarned: this.field("cashEarnedThisRound").value,
+                    damageDealt: this.field("damageDealtThisRound").value,
+                    enemiesKilled: this.field("totalEnemiesDestroyedThisRound").value
                 });
-                // CRITICAL: Reset the seed to 0 so we stop logging metrics for this round.
                 console.log("[+] Round over. Resetting currentRoundSeed to 0.");
                 currentRoundSeed = 0;
             }
-            // Call the original GameOver function to let the game proceed.
             return this.method("GameOver", 1).invoke(allowSecondWind);
         };
         console.log("[+] Hook on Main.GameOver is live.");
         // --- 4. HOOK FOR PER-WAVE METRICS ---
         const newWaveMethod = Main.method("NewWave");
         newWaveMethod.implementation = function (...args) {
-            // Only send metrics if we are in an active, tracked round.
             if (currentRoundSeed !== 0) {
-                send({
-                    type: "game_metric",
-                    payload: {
-                        roundSeed: currentRoundSeed,
-                        name: "coins",
-                        value: this.field("coins").value,
-                        wave: this.field("currentWave").value + 1,
-                        timestamp: Date.now()
-                    }
+                // The custom payload only contains data specific to this event.
+                sendStatefulMessage(this, "game_metric", {
+                    name: "coins",
+                    value: this.field("coins").value
                 });
             }
             return this.method("NewWave").invoke(...args);

@@ -7,6 +7,8 @@ application components and manages the overall application lifecycle.
 
 import asyncio
 from typing import Any, Optional
+import os
+import time
 
 from PyQt6.QtCore import QObject, pyqtSignal, pyqtSlot
 
@@ -475,56 +477,71 @@ class MainController(QObject):
             if self.dashboard and hasattr(self.dashboard, 'connection_panel'):
                 self.dashboard.connection_panel.show_error(f"Failed to go back: {str(e)}")
 
-    async def stop(self) -> None:
+    async def shutdown(self, force_exit_timeout: float = 3.0) -> None:
         """
-        Gracefully shuts down all services.
+        Robust, unified shutdown for the entire application.
+        - Sets shutdown flag immediately.
+        - Cancels all background tasks and timers.
+        - Detaches from Frida with timeout and force cleanup.
+        - Closes the database with timeout and error handling.
+        - Force-exits if shutdown takes too long.
+        This method is idempotent and safe to call from any context.
+        Args:
+            force_exit_timeout: Maximum seconds to wait before force exit (default 3.0)
         """
-        self.logger.info("Starting controller shutdown")
-        
-        # Set shutdown flags early to prevent new operations
+        if getattr(self, '_shutdown_in_progress', False):
+            return
+        self._shutdown_in_progress = True
         self._is_shutting_down = True
         self._is_running = False
-        
-        # Stop the Frida message listener if running
-        self._stop_frida_listener()
-        
-        # Only detach from Frida if there's an active hook
-        if self.session.is_hook_active:
-            try:
-                self.logger.info("Detaching from Frida service")
-                # Add timeout to prevent hanging on Frida detachment
-                await asyncio.wait_for(self.frida_service.detach(), timeout=1.0)
-                self.logger.info("Frida detachment completed")
-            except asyncio.TimeoutError:
-                self.logger.warning("Frida detachment timed out after 1 second")
-            except Exception as e:
-                self.logger.error("Error during Frida detachment", error=str(e))
-        
-        # Clean up frida-server on connected device
-        if self.emulator_service.connected_device:
-            try:
-                self.logger.info("Cleaning up frida-server on device", device=self.emulator_service.connected_device)
-                await asyncio.wait_for(
-                    self.emulator_service._kill_frida_server(self.emulator_service.connected_device), 
-                    timeout=2.0
-                )
-                self.logger.info("Frida-server cleanup completed")
-            except asyncio.TimeoutError:
-                self.logger.warning("Frida-server cleanup timed out after 2 seconds")
-            except Exception as e:
-                self.logger.error("Error during frida-server cleanup", error=str(e))
-        
-        # Close database connection - call directly instead of using to_thread to avoid executor shutdown issues
+        start_time = time.time()
         try:
-            self.logger.info("Closing database connection")
-            # Don't use asyncio.to_thread during shutdown as the thread pool executor may be shutting down
-            # The database close method is synchronous and safe to call directly
-            self.db_service.close()
-            self.logger.info("Database connection closed")
+            # Cancel all background asyncio tasks except this one
+            loop = None
+            try:
+                loop = asyncio.get_event_loop()
+            except RuntimeError:
+                pass
+            if loop and loop.is_running():
+                current_task = asyncio.current_task(loop=loop)
+                tasks = [t for t in asyncio.all_tasks(loop) if t is not current_task and not t.done()]
+                for t in tasks:
+                    t.cancel()
+                await asyncio.sleep(0.05)
+            # Stop all QTimers and UI timers (if any)
+            try:
+                from PyQt6.QtCore import QTimer
+                timers = []
+                if hasattr(self, 'dashboard') and self.dashboard:
+                    timers += self.dashboard.findChildren(QTimer)
+                for timer in timers:
+                    if timer.isActive():
+                        timer.stop()
+            except Exception:
+                pass
+            # Detach from Frida with timeout
+            try:
+                if self.session.is_hook_active:
+                    await asyncio.wait_for(self.frida_service.detach(), timeout=1.0)
+            except Exception:
+                pass
+            # Close database with timeout
+            try:
+                await asyncio.wait_for(asyncio.to_thread(self.db_service.close), timeout=1.0)
+            except Exception:
+                pass
+            # Wait for all tasks to finish or timeout
+            while (time.time() - start_time) < force_exit_timeout:
+                pending = [t for t in asyncio.all_tasks() if not t.done()]
+                if not pending:
+                    break
+                await asyncio.sleep(0.05)
+            if (time.time() - start_time) >= force_exit_timeout:
+                print("Shutdown did not complete in time. Forcing exit.")
+                os._exit(0)
         except Exception as e:
-            self.logger.error("Error closing database", error=str(e))
-        
-        self.logger.info("Controller shutdown completed")
+            print(f"Error during robust shutdown: {e}")
+            os._exit(1)
     
     def _start_frida_listener(self) -> None:
         """Start the Frida message listener task."""
@@ -649,6 +666,9 @@ class MainController(QObject):
             self._emit_signal_safely(self.new_metric_received, name, value)
             self.logger.debug("Emitted metric signal to UI", metric_name=name, value=value)
             await self._get_run_metrics_for_graph(run_id_str, name)
+            round_active = payload.get("roundActiveBool")
+            if round_active is not None:
+                self.session.is_round_active = bool(round_active)
         except Exception as e:
             self.logger.error("Error handling game metric", error=str(e))
     
@@ -670,6 +690,9 @@ class MainController(QObject):
             name = payload.get("name", "unknown_event")
             data = payload.get("data", {})
             await self._write_event_to_db(run_id_str, timestamp, name, data)
+            round_active = payload.get("roundActiveBool")
+            if round_active is not None:
+                self.session.is_round_active = bool(round_active)
         except Exception as e:
             self.logger.error("Error handling game event", error=str(e))
     
@@ -754,4 +777,11 @@ class MainController(QObject):
             await asyncio.to_thread(self.db_service.write_event, run_id, timestamp, name, data)
         except Exception as e:
             self.logger.error("Failed to write event to database", error=str(e), run_id=run_id, name=name)
+    
+    async def stop(self) -> None:
+        """
+        Backward-compatible alias for shutdown().
+        Calls the robust, unified shutdown logic.
+        """
+        await self.shutdown()
  

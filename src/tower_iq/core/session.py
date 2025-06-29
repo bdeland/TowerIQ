@@ -35,6 +35,7 @@ class SessionManager:
         self._selected_target_pid: Optional[int] = None
         self._selected_target_version: Optional[str] = None
         self._is_hook_compatible: bool = False
+        self._is_round_active: bool = False
     
     # Properties for current_round_seed
     @property
@@ -208,6 +209,17 @@ class SessionManager:
         with self._lock:
             self._is_hook_compatible = value
     
+    # Properties for is_round_active
+    @property
+    def is_round_active(self) -> bool:
+        with self._lock:
+            return self._is_round_active
+    
+    @is_round_active.setter
+    def is_round_active(self, value: bool) -> None:
+        with self._lock:
+            self._is_round_active = value
+    
     # Additional methods
     def get_monitoring_state(self) -> str:
         """
@@ -252,7 +264,8 @@ class SessionManager:
                 'selected_target_package': self._selected_target_package,
                 'selected_target_pid': self._selected_target_pid,
                 'selected_target_version': self._selected_target_version,
-                'is_hook_compatible': self._is_hook_compatible
+                'is_hook_compatible': self._is_hook_compatible,
+                'is_round_active': self._is_round_active
             }
     
     def reset_all_state(self) -> None:
@@ -274,6 +287,7 @@ class SessionManager:
             self._selected_target_pid = None
             self._selected_target_version = None
             self._is_hook_compatible = False
+            self._is_round_active = False
     
     def reset_connection_state(self) -> None:
         """
@@ -290,4 +304,5 @@ class SessionManager:
             self._is_hook_compatible = False
             self._is_emulator_connected = False
             self._is_frida_server_running = False
-            self._is_hook_active = False 
+            self._is_hook_active = False
+            self._is_round_active = False 
