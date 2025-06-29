@@ -628,54 +628,48 @@ class MainController(QObject):
     
     async def _handle_game_metric(self, message: dict) -> None:
         """
-        Processes metric data.
+        Processes metric data. Uses roundSeed from the game as the run identifier for all database writes.
         """
         try:
             payload = message.get("payload", {})
-            run_id = self.session.current_runId or "default"
+            round_seed = payload.get("roundSeed")
+            if round_seed is not None:
+                self.session.current_round_seed = round_seed
+            run_id = self.session.current_round_seed
+            if run_id is None:
+                self.logger.warning("No roundSeed available for metric, skipping database write.")
+                return
+            run_id_str = str(run_id)
             timestamp = int(payload.get("timestamp", asyncio.get_event_loop().time()))
             name = payload.get("name", "unknown_metric")
             value = float(payload.get("value", 0))
-            
-            self.logger.debug("Processing game metric", 
-                           metric_name=name, 
-                           value=value, 
-                           run_id=run_id)
-            
-            # Write to database using protected method that checks shutdown state
-            await self._write_metric_to_db(run_id, timestamp, name, value)
+            self.logger.debug("Processing game metric", metric_name=name, value=value, run_id=run_id_str)
+            await self._write_metric_to_db(run_id_str, timestamp, name, value)
             self.logger.debug("Wrote metric to database", metric_name=name, value=value)
-            
-            # Emit signal for UI metric display - use thread-safe emission
             self._emit_signal_safely(self.new_metric_received, name, value)
             self.logger.debug("Emitted metric signal to UI", metric_name=name, value=value)
-            
-            # Fetch recent data and update graph with proper graph names using protected method
-            await self._get_run_metrics_for_graph(run_id, name)
-                
+            await self._get_run_metrics_for_graph(run_id_str, name)
         except Exception as e:
             self.logger.error("Error handling game metric", error=str(e))
     
     async def _handle_game_event(self, message: dict) -> None:
         """
-        Processes discrete game events (e.g., round start, perk chosen).
+        Processes discrete game events (e.g., round start, perk chosen). Uses roundSeed from the game as the run identifier for all database writes.
         """
         try:
             payload = message.get("payload", {})
-            run_id = self.session.current_runId or "default"
+            round_seed = payload.get("roundSeed")
+            if round_seed is not None:
+                self.session.current_round_seed = round_seed
+            run_id = self.session.current_round_seed
+            if run_id is None:
+                self.logger.warning("No roundSeed available for event, skipping database write.")
+                return
+            run_id_str = str(run_id)
             timestamp = int(payload.get("timestamp", asyncio.get_event_loop().time()))
             name = payload.get("name", "unknown_event")
             data = payload.get("data", {})
-            
-            # Write to database using protected method that checks shutdown state
-            await self._write_event_to_db(run_id, timestamp, name, data)
-            
-            # Manage session state
-            if name == "run_started":
-                self.session.start_new_run()
-            elif name == "run_ended":
-                self.session.end_run()
-                
+            await self._write_event_to_db(run_id_str, timestamp, name, data)
         except Exception as e:
             self.logger.error("Error handling game event", error=str(e))
     

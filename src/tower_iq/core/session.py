@@ -5,7 +5,6 @@ This module provides the SessionManager class for centralized, thread-safe
 management of application volatile state.
 """
 
-import uuid
 import threading
 from typing import Optional, List, Dict, Any
 
@@ -13,7 +12,7 @@ from typing import Optional, List, Dict, Any
 class SessionManager:
     """
     Single source of truth for dynamic application state.
-    Thread-safe manager for current run ID, game version, and connection statuses.
+    Thread-safe manager for current round seed (run identifier), game version, and connection statuses.
     """
     
     def __init__(self) -> None:
@@ -21,7 +20,7 @@ class SessionManager:
         self._lock = threading.Lock()
         
         # Private state variables
-        self._current_runId: Optional[str] = None
+        self._current_round_seed: Optional[int] = None
         self._game_version: Optional[str] = None
         self._is_emulator_connected: bool = False
         self._is_frida_server_running: bool = False
@@ -37,18 +36,18 @@ class SessionManager:
         self._selected_target_version: Optional[str] = None
         self._is_hook_compatible: bool = False
     
-    # Properties for current_runId
+    # Properties for current_round_seed
     @property
-    def current_runId(self) -> Optional[str]:
-        """Get the current run ID."""
+    def current_round_seed(self) -> Optional[int]:
+        """Get the current round seed (run identifier, from the game)."""
         with self._lock:
-            return self._current_runId
+            return self._current_round_seed
     
-    @current_runId.setter
-    def current_runId(self, value: Optional[str]) -> None:
-        """Set the current run ID."""
+    @current_round_seed.setter
+    def current_round_seed(self, value: Optional[int]) -> None:
+        """Set the current round seed (run identifier, from the game)."""
         with self._lock:
-            self._current_runId = value
+            self._current_round_seed = value
     
     # Properties for game_version
     @property
@@ -231,32 +230,17 @@ class SessionManager:
         """
         self.current_monitoring_state = state
     
-    def start_new_run(self) -> str:
-        """
-        Generate a new UUID for a run, set it as current_runId, and return it.
-        
-        Returns:
-            The new run ID (UUID string)
-        """
-        new_run_id = str(uuid.uuid4())
-        self.current_runId = new_run_id
-        return new_run_id
-    
-    def end_run(self) -> None:
-        """Reset current_runId to None."""
-        self.current_runId = None
-    
     def get_status_summary(self) -> dict:
         """
         Get a summary of all current session state.
         Thread-safe snapshot of all state variables.
         
         Returns:
-            Dictionary containing all state variables
+            Dictionary containing all state variables, including current_round_seed as the run identifier
         """
         with self._lock:
             return {
-                'current_runId': self._current_runId,
+                'current_round_seed': self._current_round_seed,
                 'game_version': self._game_version,
                 'is_emulator_connected': self._is_emulator_connected,
                 'is_frida_server_running': self._is_frida_server_running,
@@ -277,7 +261,7 @@ class SessionManager:
         Useful for application shutdown or reset scenarios.
         """
         with self._lock:
-            self._current_runId = None
+            self._current_round_seed = None
             self._game_version = None
             self._is_emulator_connected = False
             self._is_frida_server_running = False

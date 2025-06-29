@@ -9,6 +9,7 @@ import sys
 import asyncio
 from pathlib import Path
 from typing import NoReturn
+import argparse
 
 import qasync
 import structlog
@@ -18,6 +19,7 @@ from tower_iq.core.config import ConfigurationManager
 from tower_iq.core.logging_config import setup_logging
 from tower_iq.main_controller import MainController
 from tower_iq.gui.main_window import MainWindow
+from tower_iq.services.emulator_service import EmulatorService
 
 def main() -> None:
     """
@@ -31,6 +33,11 @@ def main() -> None:
     5. Instantiates controller and main window
     6. Runs the application with proper cleanup
     """
+    # Argument parsing for CLI flags
+    parser = argparse.ArgumentParser(description="TowerIQ Application")
+    parser.add_argument('--reset-frida', action='store_true', help='Update and start frida-server on the first connected device, then exit')
+    args, unknown = parser.parse_known_args()
+
     # Initialize paths & environment
     app_root = Path(__file__).parent.parent.parent
     yaml_path = app_root / "config" / "main_config.yaml"
@@ -46,6 +53,27 @@ def main() -> None:
         logger = structlog.get_logger("main_entry")
         
         logger.info("Starting TowerIQ application", version="1.0")
+        
+        if args.reset_frida:
+            # Minimal async routine to reset frida-server
+            async def reset_frida():
+                logger.info("--reset-frida flag detected, starting frida-server reset workflow")
+                emulator_service = EmulatorService(config, logger)
+                devices = await emulator_service._get_connected_devices()
+                if not devices:
+                    print("No connected devices found for frida reset.", file=sys.stderr)
+                    sys.exit(2)
+                device_id = devices[0]
+                print(f"Resetting frida-server on device: {device_id}")
+                try:
+                    await emulator_service.ensure_frida_server_is_running(device_id)
+                    print(f"Frida-server updated and started successfully on device: {device_id}")
+                    sys.exit(0)
+                except Exception as e:
+                    print(f"Failed to reset frida-server: {e}", file=sys.stderr)
+                    sys.exit(1)
+            asyncio.run(reset_frida())
+            return
         
         # Initialize PyQt Application
         qt_app = QApplication(sys.argv)

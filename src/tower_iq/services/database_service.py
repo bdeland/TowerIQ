@@ -171,9 +171,8 @@ class DatabaseService:
     def write_metric(self, run_id: str, timestamp: int, name: str, value: float) -> None:
         """
         Write a metric to the database.
-        
         Args:
-            run_id: Unique identifier for the run
+            run_id: Unique identifier for the run (now the roundSeed from the game, as a string)
             timestamp: Unix timestamp
             name: Metric name
             value: Metric value
@@ -196,9 +195,8 @@ class DatabaseService:
     def write_event(self, run_id: str, timestamp: int, name: str, data: dict) -> None:
         """
         Write an event to the database.
-        
         Args:
-            run_id: Unique identifier for the run
+            run_id: Unique identifier for the run (now the roundSeed from the game, as a string)
             timestamp: Unix timestamp
             name: Event name
             data: Event data dictionary
@@ -253,14 +251,12 @@ class DatabaseService:
     
     def get_run_metrics(self, run_id: str, metric_name: str) -> pd.DataFrame:
         """
-        Fetch all data for a specific metric in a run, ready for plotting.
-        
+        Get all metrics for a given run and metric name.
         Args:
-            run_id: Unique identifier for the run
-            metric_name: Name of the metric to fetch
-            
+            run_id: Unique identifier for the run (now the roundSeed from the game, as a string)
+            metric_name: Name of the metric
         Returns:
-            pandas DataFrame with 'timestamp' and 'value' columns
+            DataFrame of metrics
         """
         if not self.sqlite_conn:
             self.logger.error("SQLite connection not available")

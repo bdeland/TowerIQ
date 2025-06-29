@@ -1,203 +1,185 @@
-# TowerIQ v1.0 - Advanced Mobile Game Analysis Platform
+# TowerIQ - Advanced Mobile Game Analysis Platform
 
-TowerIQ is a sophisticated platform for analyzing and monitoring mobile games using advanced instrumentation techniques. This implementation provides a complete backend architecture with PyQt6 GUI for real-time game data collection, analysis, and visualization through Frida instrumentation.
+TowerIQ is a sophisticated platform for analyzing and monitoring mobile games using advanced instrumentation techniques. This implementation provides a complete backend architecture with a PyQt6 GUI for real-time game data collection, analysis, and visualization through Frida instrumentation.
 
 ## 🏗️ Architecture Overview
 
-TowerIQ follows a modular, service-oriented architecture with the following key components:
+TowerIQ follows a modular, service-oriented architecture designed for robustness and maintainability.
 
-- **Core Foundation**: Configuration management, unified logging, and thread-safe session state
-- **Service Layer**: SQLite database management, emulator control, and Frida instrumentation
-- **Controller Layer**: Message dispatch pattern with PyQt signals for UI communication
-- **GUI Layer**: Modern PyQt6-based user interface with PyQtGraph visualization
-- **Data Layer**: Encrypted SQLite for all data storage with time-series metrics support
+- **`main_app_entry.py`**: The application's entry point, responsible for initializing the PyQt application, the `asyncio` event loop (via `qasync`), and all core components. It orchestrates the startup and graceful shutdown sequences.
+- **`MainController`**: The central nervous system of the application. It acts as an orchestrator, managing the lifecycle of all services and facilitating communication between the backend services and the GUI using the PyQt signal/slot mechanism.
+- **Service Layer**: A collection of specialized services that handle specific domains:
+    - `DatabaseService`: Manages all interactions with the embedded SQLite database, including data storage, retrieval, and schema migrations.
+    - `EmulatorService`: Handles all low-level communication with Android devices via ADB, including device discovery, connection, and the entire `frida-server` lifecycle management (download, push, start, and monitor).
+    - `FridaService`: Manages the Frida instrumentation process, including attaching to the target process, injecting the JavaScript hook, and managing the bi-directional communication channel.
+- **GUI Layer**: A modern user interface built with PyQt6.
+    - `MainWindow`: The main application window that contains the navigation structure and hosts the different UI pages.
+    - **Components**: Reusable UI widgets, including a `DashboardPage` for data visualization and a stateful `ConnectionStatePanel` that guides the user through the connection process.
+- **Core Modules**: Foundational components for configuration, logging, and session management.
+
+```mermaid
+graph TD
+    subgraph User Interface (PyQt6)
+        MainWindow -- contains --> DashboardPage
+        DashboardPage -- contains --> ConnectionStatePanel
+        DashboardPage -- contains --> GraphWidget
+        MainWindow -- manages --> HistoryPage
+        MainWindow -- manages --> SettingsPage
+    end
+
+    subgraph Backend Services
+        MainController
+        DatabaseService[(SQLite DB)]
+        EmulatorService -- manages --> FridaServer[frida-server on device]
+        FridaService -- manages --> FridaHook[JS Hook in Game]
+    end
+
+    subgraph Game
+        TheTower[The Tower Process] -- instrumented by --> FridaHook
+    end
+
+    subgraph Core
+        Config[Configuration]
+        Logger[Logging]
+        Session[Session State]
+    end
+
+    %% Interactions
+    main_app_entry(main_app_entry.py) --> MainController
+    MainController -- uses --> Config
+    MainController -- uses --> Logger
+    MainController -- uses --> Session
+    MainController -- orchestrates --> DatabaseService
+    MainController -- orchestrates --> EmulatorService
+    MainController -- orchestrates --> FridaService
+
+    MainWindow -- interacts with --> MainController
+    ConnectionStatePanel -- signals to --> MainController
+    MainController -- sends data to --> DashboardPage
+
+    EmulatorService -- talks to --> ADB[ADB Server]
+    ADB -- talks to --> TheTower
+    FridaService -- attaches to --> TheTower
+```
 
 ## 📁 Project Structure
 
 ```
 TowerIQ/
-├── config/                     # Configuration files
-│   ├── main_config.yaml       # Main application configuration
-│   └── hook_contract.yaml     # Frida hook contract specification
-├── src/tower_iq/              # Main application source
-│   ├── core/                  # Core foundation modules
-│   │   ├── config.py         # Configuration management
-│   │   ├── logging_config.py # Unified logging system
-│   │   └── session.py        # Session state management
-│   ├── services/              # Service layer
-│   │   ├── database_service.py # SQLite database management
-│   │   ├── emulator_service.py # ADB device management
-│   │   └── frida_service.py   # Frida instrumentation
-│   ├── gui/                   # User interface
-│   │   ├── main_window.py    # Main application window
-│   │   ├── assets.py         # Asset management
-│   │   └── components/       # UI components
-│   │       ├── dashboard_page.py   # Dashboard with metrics
-│   │       ├── status_indicator.py # Status display widget
-│   │       ├── history_page.py     # Run history page
-│   │       └── settings_page.py    # Settings page
-│   ├── main_controller.py     # Application orchestrator with PyQt signals
-│   └── main_app_entry.py      # Application entry point
-├── resources/                 # Static resources
-│   └── assets/               # UI assets and icons
-├── memory/                   # Development documentation
-│   ├── part1.md             # Foundation implementation (completed)
-│   ├── part2.md             # Core services implementation (completed)
-│   ├── part3.md             # GUI implementation (completed)
-│   └── part4.md             # Embedded refactoring (completed)
-├── data/                     # Application data directory
-├── logs/                     # Application logs
-├── pyproject.toml            # Project dependencies and metadata
-└── README.md                # This file
+├── config/
+│   ├── main_config.yaml      # Main application configuration
+│   └── hook_contract.yaml    # Frida hook contract specification
+├── data/                       # Default location for the SQLite database
+├── logs/                       # Application log files
+├── resources/
+│   ├── assets/               # UI assets (icons)
+│   └── hooks/                # (Not used, hooks are compiled from src)
+├── src/
+│   └── tower_iq/
+│       ├── core/
+│       │   ├── config.py         # Configuration management
+│       │   ├── logging_config.py # Unified logging system
+│       │   └── session.py        # Session state management
+│       ├── gui/
+│       │   ├── main_window.py    # Main application window
+│       │   ├── assets.py         # Asset management
+│       │   └── components/
+│       │       ├── dashboard_page.py        # Dashboard with metrics
+│       │       ├── connection_state_panel.py # Multi-stage connection wizard
+│       │       ├── history_page.py          # Run history page
+│       │       └── settings_page.py         # Settings page
+│       ├── services/
+│       │   ├── database_service.py # SQLite database management
+│       │   ├── emulator_service.py # ADB & frida-server management
+│       │   └── frida_service.py    # Frida instrumentation & communication
+│       ├── scripts/
+│       │   ├── hook.js             # The source Frida hook script
+│       │   └── hook_compiled.js    # The compiled hook for injection
+│       ├── main_controller.py      # Application orchestrator
+│       └── main_app_entry.py       # Application entry point
+├── pyproject.toml              # Project dependencies and metadata
+└── README.md                   # This file
 ```
+
+## 📚 Key Modules and Methods
+
+This section provides a detailed overview of the application's key components and their responsibilities.
+
+### `main_app_entry.py`
+The single entry point for the application.
+- **`main()`**: Initializes all core components (`ConfigurationManager`, logging), sets up the `QApplication` and the `qasync` event loop, instantiates the `MainController` and `MainWindow`, and manages the application's run and graceful shutdown sequence.
+
+### `main_controller.py`
+The central orchestrator of the application. It connects the backend services to the GUI.
+- **`__init__()`**: Initializes all services (`DatabaseService`, `EmulatorService`, `FridaService`, `SessionManager`).
+- **`run()`**: The main async method started by the entry point. It connects to the database and initiates the device connection workflow (either automatically or by preparing the UI for manual connection).
+- **`stop()`**: Handles graceful shutdown of the application, ensuring all services are stopped and resources are released.
+- **`on_*_requested()` slots**: A series of PyQt slots that respond to user actions from the `ConnectionStatePanel` (e.g., `on_scan_devices_requested`). These trigger async `_handle_*` methods to perform the actual work.
+- **`_listen_for_frida_messages()`**: An async task that continuously listens for messages from the `FridaService` queue and dispatches them to appropriate handlers (e.g., `_handle_game_metric`).
+- **`_emit_signal_safely()`**: A thread-safe utility to emit PyQt signals from `asyncio` tasks, preventing cross-thread exceptions.
+
+### `services/database_service.py`
+Manages all database operations for the encrypted SQLite database.
+- **`connect()`**: Establishes the database connection and enables Write-Ahead Logging (WAL) for better concurrency.
+- **`close()`**: Gracefully closes the connection, ensuring WAL files are checkpointed and cleaned up.
+- **`run_migrations()`**: Creates the database schema (`runs`, `metrics`, `events`, `logs`, `settings` tables) if it doesn't exist.
+- **`write_metric()` / `write_event()`**: Methods to persist time-series data and discrete events from the game.
+
+### `services/emulator_service.py`
+Handles all low-level device interaction via ADB and manages the `frida-server` lifecycle. This service contains numerous fixes to handle quirks of different Android emulators.
+- **`find_and_connect_device()`**: Scans for and connects to an ADB device.
+- **`ensure_frida_server_is_running()`**: A critical, idempotent method that handles the entire `frida-server` setup: checks for a responsive server, downloads the correct binary for the device's architecture if needed, pushes it to the device (handling `adb` quirks), and starts it as a detached process using `setsid`.
+- **`is_frida_server_responsive()`**: A reliable check that attempts a real Frida connection to see if the server is active.
+- **`get_game_pid()`**: Finds the process ID of the target application.
+- **`get_installed_third_party_packages()`**: Retrieves a list of installed applications for the process selection UI.
+
+### `services/frida_service.py`
+The bridge between the Python application and the JavaScript hooks running in the game.
+- **`attach()`**: Attaches Frida to the target process.
+- **`detach()`**: Detaches cleanly, using a "poison pill" message and timeouts to prevent the application from hanging on shutdown.
+- **`inject_and_run_script()`**: Injects the compiled JavaScript hook into the target process.
+- **`check_local_hook_compatibility()`**: Validates that the hook is compatible with the target game version by checking against a `hook_contract.yaml` file.
+- **`_on_message()`**: The callback that receives messages from the Frida hook. It places them onto an `asyncio.Queue` for thread-safe processing.
+- **`get_message()`**: The async method used by the `MainController` to retrieve messages from the queue. It is designed to be shutdown-aware to prevent deadlocks.
+
+### `gui/main_window.py`
+The main application window and UI container.
+- **`__init__()`**: Sets up the main window, including the navigation panel and the `QStackedWidget` for managing different pages.
+- **`_connect_signals()`**: Connects signals from the `MainController` to slots in the UI pages (e.g., to update graphs) and vice-versa.
+- **`closeEvent()`**: Overridden to ensure a clean shutdown and proper cleanup of UI timers.
+
+### `gui/components/dashboard_page.py`
+The main page for displaying data visualizations.
+- **`set_connection_active()`**: Toggles the view between the data dashboard and the connection panel overlay.
+- **`GraphWidget`**: A reusable component that encapsulates a `pyqtgraph` plot for displaying real-time data.
+- **`update_metric_display()`**: A PyQt slot that receives new data from the controller and updates the appropriate graph.
+
+### `gui/components/connection_state_panel.py`
+A stateful wizard that guides the user through the connection process.
+- **Multi-Stage UI**: Presents a three-step process for Device Selection, Process Selection, and Hook Activation.
+- **Signal Emission**: Emits signals (e.g., `scan_devices_requested`) to the `MainController` when the user interacts with the panel.
+- **State Updates**: Provides public methods that the controller calls to populate the UI with data (e.g., lists of devices and processes).
 
 ## 🚀 Current Implementation Status
 
-### ✅ Completed (Part 1: Foundation)
-
-1. **Project Structure & Dependencies**
-   - Complete directory structure with proper Python packages
-   - Poetry-based dependency management with PyQt6, PyQtGraph, and all required dependencies
-   - Python 3.11+ support
-
-2. **Core Configuration System**
-   - YAML-based configuration with `.env` override support
-   - Dot-notation access to nested configuration values
-   - Comprehensive validation and error handling
-
-3. **Unified Logging System**
-   - Structlog-based pipeline with multiple output formats
-   - JSON logs for machine processing
-   - Colored console output for development
-   - Source-based filtering system
-   - Database integration for log storage
-
-4. **Session Management**
-   - Thread-safe session state management with properties
-   - Run ID generation and tracking with UUIDs
-   - Connection status monitoring (emulator, frida-server, hook)
-   - Monitoring state management (NORMAL/HIGH_RESOLUTION)
-
-### ✅ Completed (Part 2: Core Logic & Services)
-
-5. **Main Controller**
-   - **PyQt QObject** with signal/slot architecture
-   - **Message Dispatch Pattern** for Frida communication
-   - Application lifecycle management with async support
-   - Service orchestration with background task management
-   - Health monitoring and error handling
-
-6. **Database Service (Embedded SQLite)**
-   - **Encrypted SQLite** with mandatory SQLCipher encryption
-   - Time-series metrics storage with run tracking
-   - Application state and settings management
-   - Database migrations system
-   - Pandas DataFrame integration for data analysis
-
-7. **Emulator Service**
-   - **ADB device discovery** and automatic connection
-   - Device architecture detection for frida-server compatibility
-   - **Frida-server installation** and lifecycle management
-   - Game process detection by package name
-   - Connection health monitoring
-
-8. **Frida Service**
-   - **Secure script injection** with signature verification
-   - Process attachment and detachment management
-   - **Async message queue** for script communication
-   - Script download and verification workflow
-   - Thread-safe message bridging to asyncio
-
-### ✅ Completed (Part 3: GUI Implementation)
-
-9. **Main Window**
-   - PyQt6-based main application window
-   - Navigation and stacked widget layout
-   - Status indicator integration
-   - Asset management for bundled resources
-
-10. **Dashboard Components**
-    - Dashboard page with real-time metric displays
-    - Status indicator widget for connection status
-    - History page for run tracking
-    - Settings page for configuration
-    - PyQtGraph integration for live data visualization
-
-### ✅ Completed (Part 4: Embedded Architecture)
-
-11. **Fully Embedded Stack**
-    - Removed all Docker/WSL dependencies
-    - Self-contained SQLite-only architecture
-    - PyQtGraph-based native visualization
-    - Complete desktop application with no external dependencies
-
-## 🛠️ Installation & Setup
-
-### Prerequisites
-
-- Python 3.11 or higher
-- ADB (Android Debug Bridge) - part of Android SDK Platform Tools
-- Android emulator or physical device with USB debugging enabled
-
-### Installation
-
-1. **Clone the repository**
-   ```bash
-   git clone <repository-url>
-   cd TowerIQ
-   ```
-
-2. **Install dependencies**
-   ```bash
-   # Using Poetry (recommended)
-   poetry install
-   
-   # Or using pip
-   pip install -e .
-   ```
-
-3. **Configure the application**
-   ```bash
-   # Copy and edit configuration
-   cp .env.example .env
-   # Edit .env with your specific settings
-   ```
-
-## 🔧 Configuration
-
-### Main Configuration (`config/main_config.yaml`)
-
-The main configuration file controls all aspects of the application:
-
-- **Application settings**: Name, version, debug mode
-- **Logging configuration**: Levels, outputs, source filtering
-- **Database settings**: Encrypted SQLite configuration
-- **Emulator settings**: ADB path, target package (`com.TechTreeGames.TheTower`)
-- **Frida settings**: Server port, script validation, security options
-- **GUI settings**: Theme, window size, auto-connect options
-- **Monitoring settings**: Polling intervals, resolution modes
-
-### Environment Variables (`.env`)
-
-Sensitive configuration is stored in environment variables:
-
-- `SQLITE_ENCRYPTION_KEY`: SQLite database encryption key (mandatory)
-- `FRIDA_SIGNATURE_KEY`: Frida script signature validation key
-- `DEBUG_MODE`: Override debug mode setting
+### ✅ Completed Features
+- **Project Structure & Dependencies**: Poetry-based dependency management.
+- **Core Systems**: YAML-based configuration, `structlog`-based logging, and thread-safe session management.
+- **Main Controller**: `QObject`-based orchestrator with signal/slot architecture.
+- **Database Service**: Embedded SQLite with WAL mode and data persistence for runs, metrics, events, and logs.
+- **Emulator Service**: Robust ADB device discovery and comprehensive `frida-server` lifecycle management with fixes for common emulator issues.
+- **Frida Service**: Secure script injection and thread-safe, bi-directional communication with the in-game hook.
+- **GUI**: A complete PyQt6-based user interface with a multi-page design, real-time plotting with `pyqtgraph`, and a guided connection wizard.
+- **Embedded Architecture**: Fully self-contained desktop application with no external service dependencies (like Docker or WSL).
 
 ## 🏃‍♂️ Running the Application
 
 ### Development Mode
 
 ```bash
-# Run the main application
-python -m tower_iq.main_app_entry
-
-# Or using Poetry
-poetry run python -m tower_iq.main_app_entry
-
-# Or using the entry point script
-poetry run tower-iq
+# Using Poetry (recommended)
+poetry install
+poetry run python -m src.tower_iq.main_app_entry
 ```
 
 ### Target Game Setup
@@ -220,20 +202,27 @@ poetry run tower-iq
 
 ### Automatic Connection Flow
 
-TowerIQ implements a zero-touch approach for device connection:
+TowerIQ can be configured to automatically connect on startup:
 
-1. **Device Discovery**: Automatically scans for ADB devices on startup
-2. **Frida Setup**: Installs and starts frida-server on the target device
-3. **Game Detection**: Finds the running Tower game process
-4. **Hook Injection**: Securely downloads and injects monitoring scripts
-5. **Data Collection**: Streams metrics and events to the database
+1.  **Device Discovery**: Automatically scans for and connects to an ADB device.
+2.  **Frida Setup**: Installs and starts the correct `frida-server` on the target device.
+3.  **Game Detection**: Finds the running process for the configured game package.
+4.  **Hook Injection**: Validates compatibility and injects the monitoring script.
+5.  **Data Collection**: Streams metrics and events from the game to the backend.
+
+### Manual Connection Flow
+
+If automatic connection is disabled or fails, the `ConnectionStatePanel` guides the user:
+1. **Stage 1**: User clicks "Scan for Devices" and selects a device from the list.
+2. **Stage 2**: User clicks "Refresh Process List" and selects the target game process.
+3. **Stage 3**: User reviews the selections and clicks "Activate Hook" to begin monitoring.
 
 ### Message Flow Architecture
 
 ```
-Game Process → Frida Script → FridaService → MessageQueue → MainController → DatabaseService
-                                                       ↓
-                                              PyQt Signals → GUI Components → PyQtGraph
+Game Process → Frida Hook → FridaService → MessageQueue → MainController → DatabaseService
+                                                                   ↓
+                                                          PyQt Signals → GUI Components → PyQtGraph
 ```
 
 ## 📊 Logging and Monitoring
@@ -259,7 +248,7 @@ Logs are tagged by source for easy filtering:
 
 ```json
 {
-  "timestamp_ms": 1703123456789,
+  "timestamp": 1703123456789,
   "level": "INFO",
   "source": "FridaService",
   "event": "Script injected successfully",
@@ -269,99 +258,40 @@ Logs are tagged by source for easy filtering:
 }
 ```
 
-## 🗄️ Database Schema
-
-### SQLite Schema (Encrypted)
-
-- **runs**: `(run_id, start_time, end_time, game_version, tier)`
-- **metrics**: `(run_id, timestamp, name, value)` - Time-series game metrics
-- **events**: `(run_id, timestamp, name, data)` - Discrete game events
-- **logs**: `(timestamp, level, source, event, data)` - Application logs
-- **settings**: `(key, value)` - Application configuration storage
-
-All data is encrypted using SQLCipher with mandatory encryption keys.
-
 ## 🔒 Security Features
 
-- **Mandatory Database Encryption**: All SQLite databases use SQLCipher encryption
-- **Script Signature Verification**: Frida scripts validated before injection
-- **Secure Script Download**: Encrypted script delivery with hash verification
-- **Environment Variable Isolation**: Sensitive data in environment variables
-- **Source-based Access Control**: Log filtering and access management
+- **Hook Contract Validation**: The `hook_contract.yaml` can be used to restrict hooking to specific game versions.
+- **Environment Variable Isolation**: Sensitive data can be stored in a `.env` file.
 
-## 🧪 Testing
+## Command Line Usage
 
-### Development Testing
+You can run the main application as usual:
 
-Test the application components:
-
-```bash
-# Run with Poetry
-poetry run python -m tower_iq.main_app_entry
-
-# Check database connection
-python -c "from src.tower_iq.services.database_service import DatabaseService; print('Database module loaded successfully')"
+```
+poetry run tower-iq
 ```
 
-## 📈 Performance Considerations
+### Frida Server Reset Command
 
-- **Async Architecture**: Non-blocking I/O for all services using asyncio
-- **PyQt Integration**: qasync bridge for seamless Qt/asyncio integration
-- **Thread Safety**: Proper locking in SessionManager and message queues
-- **Memory Management**: Careful resource cleanup with context managers
-- **Background Monitoring**: Efficient health checks and status updates
-- **Database Optimization**: Indexed queries and prepared statements
-- **Native Visualization**: PyQtGraph for efficient real-time plotting
+To update and start the frida-server on the first connected Android device (without launching the GUI), use:
 
-## 🎯 Game Analysis Features
-
-### Real-time Metrics
-- **Coins per Hour (CPH)**: Live calculation and tracking
-- **Elevator Performance**: Speed and efficiency metrics
-- **Resource Management**: Coin generation and spending patterns
-- **Progress Tracking**: Floor progression and achievement monitoring
-
-### Event Detection
-- **Game State Changes**: Round start/end, prestige events
-- **User Actions**: Purchases, upgrades, strategic decisions
-- **Performance Milestones**: Achievement unlocks and progress markers
-
-### Data Visualization
-- **PyQtGraph Charts**: Real-time metric plotting with smooth updates
-- **Dashboard Widgets**: Live metric displays with historical context
-- **Run History**: Complete analysis of past gaming sessions
-
-## 🤝 Contributing
-
-1. Follow the established architecture patterns
-2. Maintain comprehensive logging with structured output
-3. Add tests for new functionality
-4. Update documentation and type hints
-5. Follow the message dispatch pattern for new features
-
-## 🆘 Troubleshooting
-
-### Common Issues
-
-1. **Device not detected**: Check ADB installation and USB debugging
-2. **Frida-server fails**: Ensure device has root access or use ADB root
-3. **Game not found**: Verify "The Tower" is installed and running
-4. **Database errors**: Check SQLite encryption key in .env file
-5. **GUI not loading**: Ensure PyQt6 is properly installed
-
-### Debug Information
-
-```bash
-# Check ADB devices
-adb devices
-
-# Verify game process
-adb shell ps | grep tower
-
-# Check application logs in database or console output
-poetry run python -m tower_iq.main_app_entry
 ```
+poetry run tower-iq --reset-frida
+```
+
+This will:
+- Scan for connected ADB devices
+- Update and push the correct frida-server binary to the first device found
+- Start frida-server and verify it is running
+- Print success or error to the console and exit
+
+If no device is found, or if the operation fails, an error message will be printed and the process will exit with a nonzero code.
+
+## Database and Metrics
+
+- All metrics and events are now associated with a run identifier that matches the `roundSeed` generated by the game itself. This ensures that all data is grouped and queried by the same seed value used in-game.
+- The previous system used a randomly generated UUID for each run; this has been replaced by the in-game `roundSeed` for full alignment with game logic and data.
 
 ---
 
-**Implementation Status**: Complete! All parts 1-4 implemented with fully embedded SQLite architecture, PyQt6 GUI, PyQtGraph visualization, and zero external dependencies. 
+**Implementation Status**: All core features are implemented in a fully embedded architecture using Python, PyQt6, and SQLite. The application is ready for further development or refactoring.

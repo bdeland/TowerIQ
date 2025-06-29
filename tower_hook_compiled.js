@@ -1,41 +1,116 @@
 📦
-1257 /tower_hook_readonly_final.js.map
-1616 /tower_hook_readonly_final.js
+3733 /tower_hook.js.map
+5470 /tower_hook.js
 157866 /node_modules/frida-il2cpp-bridge/dist/index.js
 ↻ frida-il2cpp-bridge
 ✄
-{"version":3,"file":"tower_hook_readonly_final.js","sourceRoot":"C:/Users/delan/Documents/GitHub/TowerIQ/","sources":["tower_hook_readonly_final.js"],"names":[],"mappings":"AAAA,+BAA+B;AAE/B,oEAAoE;AACpE,oEAAoE;AAEpE,OAAO,qBAAqB,CAAC;AAE7B,MAAM,CAAC,OAAO,CAAC,GAAG,EAAE;IAChB,OAAO,CAAC,GAAG,CAAC,+DAA+D,CAAC,CAAC;IAE7E,IAAI;QACA,MAAM,cAAc,GAAG,MAAM,CAAC,MAAM,CAAC,QAAQ,CAAC,iBAAiB,CAAC,CAAC;QACjE,MAAM,IAAI,GAAG,cAAc,CAAC,KAAK,CAAC,KAAK,CAAC,MAAM,CAAC,CAAC;QAChD,MAAM,aAAa,GAAG,IAAI,CAAC,MAAM,CAAC,SAAS,CAAC,CAAC,CAAC,iBAAiB;QAE/D,OAAO,CAAC,GAAG,CAAC,qCAAqC,aAAa,CAAC,MAAM,EAAE,CAAC,CAAC;QACzE,OAAO,CAAC,GAAG,CAAC,oDAAoD,CAAC,CAAC;QAElE,wDAAwD;QACxD,aAAa,CAAC,cAAc,GAAG,UAAU,GAAG,IAAI;YAC5C,OAAO,CAAC,GAAG,CAAC,mCAAmC,CAAC,CAAC;YAEjD,MAAM,KAAK,GAAG,IAAI,CAAC,KAAK,CAAC,OAAO,CAAC,CAAC,KAAK,CAAC;YACxC,OAAO,CAAC,GAAG,CAAC,kCAAkC,KAAK,EAAE,CAAC,CAAC;YACvD,IAAI,CAAC;gBACD,IAAI,EAAE,aAAa;gBACnB,OAAO,EAAE;oBACL,IAAI,EAAE,OAAO;oBACb,KAAK,EAAE,KAAK;oBACZ,SAAS,EAAE,IAAI,CAAC,GAAG,EAAE,CAAC,8BAA8B;iBACvD;aACJ,CAAC,CAAC;YAEH,iCAAiC;YAEjC,+CAA+C;YAC/C,gFAAgF;YAChF,OAAO,IAAI,CAAC,MAAM,CAAC,SAAS,CAAC,CAAC,MAAM,CAAC,GAAG,IAAI,CAAC,CAAC;QAClD,CAAC,CAAC;KAEL;IAAC,OAAM,CAAC,EAAE;QACP,OAAO,CAAC,KAAK,CAAC,wCAAwC,CAAC,CAAC,KAAK,EAAE,CAAC,CAAC;KACpE;AACL,CAAC,CAAC,CAAC"}
+{"version":3,"file":"tower_hook.js","sourceRoot":"C:/Users/delan/Documents/GitHub/TowerIQ/","sources":["tower_hook.js"],"names":[],"mappings":"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"}
 ✄
-// tower_hook_readonly_final.js
-// This script is designed to be run with the --realm=emulated flag.
-// It will only log information and will NOT modify any game values.
+// tower_hook_integrated_v3.js
+// This script is a long-running data logger.
+// v3: Adds a hook for Main.GameOver to capture end-of-round statistics
+// and signal the end of the data logging for that round.
 import "frida-il2cpp-bridge";
 Il2Cpp.perform(() => {
     console.log("[+] Il2Cpp Bridge is ready and running in the emulated realm.");
+    // --- SHARED STATE ---
+    let currentRoundSeed = 0;
+    /**
+     * Finds the single, active instance of the Main class.
+     * @returns {Il2Cpp.Object | null} The Main instance object or null if not found.
+     */
+    function findMainInstance() {
+        try {
+            const Main = Il2Cpp.domain.assembly("Assembly-CSharp").image.class("Main");
+            const getInstanceMethod = Main.method("get_Instance");
+            const instance = getInstanceMethod.invoke();
+            if (instance && !instance.isNull()) {
+                return instance;
+            }
+        }
+        catch (e) { /* Fails silently */ }
+        return null;
+    }
     try {
         const AssemblyCSharp = Il2Cpp.domain.assembly("Assembly-CSharp");
         const Main = AssemblyCSharp.image.class("Main");
-        const newWaveMethod = Main.method("NewWave"); // Correct casing
-        console.log(`[+] Found Main.NewWave method at: ${newWaveMethod.handle}`);
-        console.log("[+] Hook is live. Waiting for the game to call it.");
-        // Attach to the method using the bridge's clean syntax.
-        newWaveMethod.implementation = function (...args) {
-            console.log("\n[+] Intercepted Main.NewWave()!");
-            const coins = this.field("coins").value;
-            console.log(`[+] Current coins (read-only): ${coins}`);
-            send({
-                type: "game_metric",
-                payload: {
-                    name: "coins",
-                    value: coins,
-                    timestamp: Date.now() // or use new Date().getTime()
+        // --- 1. PROACTIVE SEED CHECK ---
+        console.log("[*] Performing proactive check for an in-progress round...");
+        const mainInstance = findMainInstance();
+        if (mainInstance) {
+            try {
+                if (mainInstance.field("roundActiveBool").value === true) {
+                    currentRoundSeed = mainInstance.field("roundSeed").value;
+                    console.log(`[+] Proactive check successful. Joined active round with Seed: ${currentRoundSeed}`);
+                    send({ type: "new_round_started", payload: { roundSeed: currentRoundSeed, timestamp: Date.now() } });
                 }
-            });
-            // --- NO MEMORY MODIFICATION ---
-            // THE FIX: Call the original method correctly.
-            // We get the method from the instance (`this`) and pass the original arguments.
+                else {
+                    console.log("[*] Proactive check: Game is not currently in a round.");
+                }
+            }
+            catch (e) { /* Fails silently */ }
+        }
+        // --- 2. HOOK FOR NEW ROUNDS ---
+        const startRoundMethod = Main.method("StartNewRound");
+        startRoundMethod.implementation = function (...args) {
+            const returnValue = this.method("StartNewRound").invoke(...args);
+            const newSeed = this.field("roundSeed").value;
+            currentRoundSeed = newSeed;
+            console.log(`\n[+] New round detected! Seed updated to: ${currentRoundSeed}`);
+            send({ type: "new_round_started", payload: { roundSeed: currentRoundSeed, timestamp: Date.now() } });
+            return returnValue;
+        };
+        console.log("[+] Hook on Main.StartNewRound is live.");
+        // --- 3. HOOK FOR GAME OVER (END OF ROUND) ---
+        // We use .method(name, argCount) to select the correct overload.
+        const gameOverMethod = Main.method("GameOver", 1);
+        gameOverMethod.implementation = function (allowSecondWind) {
+            console.log(`\n[+] Intercepted Main.GameOver(bool)! allowSecondWind: ${allowSecondWind}`);
+            // Only process game over if we are tracking an active round.
+            if (currentRoundSeed !== 0) {
+                console.log(`[+] Capturing final stats for round seed: ${currentRoundSeed}`);
+                // Send a single, comprehensive "round_over" event with all final stats.
+                send({
+                    type: "round_over",
+                    payload: {
+                        roundSeed: currentRoundSeed,
+                        timestamp: Date.now(),
+                        finalWave: this.field("currentWave").value,
+                        roundTime: this.field("roundTime").value,
+                        coinsEarned: this.field("coinsEarnedThisRound").value,
+                        cashEarned: this.field("cashEarnedThisRound").value,
+                        damageDealt: this.field("damageDealtThisRound").value,
+                        enemiesKilled: this.field("totalEnemiesDestroyedThisRound").value,
+                        // Add any other '...ThisRound' fields you find interesting here.
+                    }
+                });
+                // CRITICAL: Reset the seed to 0 so we stop logging metrics for this round.
+                console.log("[+] Round over. Resetting currentRoundSeed to 0.");
+                currentRoundSeed = 0;
+            }
+            // Call the original GameOver function to let the game proceed.
+            return this.method("GameOver", 1).invoke(allowSecondWind);
+        };
+        console.log("[+] Hook on Main.GameOver is live.");
+        // --- 4. HOOK FOR PER-WAVE METRICS ---
+        const newWaveMethod = Main.method("NewWave");
+        newWaveMethod.implementation = function (...args) {
+            // Only send metrics if we are in an active, tracked round.
+            if (currentRoundSeed !== 0) {
+                send({
+                    type: "game_metric",
+                    payload: {
+                        roundSeed: currentRoundSeed,
+                        name: "coins",
+                        value: this.field("coins").value,
+                        wave: this.field("currentWave").value + 1,
+                        timestamp: Date.now()
+                    }
+                });
+            }
             return this.method("NewWave").invoke(...args);
         };
+        console.log("[+] Hook on Main.NewWave is live. Waiting for game events.");
     }
     catch (e) {
         console.error(`[-] An error occurred in the bridge: ${e.stack}`);

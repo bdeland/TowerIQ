@@ -457,7 +457,7 @@ fi
                     self.logger.info("No frida-server process found in ps output")
                     # Log a few sample lines to see what processes are running
                     lines = output.split('\n')[:10]  # First 10 lines for context
-                    self.logger.info("Sample ps output", lines=lines)
+                    self.logger.debug("Sample ps output", lines=lines)
             else:
                 self.logger.debug("ps command failed", returncode=result.returncode)
             

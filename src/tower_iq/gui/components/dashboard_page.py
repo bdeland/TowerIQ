@@ -27,6 +27,8 @@ try:
 except ImportError:
     pd = None
 
+if TYPE_CHECKING:
+    from tower_iq.main_controller import MainController
 
 class GraphWidget(QWidget):
     """
@@ -51,9 +53,8 @@ class GraphWidget(QWidget):
         self.data_y: List[float] = []
         self.max_points = 1000  # Maximum number of data points to keep
         self.start_time = None  # Track start time for relative X-axis
-        
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(10, 10, 10, 10)
+        self._main_layout = QVBoxLayout(self)
+        self._main_layout.setContentsMargins(10, 10, 10, 10)
         
         if pg is not None:
             self._init_pyqtgraph()
@@ -62,22 +63,20 @@ class GraphWidget(QWidget):
     
     def _init_pyqtgraph(self) -> None:
         """Initialize the pyqtgraph plot widget."""
+        if pg is None:
+            return
         # Set background color
         pg.setConfigOption('background', 'w')
         pg.setConfigOption('foreground', 'k')
-        
         # Create plot widget
         self.plot_widget = pg.PlotWidget(title=self.title)
         self.plot_widget.setLabel('left', self.y_label)
-        self.plot_widget.setLabel('bottom', 'Time (seconds)')
+        self.plot_widget.setLabel('bottom', 'Time elapsed (seconds)')
         self.plot_widget.showGrid(x=True, y=True, alpha=0.3)
-        
         # Set Y-axis to start at 0
-        self.plot_widget.setYRange(0, 100, padding=0.1)
-        
+        self.plot_widget.setYRange(0, 100)
         # Set X-axis to start at 0
-        self.plot_widget.setXRange(0, 60, padding=0.1)  # Start with 60 seconds view
-        
+        self.plot_widget.setXRange(0, 60)  # Start with 60 seconds view
         # Create plot item
         self.plot_item = self.plot_widget.plot(
             pen=pg.mkPen(color='#2196F3', width=3),
@@ -85,8 +84,7 @@ class GraphWidget(QWidget):
             symbolSize=6,
             symbolBrush='#2196F3'
         )
-        
-        self.layout().addWidget(self.plot_widget)
+        self._main_layout.addWidget(self.plot_widget)
     
     def _init_placeholder(self) -> None:
         """Initialize a placeholder when pyqtgraph is not available."""
@@ -115,46 +113,37 @@ class GraphWidget(QWidget):
         placeholder_layout.addWidget(title_label)
         placeholder_layout.addWidget(message_label)
         
-        self.layout().addWidget(placeholder)
+        self._main_layout.addWidget(placeholder)
         
         # Set minimum size
         placeholder.setMinimumSize(400, 300)
     
+    def _normalize_timestamp(self, ts):
+        # If timestamp is in milliseconds (e.g., > 10^12), convert to seconds
+        if ts > 1e12:
+            return ts / 1000.0
+        return ts
+
     def append_data_point(self, x: float, y: float) -> None:
-        """
-        Add a new data point to the graph.
-        
-        Args:
-            x: X-axis value (typically timestamp)
-            y: Y-axis value
-        """
+        x = self._normalize_timestamp(x)
         # Set start time on first data point
         if self.start_time is None:
             self.start_time = x
-        
         # Convert to relative time (seconds from start)
         relative_time = x - self.start_time
-        
         self.data_x.append(relative_time)
         self.data_y.append(y)
-        
         # Limit the number of points to prevent memory issues
         if len(self.data_x) > self.max_points:
             self.data_x = self.data_x[-self.max_points:]
             self.data_y = self.data_y[-self.max_points:]
-        
         # Update the plot if pyqtgraph is available
         if pg is not None and hasattr(self, 'plot_item'):
             self.plot_item.setData(self.data_x, self.data_y)
-            
-            # # Auto-scale the view to fit data - REMOVED TO PREVENT FLICKER
-            # if len(self.data_x) > 1:
-            #     x_max = max(self.data_x)
-            #     y_max = max(self.data_y) if self.data_y else 100
-                
-            #     # Set ranges with some padding
-            #     self.plot_widget.setXRange(0, max(x_max * 1.1, 10), padding=0)
-            #     self.plot_widget.setYRange(0, max(y_max * 1.1, 100), padding=0)
+            # Set X-axis to always start at 0 and end at max relative time (with padding)
+            if self.data_x:
+                x_max = max(self.data_x)
+                self.plot_widget.setXRange(0, max(x_max * 1.1, 10))
     
     def plot_data(self, df) -> None:
         """
@@ -170,6 +159,9 @@ class GraphWidget(QWidget):
             return
         
         if len(df) > 0:
+            # Normalize all timestamps
+            df = df.copy()
+            df['timestamp'] = df['timestamp'].apply(self._normalize_timestamp)
             # Set start time to the earliest timestamp in the dataframe
             # to ensure the timeline is always correct, even with historical data.
             current_start_time = df['timestamp'].min()
@@ -189,13 +181,10 @@ class GraphWidget(QWidget):
             # Plot the data
             self.plot_item.setData(self.data_x, self.data_y)
             
-            # # Auto-scale the view - REMOVED TO PREVENT FLICKER
-            # if len(self.data_x) > 1:
-            #     x_max = max(self.data_x)
-            #     y_max = max(self.data_y) if self.data_y else 100
-                
-            #     self.plot_widget.setXRange(0, max(x_max * 1.1, 10), padding=0)
-            #     self.plot_widget.setYRange(0, max(y_max * 1.1, 100), padding=0)
+            # Set X-axis to always start at 0 and end at max relative time (with padding)
+            if self.data_x:
+                x_max = max(self.data_x)
+                self.plot_widget.setXRange(0, max(x_max * 1.1, 10))
     
     def clear_data(self) -> None:
         """Clear all data points from the graph."""
@@ -206,8 +195,8 @@ class GraphWidget(QWidget):
         if pg is not None and hasattr(self, 'plot_item'):
             self.plot_item.clear()
             # Reset the view
-            self.plot_widget.setXRange(0, 60, padding=0.1)
-            self.plot_widget.setYRange(0, 100, padding=0.1)
+            self.plot_widget.setXRange(0, 60)
+            self.plot_widget.setYRange(0, 100)
 
 
 class DashboardPage(QWidget):
