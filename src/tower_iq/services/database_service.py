@@ -98,49 +98,63 @@ class DatabaseService:
     
     def run_migrations(self) -> None:
         """
-        Create database tables if they don't exist.
+        Create database tables if they don't exist, using the new wide schema.
+        Drops old tables if present (for simplicity).
         """
         if not self.sqlite_conn:
             self.logger.error("SQLite connection not available")
             return
-        
         try:
-            # Create runs table
+            # Drop old tables if they exist (for a clean migration)
+            self.sqlite_conn.execute("DROP TABLE IF EXISTS metrics")
+            self.sqlite_conn.execute("DROP TABLE IF EXISTS events")
+
+            # Create new runs table (wide format)
             self.sqlite_conn.execute("""
                 CREATE TABLE IF NOT EXISTS runs (
                     run_id TEXT PRIMARY KEY,
-                    start_time INTEGER,
+                    start_time INTEGER NOT NULL,
                     end_time INTEGER,
+                    duration_realtime INTEGER,
+                    duration_gametime REAL,
+                    final_wave INTEGER,
+                    coins_earned REAL,
                     game_version TEXT,
                     tier INTEGER
                 )
             """)
-            
-            # Create metrics table with index
+
+            # Create new metrics table (wide format)
             self.sqlite_conn.execute("""
                 CREATE TABLE IF NOT EXISTS metrics (
-                    run_id TEXT,
-                    timestamp INTEGER,
-                    name TEXT,
-                    value REAL
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    run_id TEXT NOT NULL,
+                    real_timestamp INTEGER NOT NULL,
+                    game_timestamp REAL NOT NULL,
+                    current_wave INTEGER NOT NULL,
+                    coins REAL,
+                    gems INTEGER,
+                    stones REAL
+                    -- Add more nullable columns for future metrics as needed
                 )
             """)
             self.sqlite_conn.execute("""
-                CREATE INDEX IF NOT EXISTS idx_metrics_run_name_time 
-                ON metrics(run_id, name, timestamp)
+                CREATE INDEX IF NOT EXISTS idx_metrics_run_time 
+                ON metrics(run_id, real_timestamp)
             """)
-            
-            # Create events table
+
+            # Create new events table (wide format)
             self.sqlite_conn.execute("""
                 CREATE TABLE IF NOT EXISTS events (
-                    run_id TEXT,
-                    timestamp INTEGER,
-                    name TEXT,
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    run_id TEXT NOT NULL,
+                    timestamp INTEGER NOT NULL,
+                    event_name TEXT NOT NULL,
                     data TEXT
                 )
             """)
-            
-            # Create logs table
+
+            # Logs and settings tables remain unchanged
             self.sqlite_conn.execute("""
                 CREATE TABLE IF NOT EXISTS logs (
                     timestamp INTEGER,
@@ -150,73 +164,71 @@ class DatabaseService:
                     data TEXT
                 )
             """)
-            
-            # Create settings table
             self.sqlite_conn.execute("""
                 CREATE TABLE IF NOT EXISTS settings (
                     key TEXT PRIMARY KEY,
                     value TEXT
                 )
             """)
-            
+
             self.sqlite_conn.commit()
-            self.logger.info("Database migrations completed successfully")
-            
+            self.logger.info("Database migrations completed successfully (wide format)")
         except Exception as e:
             self.logger.error("Failed to run database migrations", error=str(e))
             if self.sqlite_conn:
                 self.sqlite_conn.rollback()
             raise
     
-    def write_metric(self, run_id: str, timestamp: int, name: str, value: float) -> None:
+    def write_metric(self, run_id: str, real_timestamp: int, game_timestamp: float, current_wave: int, metrics: dict) -> None:
         """
-        Write a metric to the database.
-        Args:
-            run_id: Unique identifier for the run (now the roundSeed from the game, as a string)
-            timestamp: Unix timestamp
-            name: Metric name
-            value: Metric value
+        Insert a new metric row in wide format. Missing metrics are inserted as NULL.
         """
         if not self.sqlite_conn:
             self.logger.error("SQLite connection not available")
             return
-        
         try:
-            self.sqlite_conn.execute(
-                "INSERT INTO metrics (run_id, timestamp, name, value) VALUES (?, ?, ?, ?)",
-                (run_id, timestamp, name, value)
-            )
+            known_metrics = ["coins", "gems", "stones"]
+            columns = ["run_id", "real_timestamp", "game_timestamp", "current_wave"] + known_metrics
+            values = [
+                str(run_id),
+                int(real_timestamp),
+                float(game_timestamp),
+                int(current_wave)
+            ]
+            for m in known_metrics:
+                v = metrics.get(m)
+                if v is None:
+                    values.append(None)
+                elif m == "gems":
+                    values.append(int(v))
+                else:
+                    values.append(float(v))
+            placeholders = ", ".join(["?" for _ in columns])
+            sql = f"INSERT INTO metrics ({', '.join(columns)}) VALUES ({placeholders})"
+            self.sqlite_conn.execute(sql, values)
             self.sqlite_conn.commit()
-            self.logger.debug("Metric written to database", run_id=run_id, name=name, value=value)
-            
+            self.logger.debug("Wide metric inserted", run_id=run_id, real_timestamp=real_timestamp)
         except Exception as e:
-            self.logger.error("Failed to write metric", error=str(e), run_id=run_id, name=name)
-    
-    def write_event(self, run_id: str, timestamp: int, name: str, data: dict) -> None:
+            self.logger.error("Failed to insert wide metric", error=str(e), run_id=run_id)
+
+    def write_event(self, run_id: str, timestamp: int, event_name: str, data: Optional[dict] = None) -> None:
         """
-        Write an event to the database.
-        Args:
-            run_id: Unique identifier for the run (now the roundSeed from the game, as a string)
-            timestamp: Unix timestamp
-            name: Event name
-            data: Event data dictionary
+        Insert a new event row in wide format.
         """
         if not self.sqlite_conn:
             self.logger.error("SQLite connection not available")
             return
-        
         try:
-            data_json = json.dumps(data)
+            data_json = json.dumps(data if data is not None else {})
             self.sqlite_conn.execute(
-                "INSERT INTO events (run_id, timestamp, name, data) VALUES (?, ?, ?, ?)",
-                (run_id, timestamp, name, data_json)
+                "INSERT INTO events (run_id, timestamp, event_name, data) VALUES (?, ?, ?, ?)",
+                (str(run_id), int(timestamp), str(event_name), data_json)
             )
             self.sqlite_conn.commit()
-            self.logger.debug("Event written to database", run_id=run_id, name=name)
-            
+            self.logger.debug("Wide event inserted", run_id=run_id, event_name=event_name)
         except Exception as e:
-            self.logger.error("Failed to write event", error=str(e), run_id=run_id, name=name)
-    
+            self.logger.error("Failed to insert wide event", error=str(e), run_id=run_id, event_name=event_name)
+
     def write_log_entry(self, log_entry: dict) -> None:
         """
         Write a log entry to the database.
@@ -251,28 +263,27 @@ class DatabaseService:
     
     def get_run_metrics(self, run_id: str, metric_name: str) -> pd.DataFrame:
         """
-        Get all metrics for a given run and metric name.
+        Get all metrics for a given run and metric name (wide format).
         Args:
             run_id: Unique identifier for the run (now the roundSeed from the game, as a string)
-            metric_name: Name of the metric
+            metric_name: Name of the metric (must match a column in the wide table)
         Returns:
             DataFrame of metrics
         """
         if not self.sqlite_conn:
             self.logger.error("SQLite connection not available")
             return pd.DataFrame()
-        
         try:
-            cursor = self.sqlite_conn.execute(
-                "SELECT timestamp, value FROM metrics WHERE run_id = ? AND name = ? ORDER BY timestamp",
-                (run_id, metric_name)
-            )
+            # Only allow known metric columns
+            allowed_metrics = ["coins", "gems", "stones"]
+            if metric_name not in allowed_metrics:
+                self.logger.error("Requested unknown metric column", metric_name=metric_name)
+                return pd.DataFrame()
+            query = f"SELECT real_timestamp, {metric_name} FROM metrics WHERE run_id = ? AND {metric_name} IS NOT NULL ORDER BY real_timestamp"
+            cursor = self.sqlite_conn.execute(query, (run_id,))
             rows = cursor.fetchall()
-            
-            # Convert to DataFrame
-            df = pd.DataFrame(rows, columns=['timestamp', 'value'])
+            df = pd.DataFrame(rows, columns=["real_timestamp", metric_name])
             return df
-            
         except Exception as e:
             self.logger.error("Failed to get run metrics", error=str(e), run_id=run_id, metric_name=metric_name)
             return pd.DataFrame()
@@ -321,4 +332,62 @@ class DatabaseService:
             self.sqlite_conn.commit()
             
         except Exception as e:
-            self.logger.error("Failed to set setting", key=key, error=str(e)) 
+            self.logger.error("Failed to set setting", key=key, error=str(e))
+
+    def insert_run_start(self, run_id: str, start_time: int, game_version: Optional[str] = None, tier: Optional[int] = None) -> None:
+        """
+        Insert a new run record at the start of a round.
+        """
+        if not self.sqlite_conn:
+            self.logger.error("SQLite connection not available")
+            return
+        try:
+            self.sqlite_conn.execute(
+                "INSERT OR IGNORE INTO runs (run_id, start_time, game_version, tier) VALUES (?, ?, ?, ?)",
+                (str(run_id), int(start_time), str(game_version) if game_version is not None else None, int(tier) if tier is not None else None)
+            )
+            self.sqlite_conn.commit()
+            self.logger.debug("Run start inserted", run_id=run_id, start_time=start_time)
+        except Exception as e:
+            self.logger.error("Failed to insert run start", error=str(e), run_id=run_id)
+
+    def update_run_end(self, run_id: str, end_time: int, final_wave: Optional[int] = None, coins_earned: Optional[float] = None, duration_realtime: Optional[int] = None, duration_gametime: Optional[float] = None) -> None:
+        """
+        Update an existing run record at the end of a round.
+        duration_realtime is now passed directly from the handler (calculated using roundStartTime and timestamp).
+        Argument order: run_id, end_time, final_wave, coins_earned, duration_realtime, duration_gametime
+        """
+        if not self.sqlite_conn:
+            self.logger.error("SQLite connection not available")
+            return
+        try:
+            # If duration_realtime is not provided, calculate from start_time
+            if duration_realtime is None:
+                cursor = self.sqlite_conn.execute(
+                    "SELECT start_time FROM runs WHERE run_id = ?",
+                    (str(run_id),)
+                )
+                row = cursor.fetchone()
+                if not row:
+                    self.logger.error("No run found to update for gameOver", run_id=run_id)
+                    return
+                start_time = row[0]
+                duration_realtime = int(end_time) - int(start_time) if end_time is not None and start_time is not None else None
+            self.sqlite_conn.execute(
+                """
+                UPDATE runs SET end_time = ?, final_wave = ?, coins_earned = ?, duration_realtime = ?, duration_gametime = ?
+                WHERE run_id = ?
+                """,
+                (
+                    int(end_time) if end_time is not None else None,
+                    int(final_wave) if final_wave is not None else None,
+                    float(coins_earned) if coins_earned is not None else None,
+                    int(duration_realtime) if duration_realtime is not None else None,
+                    float(duration_gametime) if duration_gametime is not None else None,
+                    str(run_id)
+                )
+            )
+            self.sqlite_conn.commit()
+            self.logger.debug("Run end updated", run_id=run_id, end_time=end_time)
+        except Exception as e:
+            self.logger.error("Failed to update run end", error=str(e), run_id=run_id)

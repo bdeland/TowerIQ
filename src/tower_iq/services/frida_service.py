@@ -649,20 +649,33 @@ class FridaService:
                 payload = message['payload']
                 self.logger.debug(f"Processing 'send' message with payload: {payload}")
                 
-                # Add metadata
-                parsed_message = {
-                    'type': payload.get('type', 'unknown'),
-                    'payload': payload.get('payload', {}),
-                    'timestamp': payload.get('timestamp'),
-                    'pid': self.attached_pid
-                }
-                
-                self.logger.debug(f"Parsed message: {parsed_message}")
-                
-                # Put message on async queue - use thread-safe approach
-                self._queue_message_safely(parsed_message)
-                
-                self.logger.debug("Message received from script", message_type=parsed_message['type'])
+                # Support for bulk messages: if payload is a list, queue each one
+                if isinstance(payload, list):
+                    for item in payload:
+                        parsed_message = {
+                            'type': item.get('type', 'unknown'),
+                            'payload': item.get('payload', {}),
+                            'timestamp': item.get('timestamp'),
+                            'pid': self.attached_pid
+                        }
+                        self.logger.debug(f"Parsed bulk message: {parsed_message}")
+                        self._queue_message_safely(parsed_message)
+                        self.logger.debug("Bulk message received from script", message_type=parsed_message['type'])
+                else:
+                    # Add metadata
+                    parsed_message = {
+                        'type': payload.get('type', 'unknown'),
+                        'payload': payload.get('payload', {}),
+                        'timestamp': payload.get('timestamp'),
+                        'pid': self.attached_pid
+                    }
+                    
+                    self.logger.debug(f"Parsed message: {parsed_message}")
+                    
+                    # Put message on async queue - use thread-safe approach
+                    self._queue_message_safely(parsed_message)
+                    
+                    self.logger.debug("Message received from script", message_type=parsed_message['type'])
                 
             elif message['type'] == 'error':
                 self.logger.debug(f"Processing 'error' message: {message}")

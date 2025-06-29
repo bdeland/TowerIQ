@@ -645,7 +645,8 @@ class MainController(QObject):
     
     async def _handle_game_metric(self, message: dict) -> None:
         """
-        Processes metric data. Uses roundSeed from the game as the run identifier for all database writes.
+        Processes metric data in wide format. Handles both single and bulk metrics.
+        Uses roundSeed from the game as the run identifier for all database writes.
         """
         try:
             payload = message.get("payload", {})
@@ -657,24 +658,29 @@ class MainController(QObject):
                 self.logger.warning("No roundSeed available for metric, skipping database write.")
                 return
             run_id_str = str(run_id)
-            timestamp = int(payload.get("timestamp", asyncio.get_event_loop().time()))
-            name = payload.get("name", "unknown_metric")
-            value = float(payload.get("value", 0))
-            self.logger.debug("Processing game metric", metric_name=name, value=value, run_id=run_id_str)
-            await self._write_metric_to_db(run_id_str, timestamp, name, value)
-            self.logger.debug("Wrote metric to database", metric_name=name, value=value)
-            self._emit_signal_safely(self.new_metric_received, name, value)
-            self.logger.debug("Emitted metric signal to UI", metric_name=name, value=value)
-            await self._get_run_metrics_for_graph(run_id_str, name)
-            round_active = payload.get("roundActiveBool")
-            if round_active is not None:
-                self.session.is_round_active = bool(round_active)
+            real_timestamp = int(payload.get("timestamp", asyncio.get_event_loop().time()))
+            game_timestamp = float(payload.get("gameTimestamp", 0))
+            game_speed = float(payload.get("gameSpeed", 1.0))
+            current_wave = int(payload.get("currentWave", 0))
+            metrics = payload.get("metrics", {})
+            # Insert wide metric row
+            await asyncio.to_thread(
+                self.db_service.write_metric,
+                run_id_str, real_timestamp, game_timestamp, current_wave, metrics
+            )
+            self.logger.debug("Inserted wide metric row", run_id=run_id_str, real_timestamp=real_timestamp)
+            # Optionally emit signals for UI updates (can be customized)
+            for name, value in metrics.items():
+                self._emit_signal_safely(self.new_metric_received, name, value)
+            # Optionally update graph data (can be customized)
+            for name in metrics.keys():
+                await self._get_run_metrics_for_graph(run_id_str, name)
         except Exception as e:
-            self.logger.error("Error handling game metric", error=str(e))
+            self.logger.error("Error handling wide game metric(s)", error=str(e))
     
     async def _handle_game_event(self, message: dict) -> None:
         """
-        Processes discrete game events (e.g., round start, perk chosen). Uses roundSeed from the game as the run identifier for all database writes.
+        Processes discrete game events in wide format. Handles startNewRound, gameOver, gamePaused, gameResumed.
         """
         try:
             payload = message.get("payload", {})
@@ -687,14 +693,58 @@ class MainController(QObject):
                 return
             run_id_str = str(run_id)
             timestamp = int(payload.get("timestamp", asyncio.get_event_loop().time()))
-            name = payload.get("name", "unknown_event")
-            data = payload.get("data", {})
-            await self._write_event_to_db(run_id_str, timestamp, name, data)
-            round_active = payload.get("roundActiveBool")
-            if round_active is not None:
-                self.session.is_round_active = bool(round_active)
+            event_name = payload.get("event") or payload.get("name") or "unknown_event"
+            data = payload.get("data", {}).copy() if isinstance(payload.get("data"), dict) else {}
+            # Always include gameplayTime if present
+            if "gameplayTime" in payload:
+                data["gameplayTime"] = payload["gameplayTime"]
+            if event_name == "startNewRound":
+                # Use roundStartTime for accurate start time
+                run_id = payload.get("roundSeed")
+                start_time_ms = payload.get("roundStartTime")
+                tier = payload.get("tier")
+                game_version = payload.get("gameVersion")
+                await asyncio.to_thread(
+                    self.db_service.insert_run_start,
+                    str(run_id), start_time_ms, game_version, tier
+                )
+                await asyncio.to_thread(
+                    self.db_service.write_event,
+                    str(run_id), start_time_ms, event_name, data
+                )
+                self.session.is_round_active = True
+                self.logger.info("Start of new round detected (game_event)", round_seed=round_seed)
+            elif event_name == "gameOver":
+                # Use roundStartTime for accurate duration calculation
+                run_id = payload.get("roundSeed")
+                end_time_ms = payload.get("timestamp")
+                start_time_ms = payload.get("roundStartTime")
+                duration_ms = end_time_ms - start_time_ms if end_time_ms is not None and start_time_ms is not None else None
+                await asyncio.to_thread(
+                    self.db_service.update_run_end,
+                    str(run_id),
+                    end_time_ms,
+                    payload.get("currentWave"),
+                    payload.get("coinsEarned"),
+                    duration_ms,
+                    payload.get("gameTimestamp")
+                )
+                self.session.is_round_active = False
+                self.logger.info("Game over event received (game_event)", payload=payload)
+            elif event_name in ("gamePaused", "gameResumed"):
+                await asyncio.to_thread(
+                    self.db_service.write_event,
+                    run_id_str, timestamp, event_name, data
+                )
+                self.logger.info(f"{event_name} event received (game_event)", payload=payload)
+            else:
+                # For all other events, just insert as wide event
+                await asyncio.to_thread(
+                    self.db_service.write_event,
+                    run_id_str, timestamp, event_name, data
+                )
         except Exception as e:
-            self.logger.error("Error handling game event", error=str(e))
+            self.logger.error("Error handling wide game event", error=str(e))
     
     async def _handle_hook_log(self, message: dict) -> None:
         """
@@ -732,17 +782,6 @@ class MainController(QObject):
                 self.logger.error("Error in system health monitor", error=str(e))
                 await asyncio.sleep(10)  # Wait before retrying
     
-    async def _write_metric_to_db(self, run_id: str, timestamp: int, name: str, value: float) -> None:
-        """Write a metric to the database."""
-        # Don't write to database during shutdown
-        if self._is_shutting_down:
-            return
-            
-        try:
-            await asyncio.to_thread(self.db_service.write_metric, run_id, timestamp, name, value)
-        except Exception as e:
-            self.logger.error("Failed to write metric to database", error=str(e), run_id=run_id, name=name)
-    
     async def _get_run_metrics_for_graph(self, run_id: str, name: str) -> None:
         """Fetch metrics and emit graph data with proper graph name mapping."""
         # Don't fetch from database during shutdown
@@ -766,17 +805,6 @@ class MainController(QObject):
                             data_points=len(df))
         except Exception as e:
             self.logger.error("Failed to get run metrics for graph", error=str(e), run_id=run_id, name=name)
-    
-    async def _write_event_to_db(self, run_id: str, timestamp: int, name: str, data: dict) -> None:
-        """Write an event to the database."""
-        # Don't write to database during shutdown
-        if self._is_shutting_down:
-            return
-            
-        try:
-            await asyncio.to_thread(self.db_service.write_event, run_id, timestamp, name, data)
-        except Exception as e:
-            self.logger.error("Failed to write event to database", error=str(e), run_id=run_id, name=name)
     
     async def stop(self) -> None:
         """

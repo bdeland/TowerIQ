@@ -140,51 +140,35 @@ class GraphWidget(QWidget):
         # Update the plot if pyqtgraph is available
         if pg is not None and hasattr(self, 'plot_item'):
             self.plot_item.setData(self.data_x, self.data_y)
-            # Set X-axis to always start at 0 and end at max relative time (with padding)
-            if self.data_x:
-                x_max = max(self.data_x)
-                self.plot_widget.setXRange(0, max(x_max * 1.1, 10))
+        # Do not change X or Y range here
     
-    def plot_data(self, df) -> None:
+    def plot_data(self, df, metric_name: str = "value") -> None:
         """
         Plot data from a pandas DataFrame.
-        
         Args:
-            df: pandas DataFrame with 'timestamp' and 'value' columns
+            df: pandas DataFrame with 'real_timestamp' and metric column
+            metric_name: the name of the metric column to plot
         """
         if pg is None or not hasattr(self, 'plot_item'):
             return
-        
         if df.empty:
             return
-        
         if len(df) > 0:
             # Normalize all timestamps
             df = df.copy()
-            df['timestamp'] = df['timestamp'].apply(self._normalize_timestamp)
+            df['real_timestamp'] = df['real_timestamp'].apply(self._normalize_timestamp)
             # Set start time to the earliest timestamp in the dataframe
-            # to ensure the timeline is always correct, even with historical data.
-            current_start_time = df['timestamp'].min()
+            current_start_time = df['real_timestamp'].min()
             if self.start_time is None:
                 self.start_time = current_start_time
             else:
-                # Adjust existing start time if new data is older
                 self.start_time = min(self.start_time, current_start_time)
-
-            relative_times = df['timestamp'] - self.start_time
-            values = df['value']
-            
-            # Update our internal data tracking
+            relative_times = df['real_timestamp'] - self.start_time
+            values = df[metric_name]
             self.data_x = relative_times.tolist()
             self.data_y = values.tolist()
-            
-            # Plot the data
             self.plot_item.setData(self.data_x, self.data_y)
-            
-            # Set X-axis to always start at 0 and end at max relative time (with padding)
-            if self.data_x:
-                x_max = max(self.data_x)
-                self.plot_widget.setXRange(0, max(x_max * 1.1, 10))
+        # Do not change X or Y range here
     
     def clear_data(self) -> None:
         """Clear all data points from the graph."""
@@ -258,6 +242,38 @@ class DashboardPage(QWidget):
         title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         main_layout.addWidget(title_label)
         
+        # Stat panels for Real Time and Game Time
+        stat_panel = QHBoxLayout()
+        stat_panel.setSpacing(30)
+        # Real Time
+        self.real_time_label = QLabel("0.0")
+        self.real_time_label.setFont(QFont("Arial", 18, QFont.Weight.Bold))
+        self.real_time_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.real_time_label.setStyleSheet("color: #000;")
+        real_time_box = QVBoxLayout()
+        real_time_title = QLabel("Real Time")
+        real_time_title.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        real_time_title.setStyleSheet("color: #000;")
+        real_time_box.addWidget(real_time_title)
+        real_time_box.addWidget(self.real_time_label)
+        # Game Time
+        self.game_time_label = QLabel("0.0")
+        self.game_time_label.setFont(QFont("Arial", 18, QFont.Weight.Bold))
+        self.game_time_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.game_time_label.setStyleSheet("color: #000;")
+        game_time_box = QVBoxLayout()
+        game_time_title = QLabel("Game Time")
+        game_time_title.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        game_time_title.setStyleSheet("color: #000;")
+        game_time_box.addWidget(game_time_title)
+        game_time_box.addWidget(self.game_time_label)
+        # Add to stat panel
+        stat_panel.addLayout(real_time_box)
+        stat_panel.addLayout(game_time_box)
+        stat_panel_widget = QWidget()
+        stat_panel_widget.setLayout(stat_panel)
+        main_layout.addWidget(stat_panel_widget)
+        
         # Create the coins chart
         self.coins_chart = GraphWidget("Cumulative Coins Over Time", "Coins")
         self.graphs["coins_timeline"] = self.coins_chart
@@ -313,27 +329,34 @@ class DashboardPage(QWidget):
                 self.connection_overlay_widget.show()
                 self.connection_overlay_widget.raise_()  # Bring to front
     
+    def update_real_time(self, value: float) -> None:
+        self.real_time_label.setText(f"{value:.1f}")
+    def update_game_time(self, value: float) -> None:
+        self.game_time_label.setText(f"{value:.1f}")
+    
     @pyqtSlot(str, object)
     def update_metric_display(self, metric_name: str, value: Any) -> None:
         """
         Update metric display - for coins, we'll add it to the chart.
-        
+        Also updates Real Time and Game Time stat panels.
         Args:
             metric_name: The name/ID of the metric to update  
             value: The new value for the metric
         """
-        
         # For coins metric, add a point to the chart using current time
         if metric_name == "coins":
             current_time = time.time()
             if hasattr(self, 'coins_chart'):
                 self.coins_chart.append_data_point(current_time, float(value))
+        elif metric_name == "real_timestamp":
+            self.update_real_time(float(value) / 1000.0 if float(value) > 1e12 else float(value))
+        elif metric_name == "gameplayTime":
+            self.update_game_time(float(value))
     
     @pyqtSlot(str, object)
     def update_graph(self, graph_name: str, data: object) -> None:
         """
         Update a specific graph with new data.
-        
         Args:
             graph_name: The name/ID of the graph to update
             data: The new data (pandas DataFrame or dict with 'x' and 'y' values)
@@ -341,7 +364,9 @@ class DashboardPage(QWidget):
         if graph_name in self.graphs:
             # Handle pandas DataFrame (new format)
             if pd is not None and hasattr(data, 'empty'):
-                self.graphs[graph_name].plot_data(data)
+                # Determine metric name from graph_name (e.g., 'coins_timeline' -> 'coins')
+                metric_name = graph_name.replace('_timeline', '')
+                self.graphs[graph_name].plot_data(data, metric_name=metric_name)
             # Handle legacy dict format
             elif isinstance(data, dict):
                 x_value = data.get('x', time.time())
