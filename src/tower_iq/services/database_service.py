@@ -7,19 +7,49 @@ used by the embedded application architecture.
 
 import json
 import sqlite3
-from typing import Any, Optional, Dict, List
+from typing import Any, Optional, Dict, List, cast
 from pathlib import Path
 from datetime import datetime
 import pandas as pd
+import functools
 
 from ..core.config import ConfigurationManager
 
+# Decorator to handle DB connection checks and errors
+def db_operation(default_return_value: Any = None):
+    """
+    Decorator to wrap database operations, handling connection checks and exceptions.
+    """
+    def decorator(func):
+        @functools.wraps(func)
+        def wrapper(self: 'DatabaseService', *args, **kwargs):
+            if not self.sqlite_conn:
+                self.logger.error(
+                    "Database operation skipped: connection not available",
+                    operation=func.__name__
+                )
+                return default_return_value
+            try:
+                return func(self, *args, **kwargs)
+            except Exception as e:
+                self.logger.error(
+                    "Database operation failed",
+                    operation=func.__name__,
+                    error=str(e),
+                    args=args,
+                    kwargs=kwargs
+                )
+                return default_return_value
+        return wrapper
+    return decorator
 
 class DatabaseService:
     """
     Service for managing SQLite database operations.
     Handles connections, writes, reads, migrations, and backups.
     """
+    
+    DB_VERSION = "2" # Using a "long" schema for metrics
     
     def __init__(self, config: ConfigurationManager, logger: Any) -> None:
         """
@@ -98,20 +128,54 @@ class DatabaseService:
     
     def run_migrations(self) -> None:
         """
-        Create database tables if they don't exist, using the new wide schema.
-        Drops old tables if present (for simplicity).
+        Manages database schema migrations based on a version stored in the DB.
         """
-        if not self.sqlite_conn:
-            self.logger.error("SQLite connection not available")
-            return
-        try:
-            # Drop old tables if they exist (for a clean migration)
-            self.sqlite_conn.execute("DROP TABLE IF EXISTS metrics")
-            self.sqlite_conn.execute("DROP TABLE IF EXISTS events")
+        self.logger.info("Checking database schema version.")
+        if self.sqlite_conn is None:
+            raise RuntimeError("Database connection is not established")
+        conn = cast(sqlite3.Connection, self.sqlite_conn)
+        # Ensure settings table exists first, as it holds the version
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS settings (
+                key TEXT PRIMARY KEY,
+                value TEXT
+            )
+        """)
+        conn.commit()
 
-            # Create new runs table (wide format)
-            self.sqlite_conn.execute("""
-                CREATE TABLE IF NOT EXISTS runs (
+        current_version = self.get_setting("db_version")
+        if current_version == self.DB_VERSION:
+            self.logger.info("Database schema is up to date.", version=self.DB_VERSION)
+            return
+
+        self.logger.warning(
+            "Database schema is outdated or new. Running migrations.",
+            current_version=current_version,
+            target_version=self.DB_VERSION
+        )
+        
+        # For this major change, we will drop old tables and create the new V2 schema.
+        # A more advanced system would have sequential migration scripts (e.g., migrate_v1_to_v2).
+        self._create_schema_v2()
+
+        self.set_setting("db_version", self.DB_VERSION)
+        self.logger.info("Database migration to version %s completed.", self.DB_VERSION)
+
+    def _create_schema_v2(self):
+        """Creates the version 2 schema with a 'long' metrics table."""
+        if self.sqlite_conn is None:
+            raise RuntimeError("Database connection is not established")
+        conn = cast(sqlite3.Connection, self.sqlite_conn)
+        try:
+            # Drop old tables for a clean migration to the new schema
+            self.logger.info("Dropping old tables for V2 schema creation.")
+            conn.execute("DROP TABLE IF EXISTS metrics")
+            conn.execute("DROP TABLE IF EXISTS events")
+            conn.execute("DROP TABLE IF EXISTS runs")
+
+            # Create new tables
+            conn.execute("""
+                CREATE TABLE runs (
                     run_id TEXT PRIMARY KEY,
                     start_time INTEGER NOT NULL,
                     end_time INTEGER,
@@ -119,33 +183,35 @@ class DatabaseService:
                     duration_gametime REAL,
                     final_wave INTEGER,
                     coins_earned REAL,
+                    CPH REAL,
+                    round_cells REAL,
+                    round_gems REAL,
+                    round_cash REAL,
                     game_version TEXT,
                     tier INTEGER
                 )
             """)
 
-            # Create new metrics table (wide format)
-            self.sqlite_conn.execute("""
-                CREATE TABLE IF NOT EXISTS metrics (
+            # NEW "Long" format for metrics table - highly extensible
+            conn.execute("""
+                CREATE TABLE metrics (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     run_id TEXT NOT NULL,
                     real_timestamp INTEGER NOT NULL,
                     game_timestamp REAL NOT NULL,
                     current_wave INTEGER NOT NULL,
-                    coins REAL,
-                    gems INTEGER,
-                    stones REAL
-                    -- Add more nullable columns for future metrics as needed
+                    metric_name TEXT NOT NULL,
+                    metric_value REAL NOT NULL
                 )
             """)
-            self.sqlite_conn.execute("""
-                CREATE INDEX IF NOT EXISTS idx_metrics_run_time 
-                ON metrics(run_id, real_timestamp)
+            conn.execute("""
+                CREATE INDEX idx_metrics_run_name_time 
+                ON metrics(run_id, metric_name, real_timestamp)
             """)
 
-            # Create new events table (wide format)
-            self.sqlite_conn.execute("""
-                CREATE TABLE IF NOT EXISTS events (
+            # Events, Logs, and Settings tables remain similar
+            conn.execute("""
+                CREATE TABLE events (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     run_id TEXT NOT NULL,
                     timestamp INTEGER NOT NULL,
@@ -153,241 +219,204 @@ class DatabaseService:
                     data TEXT
                 )
             """)
-
-            # Logs and settings tables remain unchanged
-            self.sqlite_conn.execute("""
-                CREATE TABLE IF NOT EXISTS logs (
-                    timestamp INTEGER,
-                    level TEXT,
-                    source TEXT,
-                    event TEXT,
-                    data TEXT
+            conn.execute("""
+                CREATE TABLE logs (
+                    timestamp INTEGER, level TEXT, source TEXT, event TEXT, data TEXT
                 )
             """)
-            self.sqlite_conn.execute("""
-                CREATE TABLE IF NOT EXISTS settings (
-                    key TEXT PRIMARY KEY,
-                    value TEXT
-                )
-            """)
-
-            self.sqlite_conn.commit()
-            self.logger.info("Database migrations completed successfully (wide format)")
+            conn.commit()
+            self.logger.info("Successfully created V2 database schema.")
         except Exception as e:
-            self.logger.error("Failed to run database migrations", error=str(e))
-            if self.sqlite_conn:
-                self.sqlite_conn.rollback()
+            self.logger.error("Failed during V2 schema creation", error=str(e))
+            try:
+                conn.rollback()
+            except Exception:
+                pass
             raise
-    
-    def write_metric(self, run_id: str, real_timestamp: int, game_timestamp: float, current_wave: int, metrics: dict) -> None:
+
+    @db_operation()
+    def write_metric(self, run_id: str, real_timestamp: int, game_timestamp: float, current_wave: int, metrics: Dict[str, float]) -> None:
         """
-        Insert a new metric row in wide format. Missing metrics are inserted as NULL.
+        Insert new metric rows in 'long' format.
+        This method is now fully dynamic and requires no changes to add new metrics.
         """
         if not self.sqlite_conn:
-            self.logger.error("SQLite connection not available")
             return
-        try:
-            known_metrics = ["coins", "gems", "stones"]
-            columns = ["run_id", "real_timestamp", "game_timestamp", "current_wave"] + known_metrics
-            values = [
+        metric_data = [
+            (
                 str(run_id),
                 int(real_timestamp),
                 float(game_timestamp),
-                int(current_wave)
-            ]
-            for m in known_metrics:
-                v = metrics.get(m)
-                if v is None:
-                    values.append(None)
-                elif m == "gems":
-                    values.append(int(v))
-                else:
-                    values.append(float(v))
-            placeholders = ", ".join(["?" for _ in columns])
-            sql = f"INSERT INTO metrics ({', '.join(columns)}) VALUES ({placeholders})"
-            self.sqlite_conn.execute(sql, values)
-            self.sqlite_conn.commit()
-            self.logger.debug("Wide metric inserted", run_id=run_id, real_timestamp=real_timestamp)
-        except Exception as e:
-            self.logger.error("Failed to insert wide metric", error=str(e), run_id=run_id)
+                int(current_wave),
+                str(name),
+                float(value)
+            )
+            for name, value in metrics.items() if value is not None
+        ]
 
-    def write_event(self, run_id: str, timestamp: int, event_name: str, data: Optional[dict] = None) -> None:
+        if not metric_data:
+            return
+
+        sql = """
+            INSERT INTO metrics 
+            (run_id, real_timestamp, game_timestamp, current_wave, metric_name, metric_value) 
+            VALUES (?, ?, ?, ?, ?, ?)
         """
-        Insert a new event row in wide format.
+        self.sqlite_conn.executemany(sql, metric_data)
+        self.sqlite_conn.commit()
+        self.logger.debug("Metrics inserted", run_id=run_id, count=len(metric_data))
+
+    @db_operation(default_return_value=pd.DataFrame())
+    def get_run_metrics(self, run_id: str, metric_name: str) -> pd.DataFrame:
+        """
+        Get all data points for a specific metric in a given run.
+        This is now dynamic; any `metric_name` can be requested.
         """
         if not self.sqlite_conn:
-            self.logger.error("SQLite connection not available")
-            return
-        try:
-            data_json = json.dumps(data if data is not None else {})
-            self.sqlite_conn.execute(
-                "INSERT INTO events (run_id, timestamp, event_name, data) VALUES (?, ?, ?, ?)",
-                (str(run_id), int(timestamp), str(event_name), data_json)
-            )
-            self.sqlite_conn.commit()
-            self.logger.debug("Wide event inserted", run_id=run_id, event_name=event_name)
-        except Exception as e:
-            self.logger.error("Failed to insert wide event", error=str(e), run_id=run_id, event_name=event_name)
+            return pd.DataFrame()
+        query = """
+            SELECT real_timestamp, metric_value 
+            FROM metrics 
+            WHERE run_id = ? AND metric_name = ? 
+            ORDER BY real_timestamp
+        """
+        df = pd.read_sql_query(query, self.sqlite_conn, params=(run_id, metric_name))
+        df.rename(columns={'metric_value': metric_name}, inplace=True)
+        return df
 
+    @db_operation()
+    def write_event(self, run_id: str, timestamp: int, event_name: str, data: Optional[dict] = None) -> None:
+        """Insert a new event row."""
+        if not self.sqlite_conn:
+            return
+        data_json = json.dumps(data if data is not None else {})
+        self.sqlite_conn.execute(
+            "INSERT INTO events (run_id, timestamp, event_name, data) VALUES (?, ?, ?, ?)",
+            (str(run_id), int(timestamp), str(event_name), data_json)
+        )
+        self.sqlite_conn.commit()
+        self.logger.debug("Event inserted", run_id=run_id, event_name=event_name)
+
+    @db_operation()
     def write_log_entry(self, log_entry: dict) -> None:
         """
         Write a log entry to the database.
         This is the target for the SQLiteLogHandler.
-        
         Args:
             log_entry: Processed structlog dictionary
         """
         if not self.sqlite_conn:
             return
-        
-        try:
-            timestamp = int(log_entry.get('timestamp', datetime.now().timestamp()))
-            level = log_entry.get('level', 'INFO')
-            source = log_entry.get('source', 'unknown')
-            event = log_entry.get('event', 'unknown')
-            
-            # Remove standard fields and serialize the rest as data
-            data_dict = {k: v for k, v in log_entry.items() 
-                        if k not in ['timestamp', 'level', 'source', 'event']}
-            data_json = json.dumps(data_dict)
-            
-            self.sqlite_conn.execute(
-                "INSERT INTO logs (timestamp, level, source, event, data) VALUES (?, ?, ?, ?, ?)",
-                (timestamp, level, source, event, data_json)
-            )
-            self.sqlite_conn.commit()
-            
-        except Exception as e:
-            # Don't log database errors in the log handler to avoid recursion
-            print(f"Failed to write log entry to database: {e}")
-    
-    def get_run_metrics(self, run_id: str, metric_name: str) -> pd.DataFrame:
-        """
-        Get all metrics for a given run and metric name (wide format).
-        Args:
-            run_id: Unique identifier for the run (now the roundSeed from the game, as a string)
-            metric_name: Name of the metric (must match a column in the wide table)
-        Returns:
-            DataFrame of metrics
-        """
-        if not self.sqlite_conn:
-            self.logger.error("SQLite connection not available")
-            return pd.DataFrame()
-        try:
-            # Only allow known metric columns
-            allowed_metrics = ["coins", "gems", "stones"]
-            if metric_name not in allowed_metrics:
-                self.logger.error("Requested unknown metric column", metric_name=metric_name)
-                return pd.DataFrame()
-            query = f"SELECT real_timestamp, {metric_name} FROM metrics WHERE run_id = ? AND {metric_name} IS NOT NULL ORDER BY real_timestamp"
-            cursor = self.sqlite_conn.execute(query, (run_id,))
-            rows = cursor.fetchall()
-            df = pd.DataFrame(rows, columns=["real_timestamp", metric_name])
-            return df
-        except Exception as e:
-            self.logger.error("Failed to get run metrics", error=str(e), run_id=run_id, metric_name=metric_name)
-            return pd.DataFrame()
-    
+        timestamp = int(log_entry.get('timestamp', datetime.now().timestamp()))
+        level = log_entry.get('level', 'INFO')
+        source = log_entry.get('source', 'unknown')
+        event = log_entry.get('event', 'unknown')
+        data_dict = {k: v for k, v in log_entry.items() if k not in ['timestamp', 'level', 'source', 'event']}
+        data_json = json.dumps(data_dict)
+        self.sqlite_conn.execute(
+            "INSERT INTO logs (timestamp, level, source, event, data) VALUES (?, ?, ?, ?, ?)",
+            (timestamp, level, source, event, data_json)
+        )
+        self.sqlite_conn.commit()
+
+    @db_operation(default_return_value=None)
     def get_setting(self, key: str) -> Optional[str]:
         """
         Get a setting value from the database.
-        
         Args:
             key: Setting key
-            
         Returns:
             Setting value or None if not found
         """
         if not self.sqlite_conn:
             return None
-        
-        try:
-            cursor = self.sqlite_conn.execute(
-                "SELECT value FROM settings WHERE key = ?",
-                (key,)
-            )
-            result = cursor.fetchone()
-            return result[0] if result else None
-            
-        except Exception as e:
-            self.logger.error("Failed to get setting", key=key, error=str(e))
-            return None
-    
+        cursor = self.sqlite_conn.execute(
+            "SELECT value FROM settings WHERE key = ?",
+            (key,)
+        )
+        result = cursor.fetchone()
+        return result[0] if result else None
+
+    @db_operation()
     def set_setting(self, key: str, value: str) -> None:
         """
         Set a setting value in the database.
-        
         Args:
             key: Setting key
             value: Setting value
         """
         if not self.sqlite_conn:
             return
-        
-        try:
-            self.sqlite_conn.execute(
-                "INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)",
-                (key, value)
-            )
-            self.sqlite_conn.commit()
-            
-        except Exception as e:
-            self.logger.error("Failed to set setting", key=key, error=str(e))
+        self.sqlite_conn.execute(
+            "INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)",
+            (key, value)
+        )
+        self.sqlite_conn.commit()
 
+    @db_operation()
     def insert_run_start(self, run_id: str, start_time: int, game_version: Optional[str] = None, tier: Optional[int] = None) -> None:
         """
         Insert a new run record at the start of a round.
+        New fields (CPH, round_cells, round_gems, round_cash) are initialized as NULL.
         """
         if not self.sqlite_conn:
-            self.logger.error("SQLite connection not available")
             return
-        try:
-            self.sqlite_conn.execute(
-                "INSERT OR IGNORE INTO runs (run_id, start_time, game_version, tier) VALUES (?, ?, ?, ?)",
-                (str(run_id), int(start_time), str(game_version) if game_version is not None else None, int(tier) if tier is not None else None)
-            )
-            self.sqlite_conn.commit()
-            self.logger.debug("Run start inserted", run_id=run_id, start_time=start_time)
-        except Exception as e:
-            self.logger.error("Failed to insert run start", error=str(e), run_id=run_id)
+        self.sqlite_conn.execute(
+            "INSERT OR IGNORE INTO runs (run_id, start_time, game_version, tier, CPH, round_cells, round_gems, round_cash) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (str(run_id), int(start_time), str(game_version) if game_version is not None else None, int(tier) if tier is not None else None, None, None, None, None)
+        )
+        self.sqlite_conn.commit()
+        self.logger.debug("Run start inserted", run_id=run_id, start_time=start_time)
 
-    def update_run_end(self, run_id: str, end_time: int, final_wave: Optional[int] = None, coins_earned: Optional[float] = None, duration_realtime: Optional[int] = None, duration_gametime: Optional[float] = None) -> None:
+    @db_operation()
+    def update_run_end(self, run_id: str, end_time: int, final_wave: Optional[int] = None, coins_earned: Optional[float] = None, duration_realtime: Optional[int] = None, duration_gametime: Optional[float] = None, round_cells: Optional[float] = None, round_gems: Optional[float] = None, round_cash: Optional[float] = None) -> None:
         """
         Update an existing run record at the end of a round.
-        duration_realtime is now passed directly from the handler (calculated using roundStartTime and timestamp).
-        Argument order: run_id, end_time, final_wave, coins_earned, duration_realtime, duration_gametime
+        duration_realtime is now stored in seconds (auto-converted if needed).
+        CPH (coins per hour) is calculated as coins_earned / (duration_realtime in hours).
+        round_cells, round_gems, and round_cash are stored as the final aggregate values for the round.
+        Argument order: run_id, end_time, final_wave, coins_earned, duration_realtime, duration_gametime, round_cells, round_gems, round_cash
         """
         if not self.sqlite_conn:
-            self.logger.error("SQLite connection not available")
             return
-        try:
-            # If duration_realtime is not provided, calculate from start_time
-            if duration_realtime is None:
-                cursor = self.sqlite_conn.execute(
-                    "SELECT start_time FROM runs WHERE run_id = ?",
-                    (str(run_id),)
-                )
-                row = cursor.fetchone()
-                if not row:
-                    self.logger.error("No run found to update for gameOver", run_id=run_id)
-                    return
-                start_time = row[0]
-                duration_realtime = int(end_time) - int(start_time) if end_time is not None and start_time is not None else None
-            self.sqlite_conn.execute(
-                """
-                UPDATE runs SET end_time = ?, final_wave = ?, coins_earned = ?, duration_realtime = ?, duration_gametime = ?
-                WHERE run_id = ?
-                """,
-                (
-                    int(end_time) if end_time is not None else None,
-                    int(final_wave) if final_wave is not None else None,
-                    float(coins_earned) if coins_earned is not None else None,
-                    int(duration_realtime) if duration_realtime is not None else None,
-                    float(duration_gametime) if duration_gametime is not None else None,
-                    str(run_id)
-                )
+        # If duration_realtime is not provided, calculate from start_time
+        if duration_realtime is None:
+            cursor = self.sqlite_conn.execute(
+                "SELECT start_time FROM runs WHERE run_id = ?",
+                (str(run_id),)
             )
-            self.sqlite_conn.commit()
-            self.logger.debug("Run end updated", run_id=run_id, end_time=end_time)
-        except Exception as e:
-            self.logger.error("Failed to update run end", error=str(e), run_id=run_id)
+            row = cursor.fetchone()
+            if not row:
+                self.logger.error("No run found to update for gameOver", run_id=run_id)
+                return
+            start_time = row[0]
+            duration_realtime = int(end_time) - int(start_time) if end_time is not None and start_time is not None else None
+        # Convert duration_realtime from ms to seconds if it's > 10,000 (assume ms if so)
+        if duration_realtime is not None and duration_realtime > 10000:
+            duration_realtime = int(duration_realtime // 1000)
+        # Calculate CPH (coins per hour)
+        CPH = None
+        if coins_earned is not None and duration_realtime and duration_realtime > 0:
+            hours = duration_realtime / 3600.0
+            if hours > 0:
+                CPH = float(coins_earned) / hours
+        self.sqlite_conn.execute(
+            """
+            UPDATE runs SET end_time = ?, final_wave = ?, coins_earned = ?, duration_realtime = ?, duration_gametime = ?, CPH = ?, round_cells = ?, round_gems = ?, round_cash = ?
+            WHERE run_id = ?
+            """,
+            (
+                int(end_time) if end_time is not None else None,
+                int(final_wave) if final_wave is not None else None,
+                float(coins_earned) if coins_earned is not None else None,
+                int(duration_realtime) if duration_realtime is not None else None,
+                float(duration_gametime) if duration_gametime is not None else None,
+                float(CPH) if CPH is not None else None,
+                float(round_cells) if round_cells is not None else None,
+                float(round_gems) if round_gems is not None else None,
+                float(round_cash) if round_cash is not None else None,
+                str(run_id)
+            )
+        )
+        self.sqlite_conn.commit()
+        self.logger.debug("Run end updated", run_id=run_id, end_time=end_time)

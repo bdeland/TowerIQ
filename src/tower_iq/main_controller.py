@@ -720,6 +720,7 @@ class MainController(QObject):
                 end_time_ms = payload.get("timestamp")
                 start_time_ms = payload.get("roundStartTime")
                 duration_ms = end_time_ms - start_time_ms if end_time_ms is not None and start_time_ms is not None else None
+                metrics = payload.get("metrics", {})
                 await asyncio.to_thread(
                     self.db_service.update_run_end,
                     str(run_id),
@@ -727,7 +728,10 @@ class MainController(QObject):
                     payload.get("currentWave"),
                     payload.get("coinsEarned"),
                     duration_ms,
-                    payload.get("gameTimestamp")
+                    payload.get("gameTimestamp"),
+                    metrics.get("round_cells"),
+                    metrics.get("round_gems"),
+                    metrics.get("round_cash")
                 )
                 self.session.is_round_active = False
                 self.logger.info("Game over event received (game_event)", payload=payload)

@@ -1,8 +1,9 @@
-// tower_hook_integrated_v24.js
+// tower_hook_integrated_v25.js
 
 // This script is a long-running data logger.
-// v24: Fixes a critical bug by removing the 'gameSpeed' field from the standard
-//      payload, ensuring it is ONLY sent via the 'gameSpeedChanged' event as intended.
+// v25: Refactored round start logic into a single 'processRoundStart' function to
+//      eliminate code duplication and improve maintainability.
+//      Also fixed 'lastKnownGameSpeed' not being reset on game over.
 
 import "frida-il2cpp-bridge";
 
@@ -17,7 +18,6 @@ Il2Cpp.perform(() => {
     // --- HELPER FUNCTIONS ---
 
     function log(level, message) {
-        console.log(`[${level.toUpperCase()}] ${message}`);
         send({ type: "hook_log", payload: { event: "frida_log", message, level: level.toUpperCase(), timestamp: Date.now() } });
     }
 
@@ -26,6 +26,7 @@ Il2Cpp.perform(() => {
             const field = instanceObject.class.field(fieldName);
             const typeName = field.type.name;
             const value = instanceObject.field(fieldName).value;
+            // A simple check for integer types
             if (typeName.includes("Int")) return parseInt(value);
             return value;
         } catch (e) {
@@ -37,9 +38,12 @@ Il2Cpp.perform(() => {
     function sendStatefulMessage(context, messageType, customPayload = {}) {
         const timestamp = Date.now();
         
+        // This clever logic attempts to reconstruct the start time if we hook mid-round.
         if (currentRoundStartTime === 0 && getTypedFieldValue(context, "roundActiveBool")) {
             const realTimeThisRound = getTypedFieldValue(context, "realTimeThisRound");
-            currentRoundStartTime = timestamp - (realTimeThisRound * 1000);
+            if (realTimeThisRound !== null) {
+                currentRoundStartTime = timestamp - (realTimeThisRound * 1000);
+            }
         }
 
         const basePayload = {
@@ -49,7 +53,6 @@ Il2Cpp.perform(() => {
             roundSeed: currentRoundSeed,
             isRoundActive: getTypedFieldValue(context, "roundActiveBool"),
             currentWave: getTypedFieldValue(context, "currentWave")
-            // --- THE FIX: 'gameSpeed' has been removed from the standard payload ---
         };
         
         const finalPayload = { ...basePayload, ...customPayload };
@@ -58,8 +61,15 @@ Il2Cpp.perform(() => {
 
     function sendMetricsBundle(context) {
         const metrics = {
-            coins: getTypedFieldValue(context, "coinsEarnedThisRound"),
-            gems: getTypedFieldValue(context, "gems")
+            round_coins: getTypedFieldValue(context, "coinsEarnedThisRound"),
+            coins: getTypedFieldValue(context, "coins"),
+            round_gems: getTypedFieldValue(context, "gemsEarnedFromGemBlocks"),
+            gems: getTypedFieldValue(context, "gems"),
+            round_cells: getTypedFieldValue(context, "cellsEarnedThisRound"),
+            cells: getTypedFieldValue(context, "cells"),
+            round_cash: getTypedFieldValue(context, "cashEarnedThisRound"),
+            cash: getTypedFieldValue(context, "cash"),
+            stones: getTypedFieldValue(context, "stones")
         };
         sendStatefulMessage(context, "game_metric", { metrics: metrics });
     }
@@ -70,34 +80,44 @@ Il2Cpp.perform(() => {
         } catch (e) { return null; }
     }
 
+    // --- NEW CENTRALIZED FUNCTION FOR ROUND START LOGIC ---
+    function processRoundStart(instance, isProactiveCheck = false) {
+        const seed = getTypedFieldValue(instance, "roundSeed");
+        const tier = getTypedFieldValue(instance, "currentTier");
+
+        // Update global state
+        currentRoundSeed = seed;
+        currentRoundStartTime = Date.now();
+
+        const logMessage = isProactiveCheck
+            ? `Proactive check successful. Joined active round with Seed: ${seed}, Tier: ${tier}`
+            : `New round detected! Seed: ${seed}, Tier: ${tier}`;
+        log("INFO", logMessage);
+
+        sendStatefulMessage(instance, "game_event", { 
+            event: "startNewRound",
+            tier: tier
+        });
+    }
+
     try {
         const Main = Il2Cpp.domain.assembly("Assembly-CSharp").image.class("Main");
 
         // --- HOOKS ---
         
+        // Proactive check now uses the centralized function
         log("INFO", "Performing proactive check for an in-progress round...");
         const mainInstance = findMainInstance();
         if (mainInstance && !mainInstance.isNull()) {
             if (getTypedFieldValue(mainInstance, "roundActiveBool") === true) {
-                currentRoundSeed = getTypedFieldValue(mainInstance, "roundSeed");
-                log("INFO", `Proactive check successful. Joined active round with Seed: ${currentRoundSeed}`);
-                sendStatefulMessage(mainInstance, "game_event", { 
-                    event: "startNewRound",
-                    tier: getTypedFieldValue(mainInstance, "currentTier")
-                });
+                processRoundStart(mainInstance, true);
             }
         }
 
+        // Hook on StartNewRound now uses the centralized function
         Main.method("StartNewRound").implementation = function (...args) {
             const returnValue = this.method("StartNewRound").invoke(...args);
-            currentRoundStartTime = Date.now();
-            currentRoundSeed = getTypedFieldValue(this, "roundSeed");
-            const currentTier = getTypedFieldValue(this, "currentTier");
-            log("INFO", `New round detected! Seed: ${currentRoundSeed}, Tier: ${currentTier}`);
-            sendStatefulMessage(this, "game_event", { 
-                event: "startNewRound",
-                tier: currentTier
-            });
+            processRoundStart(this); // 'this' is the Main instance here
             return returnValue;
         };
         log("INFO", "Hook on Main.StartNewRound is live.");
@@ -110,9 +130,11 @@ Il2Cpp.perform(() => {
                     event: "gameOver",
                     coinsEarned: getTypedFieldValue(this, "coinsEarnedThisRound"),
                 });
+                
                 log("INFO", "Round over. Resetting state.");
                 currentRoundSeed = 0;
                 currentRoundStartTime = 0;
+                lastKnownGameSpeed = -1; // <-- REVIEW FIX: Reset game speed state as well
             }
             return this.method("GameOver", 1).invoke(allowSecondWind);
         };
@@ -133,14 +155,16 @@ Il2Cpp.perform(() => {
         log("INFO", "Hook on Main.Unpause is live.");
         
         Main.method("NewWave").implementation = function (...args) {
+            // Note: This reads a static field from the Main class
             const gameSpeed = Main.field("gameSpeed").value;
             if (lastKnownGameSpeed !== gameSpeed) {
                 log("INFO", `Game speed changed to ${gameSpeed.toFixed(2)}x`);
-                // Note: This call to sendStatefulMessage will now correctly OMIT gameSpeed from its own payload.
                 sendStatefulMessage(this, "game_event", { event: "gameSpeedChanged", value: gameSpeed });
                 lastKnownGameSpeed = gameSpeed;
             }
-            if (currentRoundSeed !== 0) sendMetricsBundle(this);
+            if (currentRoundSeed !== 0) {
+                sendMetricsBundle(this);
+            }
             return this.method("NewWave").invoke(...args);
         };
         log("INFO", "Hook on Main.NewWave is live.");
