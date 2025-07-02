@@ -1,9 +1,12 @@
-// tower_hook_integrated_v25.js
+// tower_hook_integrated_v29.js
 
 // This script is a long-running data logger.
-// v25: Refactored round start logic into a single 'processRoundStart' function to
-//      eliminate code duplication and improve maintainability.
-//      Also fixed 'lastKnownGameSpeed' not being reset on game over.
+// v29: Fixed script initialization error by removing duplicated hook implementations
+//      that were causing 'already been replaced by a thunk' errors.
+// v28: Simplified Ad Gem tracking by removing the 'wasAdFreeClaim' field.
+// v27: Correctly implemented Ad Gem tracking by hooking Ads.AdGemRewardClaim(bool).
+// v26: Added detailed gem tracking for multiple sources.
+// v25: Refactored round start logic.
 
 import "frida-il2cpp-bridge";
 
@@ -14,6 +17,8 @@ Il2Cpp.perform(() => {
     let currentRoundSeed = 0;
     let currentRoundStartTime = 0; 
     let lastKnownGameSpeed = -1;
+    const GEM_VALUE_BLOCK = 2;
+    const GEM_VALUE_AD = 5;
 
     // --- HELPER FUNCTIONS ---
 
@@ -26,7 +31,6 @@ Il2Cpp.perform(() => {
             const field = instanceObject.class.field(fieldName);
             const typeName = field.type.name;
             const value = instanceObject.field(fieldName).value;
-            // A simple check for integer types
             if (typeName.includes("Int")) return parseInt(value);
             return value;
         } catch (e) {
@@ -38,7 +42,6 @@ Il2Cpp.perform(() => {
     function sendStatefulMessage(context, messageType, customPayload = {}) {
         const timestamp = Date.now();
         
-        // This clever logic attempts to reconstruct the start time if we hook mid-round.
         if (currentRoundStartTime === 0 && getTypedFieldValue(context, "roundActiveBool")) {
             const realTimeThisRound = getTypedFieldValue(context, "realTimeThisRound");
             if (realTimeThisRound !== null) {
@@ -60,18 +63,26 @@ Il2Cpp.perform(() => {
     }
 
     function sendMetricsBundle(context) {
+        const gemBlocksTapped = getTypedFieldValue(context, "gemBlocksThisRound") || 0;
+        const adGemsClaimed = getTypedFieldValue(context, "totalGemsEarnedFromTapjoy") || 0;
+        const guardianGems = getTypedFieldValue(context, "totalGemsByGuardianThisRound") || 0;
+
         const metrics = {
             round_coins: getTypedFieldValue(context, "coinsEarnedThisRound"),
             wave_coins: getTypedFieldValue(context, "coinsEarnedThisWave"),
             coins: getTypedFieldValue(context, "coins"),
-            round_gems: getTypedFieldValue(context, "gemBlocksThisRound"),
             gems: getTypedFieldValue(context, "gems"),
             round_cells: getTypedFieldValue(context, "cellsEarnedThisRound"),
             wave_cells: getTypedFieldValue(context, "cellsEarnedThisWave"),
             cells: getTypedFieldValue(context, "cells"),
             round_cash: getTypedFieldValue(context, "cashEarnedThisRound"),
             cash: getTypedFieldValue(context, "cash"),
-            stones: getTypedFieldValue(context, "stones")
+            stones: getTypedFieldValue(context, "stones"),
+            round_gems_from_blocks_count: gemBlocksTapped,
+            round_gems_from_blocks_value: gemBlocksTapped * GEM_VALUE_BLOCK,
+            round_gems_from_ads_count: adGemsClaimed,
+            round_gems_from_ads_value: adGemsClaimed * GEM_VALUE_AD,
+            round_gems_from_guardian: guardianGems,
         };
         sendStatefulMessage(context, "game_metric", { metrics: metrics });
     }
@@ -82,12 +93,10 @@ Il2Cpp.perform(() => {
         } catch (e) { return null; }
     }
 
-    // --- NEW CENTRALIZED FUNCTION FOR ROUND START LOGIC ---
     function processRoundStart(instance, isProactiveCheck = false) {
         const seed = getTypedFieldValue(instance, "roundSeed");
         const tier = getTypedFieldValue(instance, "currentTier");
 
-        // Update global state
         currentRoundSeed = seed;
         currentRoundStartTime = Date.now();
 
@@ -104,10 +113,10 @@ Il2Cpp.perform(() => {
 
     try {
         const Main = Il2Cpp.domain.assembly("Assembly-CSharp").image.class("Main");
+        const Ads = Il2Cpp.domain.assembly("Assembly-CSharp").image.class("Ads");
 
         // --- HOOKS ---
         
-        // Proactive check now uses the centralized function
         log("INFO", "Performing proactive check for an in-progress round...");
         const mainInstance = findMainInstance();
         if (mainInstance && !mainInstance.isNull()) {
@@ -116,10 +125,10 @@ Il2Cpp.perform(() => {
             }
         }
 
-        // Hook on StartNewRound now uses the centralized function
+        // --- Standard Main class hooks ---
         Main.method("StartNewRound").implementation = function (...args) {
             const returnValue = this.method("StartNewRound").invoke(...args);
-            processRoundStart(this); // 'this' is the Main instance here
+            processRoundStart(this);
             return returnValue;
         };
         log("INFO", "Hook on Main.StartNewRound is live.");
@@ -136,7 +145,7 @@ Il2Cpp.perform(() => {
                 log("INFO", "Round over. Resetting state.");
                 currentRoundSeed = 0;
                 currentRoundStartTime = 0;
-                lastKnownGameSpeed = -1; // <-- REVIEW FIX: Reset game speed state as well
+                lastKnownGameSpeed = -1;
             }
             return this.method("GameOver", 1).invoke(allowSecondWind);
         };
@@ -157,7 +166,6 @@ Il2Cpp.perform(() => {
         log("INFO", "Hook on Main.Unpause is live.");
         
         Main.method("NewWave").implementation = function (...args) {
-            // Note: This reads a static field from the Main class
             const gameSpeed = Main.field("gameSpeed").value;
             if (lastKnownGameSpeed !== gameSpeed) {
                 log("INFO", `Game speed changed to ${gameSpeed.toFixed(2)}x`);
@@ -170,6 +178,44 @@ Il2Cpp.perform(() => {
             return this.method("NewWave").invoke(...args);
         };
         log("INFO", "Hook on Main.NewWave is live.");
+        
+        // --- GEM TRACKING HOOKS ---
+
+        Main.method("GemBlockTap").implementation = function (...args) {
+            log("INFO", "Gem Block tapped by player.");
+            sendStatefulMessage(this, "game_event", {
+                event: "gemBlockTapped",
+                gemValue: GEM_VALUE_BLOCK
+            });
+            return this.method("GemBlockTap").invoke(...args);
+        };
+        log("INFO", "Hook on Main.GemBlockTap is live.");
+
+        Main.method("GemBlockSpawn").implementation = function (...args) {
+            log("DEBUG", "Gem Block has spawned.");
+            sendStatefulMessage(this, "game_event", { event: "gemBlockSpawned" });
+            return this.method("GemBlockSpawn").invoke(...args);
+        };
+        log("INFO", "Hook on Main.GemBlockSpawn is live.");
+
+        // --- SIMPLIFIED AD GEM HOOK ---
+        
+        Ads.method("AdGemRewardClaim", 1).implementation = function (isFree) {
+            log("INFO", `Ad gem claimed via Ads.AdGemRewardClaim.`);
+            
+            const mainContext = findMainInstance();
+            if (mainContext && !mainContext.isNull()) {
+                sendStatefulMessage(mainContext, "game_event", {
+                    event: "adGemClaimed",
+                    gemValue: GEM_VALUE_AD
+                });
+            } else {
+                log("WARN", "Could not find Main instance when AdGemRewardClaim was called. Event not sent.");
+            }
+            
+            return this.method("AdGemRewardClaim", 1).invoke(isFree);
+        };
+        log("INFO", "Hook on Ads.AdGemRewardClaim is live.");
 
     } catch(e) {
         log("ERROR", `An error occurred in the bridge: ${e.stack}`);

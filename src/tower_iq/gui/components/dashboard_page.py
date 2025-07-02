@@ -104,7 +104,7 @@ class GraphWidget(QWidget):
     # Increase to show points only at higher zoom levels, decrease to show more often.
     scatter_point_threshold = 10  # <--- EDIT THIS VALUE TO FINE-TUNE
     
-    def __init__(self, title: str, y_label: str = "Value", line_color: str = "#9a4dda", scatter_color: str = "#9a4dda", use_wave_axis: bool = False) -> None:
+    def __init__(self, title: str, y_label: str = "Value", line_color: str = "#9a4dda", scatter_color: str = "#9a4dda", use_wave_axis: bool = False, bar_mode: bool = False) -> None:
         """
         Initialize a graph widget.
         
@@ -114,6 +114,7 @@ class GraphWidget(QWidget):
             line_color: Color for the line in the chart
             scatter_color: Color for the scatter points in the chart
             use_wave_axis: If True, use a standard integer axis for x (for wave charts)
+            bar_mode: If True, use pg.BarGraphItem for plotting instead of a line plot
         """
         super().__init__()
         
@@ -126,6 +127,7 @@ class GraphWidget(QWidget):
         self.max_points = 1000  # Maximum number of data points to keep
         self.start_time = None  # Track start time for relative X-axis
         self.use_wave_axis = use_wave_axis
+        self.bar_mode = bar_mode
         self._main_layout = QVBoxLayout(self)
         self._main_layout.setContentsMargins(10, 10, 10, 10)
         
@@ -164,20 +166,24 @@ class GraphWidget(QWidget):
             ax = self.plot_widget.getAxis(axis)
             if ax is not None:
                 ax.setStyle(maxTickLevel=0, tickLength=-8)
-        self.plot_item = self.plot_widget.plot(
-            pen=pg.mkPen(color=self.line_color, width=3)
-        )
-        self.scatter = pg.ScatterPlotItem(
-            pen=pg.mkPen(None),
-            brush=pg.mkBrush(self.scatter_color),
-            size=8,
-            hoverable=True,
-            hoverPen=pg.mkPen('w', width=2),
-            hoverBrush=pg.mkBrush('w')
-        )
-        self.scatter.sigHovered.connect(self._on_point_hovered)
-        self.plot_widget.addItem(self.scatter)
-        self.plot_widget.sigXRangeChanged.connect(self._on_xrange_changed)
+        if self.bar_mode:
+            self.bar_item = pg.BarGraphItem(x=[], height=[], width=0.8, brush=pg.mkBrush(self.line_color))
+            self.plot_widget.addItem(self.bar_item)
+        else:
+            self.plot_item = self.plot_widget.plot(
+                pen=pg.mkPen(color=self.line_color, width=3)
+            )
+            self.scatter = pg.ScatterPlotItem(
+                pen=pg.mkPen(None),
+                brush=pg.mkBrush(self.scatter_color),
+                size=8,
+                hoverable=True,
+                hoverPen=pg.mkPen('w', width=2),
+                hoverBrush=pg.mkBrush('w')
+            )
+            self.scatter.sigHovered.connect(self._on_point_hovered)
+            self.plot_widget.addItem(self.scatter)
+            self.plot_widget.sigXRangeChanged.connect(self._on_xrange_changed)
         self._main_layout.addWidget(self.plot_widget)
     
     def _init_placeholder(self) -> None:
@@ -288,20 +294,26 @@ class GraphWidget(QWidget):
             x_col: column to use for x-axis (overrides default)
             y_col: column to use for y-axis (overrides default)
         """
-        if pg is None or not hasattr(self, 'plot_item'):
+        if pg is None:
             return
         if df.empty:
+            if self.bar_mode and hasattr(self, 'bar_item'):
+                self.bar_item.setOpts(x=[], height=[])
+            elif hasattr(self, 'plot_item'):
+                self.plot_item.setData([], [])
+            if hasattr(self, 'scatter'):
+                self.scatter.setData([])
             return
         if len(df) > 0:
             df = df.copy()
-            # Guarantee x_col/y_col are always valid strings before any use
             if self.use_wave_axis:
                 if x_col is None:
                     x_col = 'current_wave'
                 if y_col is None:
                     y_col = 'metric_value'
-                self.data_x = df[x_col].tolist()
-                self.data_y = df[y_col].tolist()
+                # Ensure x is int and y is float for bar chart
+                self.data_x = [int(x) for x in df[x_col].tolist()]
+                self.data_y = [float(y) for y in df[y_col].tolist()]
             else:
                 if x_col is None:
                     x_col = 'real_timestamp'
@@ -320,20 +332,23 @@ class GraphWidget(QWidget):
                 values = df[y_col]
                 self.data_x = x_vals
                 self.data_y = values.tolist()
-            vb = self.plot_widget.getViewBox()
-            if not getattr(self.parent(), 'autoscale_enabled', True) and vb is not None:
-                old_xrange = vb.viewRange()[0]
+            if self.bar_mode and hasattr(self, 'bar_item'):
+                self.bar_item.setOpts(x=self.data_x, height=self.data_y, width=0.8, brush=pg.mkBrush(self.line_color))
+                # Hide line and scatter if present
+                if hasattr(self, 'plot_item'):
+                    self.plot_item.setData([], [])
+                if hasattr(self, 'scatter'):
+                    self.scatter.setData([])
             else:
-                old_xrange = None
-            self.plot_item.setData(self.data_x, self.data_y)
-            spots = [{'pos': (x, y), 'data': y, 'brush': pg.mkBrush(self.scatter_color)} for x, y in zip(self.data_x, self.data_y)]
-            self.scatter.setData(spots)
-            if not getattr(self.parent(), 'autoscale_enabled', True) and old_xrange is not None and vb is not None:
-                vb.setXRange(*old_xrange, padding=0)
-            vb = self.plot_widget.getViewBox()
-            if vb is not None:
-                xrange = vb.viewRange()[0]
-                self._on_xrange_changed(vb, xrange)
+                if hasattr(self, 'plot_item'):
+                    self.plot_item.setData(self.data_x, self.data_y)
+                if hasattr(self, 'scatter'):
+                    spots = [{'pos': (x, y), 'data': y, 'brush': pg.mkBrush(self.scatter_color)} for x, y in zip(self.data_x, self.data_y)]
+                    self.scatter.setData(spots)
+                vb = self.plot_widget.getViewBox()
+                if vb is not None:
+                    xrange = vb.viewRange()[0]
+                    self._on_xrange_changed(vb, xrange)
     
     def clear_data(self) -> None:
         """Clear all data points from the graph."""
@@ -603,7 +618,7 @@ class DashboardPage(QWidget):
         coins_vbox.addWidget(self.coins_chart)
         charts_grid.addWidget(coins_panel, 0, 0)
         # Coins per Wave chart (top right)
-        self.wave_coins_chart = GraphWidget("Coins per Wave", "Wave Coins", line_color="#60c86e", scatter_color="#60c86e", use_wave_axis=True)
+        self.wave_coins_chart = GraphWidget("Coins per Wave", "Wave Coins", line_color="#60c86e", scatter_color="#60c86e", use_wave_axis=True, bar_mode=True)
         self.wave_coins_chart.setStyleSheet("")
         wave_coins_title = QLabel("Coins per Wave")
         wave_coins_title.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -854,6 +869,23 @@ class DashboardPage(QWidget):
                 self.coins_per_hour_label.setText(f"CPH: {format_currency(cph)}")
             else:
                 self.coins_per_hour_label.setText("CPH: -")
+        # For gems, update the chart and stat panel if either underlying metric is updated
+        if metric_name in ("round_gems_from_blocks_value", "round_gems_from_ads_value"):
+            # Trigger a full update of the gems chart and stat panel
+            run_id = getattr(self.controller.session, 'current_round_seed', None)
+            if run_id is not None:
+                df = self.controller.db_service.get_total_gems_over_time(str(run_id))
+                if not df.empty:
+                    total = df["total_gems"].iloc[-1]
+                    elapsed = (df["real_timestamp"].iloc[-1] - df["real_timestamp"].iloc[0]) / 3600 if len(df) > 1 else 0
+                    per_hour = total / elapsed if elapsed > 0 else 0
+                    self.gems_total_label.setText(f"Total Gems: {format_currency(total)}")
+                    self.gems_per_hour_label.setText(f"GPH: {format_currency(per_hour)}")
+                    self.gems_chart.plot_data(df, metric_name="total_gems", normalize_x=True, x_col="real_timestamp", y_col="total_gems")
+                else:
+                    self.gems_total_label.setText("Total Gems: -")
+                    self.gems_per_hour_label.setText("GPH: -")
+                    self.gems_chart.clear_data()
         # No direct stat panel update here; handled by _update_stats timer
     
     @pyqtSlot(str, object)
@@ -881,14 +913,18 @@ class DashboardPage(QWidget):
             if graph_name == "gems_timeline":
                 run_id = getattr(self.controller.session, 'current_round_seed', None)
                 if run_id is not None:
-                    df = self.controller.db_service.get_run_metrics(str(run_id), "round_gems")
+                    df = self.controller.db_service.get_total_gems_over_time(str(run_id))
                     if not df.empty:
-                        total = df["round_gems"].iloc[-1]
+                        total = df["total_gems"].iloc[-1]
                         elapsed = (df["real_timestamp"].iloc[-1] - df["real_timestamp"].iloc[0]) / 3600 if len(df) > 1 else 0
                         per_hour = total / elapsed if elapsed > 0 else 0
                         self.gems_total_label.setText(f"Total Gems: {format_currency(total)}")
                         self.gems_per_hour_label.setText(f"GPH: {format_currency(per_hour)}")
-                        self.graphs[graph_name].plot_data(df, metric_name="round_gems", normalize_x=True)
+                        self.graphs[graph_name].plot_data(df, metric_name="total_gems", normalize_x=True, x_col="real_timestamp", y_col="total_gems")
+                    else:
+                        self.gems_total_label.setText("Total Gems: -")
+                        self.gems_per_hour_label.setText("GPH: -")
+                        self.graphs[graph_name].clear_data()
                 return
             if graph_name == "cells_timeline":
                 run_id = getattr(self.controller.session, 'current_round_seed', None)
@@ -906,10 +942,7 @@ class DashboardPage(QWidget):
                 run_id = getattr(self.controller.session, 'current_round_seed', None)
                 if run_id is not None:
                     df = self.controller.db_service.get_wave_coins_per_wave(str(run_id))
-                    if not df.empty:
-                        print("[DEBUG] wave_coins DataFrame:")
-                        print(df)
-                        self.graphs[graph_name].plot_data(df, x_col="current_wave", y_col="metric_value", normalize_x=False)
+                    self.graphs[graph_name].plot_data(df, x_col="current_wave", y_col="metric_value", normalize_x=False)
                 return
             # Handle pandas DataFrame (new format)
             if pd is not None and hasattr(data, 'empty'):
@@ -938,18 +971,20 @@ class DashboardPage(QWidget):
     
     def _on_autoscale_toggled(self, state):
         self.autoscale_enabled = bool(state)
+        charts = [self.coins_chart, self.gems_chart, self.cells_chart, self.wave_coins_chart]
         if self.autoscale_enabled:
-            for chart in [self.coins_chart, self.gems_chart, self.cells_chart]:
+            for chart in charts:
                 chart.plot_widget.enableAutoRange(axis=ViewBox.XYAxes, enable=True)
         else:
-            for chart in [self.coins_chart, self.gems_chart, self.cells_chart]:
+            for chart in charts:
                 chart.plot_widget.enableAutoRange(axis=ViewBox.XYAxes, enable=False)
     
     def _on_user_zoom_pan(self, *args, **kwargs):
         if self.autoscale_enabled:
             self.autoscale_checkbox.setChecked(False)
             self.autoscale_enabled = False
-            for chart in [self.coins_chart, self.gems_chart, self.cells_chart]:
+            charts = [self.coins_chart, self.gems_chart, self.cells_chart, self.wave_coins_chart]
+            for chart in charts:
                 chart.plot_widget.enableAutoRange(axis=ViewBox.XYAxes, enable=False)
             self._glow_autoscale_checkbox()
     

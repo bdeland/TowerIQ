@@ -1,16 +1,19 @@
 📦
-5981 /tower_hook.js.map
-7520 /tower_hook.js
+7569 /tower_hook.js.map
+9469 /tower_hook.js
 157866 /node_modules/frida-il2cpp-bridge/dist/index.js
 ↻ frida-il2cpp-bridge
 ✄
-{"version":3,"file":"tower_hook.js","sourceRoot":"C:/Users/delan/Documents/GitHub/TowerIQ/","sources":["tower_hook.js"],"names":[],"mappings":"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"}
+{"version":3,"file":"tower_hook.js","sourceRoot":"C:/Users/delan/Documents/GitHub/TowerIQ/","sources":["tower_hook.js"],"names":[],"mappings":"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"}
 ✄
-// tower_hook_integrated_v25.js
+// tower_hook_integrated_v29.js
 // This script is a long-running data logger.
-// v25: Refactored round start logic into a single 'processRoundStart' function to
-//      eliminate code duplication and improve maintainability.
-//      Also fixed 'lastKnownGameSpeed' not being reset on game over.
+// v29: Fixed script initialization error by removing duplicated hook implementations
+//      that were causing 'already been replaced by a thunk' errors.
+// v28: Simplified Ad Gem tracking by removing the 'wasAdFreeClaim' field.
+// v27: Correctly implemented Ad Gem tracking by hooking Ads.AdGemRewardClaim(bool).
+// v26: Added detailed gem tracking for multiple sources.
+// v25: Refactored round start logic.
 import "frida-il2cpp-bridge";
 Il2Cpp.perform(() => {
     log("INFO", "Il2Cpp Bridge is ready and running in the emulated realm.");
@@ -18,6 +21,8 @@ Il2Cpp.perform(() => {
     let currentRoundSeed = 0;
     let currentRoundStartTime = 0;
     let lastKnownGameSpeed = -1;
+    const GEM_VALUE_BLOCK = 2;
+    const GEM_VALUE_AD = 5;
     // --- HELPER FUNCTIONS ---
     function log(level, message) {
         send({ type: "hook_log", payload: { event: "frida_log", message, level: level.toUpperCase(), timestamp: Date.now() } });
@@ -27,7 +32,6 @@ Il2Cpp.perform(() => {
             const field = instanceObject.class.field(fieldName);
             const typeName = field.type.name;
             const value = instanceObject.field(fieldName).value;
-            // A simple check for integer types
             if (typeName.includes("Int"))
                 return parseInt(value);
             return value;
@@ -39,7 +43,6 @@ Il2Cpp.perform(() => {
     }
     function sendStatefulMessage(context, messageType, customPayload = {}) {
         const timestamp = Date.now();
-        // This clever logic attempts to reconstruct the start time if we hook mid-round.
         if (currentRoundStartTime === 0 && getTypedFieldValue(context, "roundActiveBool")) {
             const realTimeThisRound = getTypedFieldValue(context, "realTimeThisRound");
             if (realTimeThisRound !== null) {
@@ -58,18 +61,25 @@ Il2Cpp.perform(() => {
         send({ type: messageType, payload: finalPayload });
     }
     function sendMetricsBundle(context) {
+        const gemBlocksTapped = getTypedFieldValue(context, "gemBlocksThisRound") || 0;
+        const adGemsClaimed = getTypedFieldValue(context, "totalGemsEarnedFromTapjoy") || 0;
+        const guardianGems = getTypedFieldValue(context, "totalGemsByGuardianThisRound") || 0;
         const metrics = {
             round_coins: getTypedFieldValue(context, "coinsEarnedThisRound"),
             wave_coins: getTypedFieldValue(context, "coinsEarnedThisWave"),
             coins: getTypedFieldValue(context, "coins"),
-            round_gems: getTypedFieldValue(context, "gemBlocksThisRound"),
             gems: getTypedFieldValue(context, "gems"),
             round_cells: getTypedFieldValue(context, "cellsEarnedThisRound"),
             wave_cells: getTypedFieldValue(context, "cellsEarnedThisWave"),
             cells: getTypedFieldValue(context, "cells"),
             round_cash: getTypedFieldValue(context, "cashEarnedThisRound"),
             cash: getTypedFieldValue(context, "cash"),
-            stones: getTypedFieldValue(context, "stones")
+            stones: getTypedFieldValue(context, "stones"),
+            round_gems_from_blocks_count: gemBlocksTapped,
+            round_gems_from_blocks_value: gemBlocksTapped * GEM_VALUE_BLOCK,
+            round_gems_from_ads_count: adGemsClaimed,
+            round_gems_from_ads_value: adGemsClaimed * GEM_VALUE_AD,
+            round_gems_from_guardian: guardianGems,
         };
         sendStatefulMessage(context, "game_metric", { metrics: metrics });
     }
@@ -81,11 +91,9 @@ Il2Cpp.perform(() => {
             return null;
         }
     }
-    // --- NEW CENTRALIZED FUNCTION FOR ROUND START LOGIC ---
     function processRoundStart(instance, isProactiveCheck = false) {
         const seed = getTypedFieldValue(instance, "roundSeed");
         const tier = getTypedFieldValue(instance, "currentTier");
-        // Update global state
         currentRoundSeed = seed;
         currentRoundStartTime = Date.now();
         const logMessage = isProactiveCheck
@@ -99,8 +107,8 @@ Il2Cpp.perform(() => {
     }
     try {
         const Main = Il2Cpp.domain.assembly("Assembly-CSharp").image.class("Main");
+        const Ads = Il2Cpp.domain.assembly("Assembly-CSharp").image.class("Ads");
         // --- HOOKS ---
-        // Proactive check now uses the centralized function
         log("INFO", "Performing proactive check for an in-progress round...");
         const mainInstance = findMainInstance();
         if (mainInstance && !mainInstance.isNull()) {
@@ -108,10 +116,10 @@ Il2Cpp.perform(() => {
                 processRoundStart(mainInstance, true);
             }
         }
-        // Hook on StartNewRound now uses the centralized function
+        // --- Standard Main class hooks ---
         Main.method("StartNewRound").implementation = function (...args) {
             const returnValue = this.method("StartNewRound").invoke(...args);
-            processRoundStart(this); // 'this' is the Main instance here
+            processRoundStart(this);
             return returnValue;
         };
         log("INFO", "Hook on Main.StartNewRound is live.");
@@ -126,7 +134,7 @@ Il2Cpp.perform(() => {
                 log("INFO", "Round over. Resetting state.");
                 currentRoundSeed = 0;
                 currentRoundStartTime = 0;
-                lastKnownGameSpeed = -1; // <-- REVIEW FIX: Reset game speed state as well
+                lastKnownGameSpeed = -1;
             }
             return this.method("GameOver", 1).invoke(allowSecondWind);
         };
@@ -144,7 +152,6 @@ Il2Cpp.perform(() => {
         };
         log("INFO", "Hook on Main.Unpause is live.");
         Main.method("NewWave").implementation = function (...args) {
-            // Note: This reads a static field from the Main class
             const gameSpeed = Main.field("gameSpeed").value;
             if (lastKnownGameSpeed !== gameSpeed) {
                 log("INFO", `Game speed changed to ${gameSpeed.toFixed(2)}x`);
@@ -157,6 +164,38 @@ Il2Cpp.perform(() => {
             return this.method("NewWave").invoke(...args);
         };
         log("INFO", "Hook on Main.NewWave is live.");
+        // --- GEM TRACKING HOOKS ---
+        Main.method("GemBlockTap").implementation = function (...args) {
+            log("INFO", "Gem Block tapped by player.");
+            sendStatefulMessage(this, "game_event", {
+                event: "gemBlockTapped",
+                gemValue: GEM_VALUE_BLOCK
+            });
+            return this.method("GemBlockTap").invoke(...args);
+        };
+        log("INFO", "Hook on Main.GemBlockTap is live.");
+        Main.method("GemBlockSpawn").implementation = function (...args) {
+            log("DEBUG", "Gem Block has spawned.");
+            sendStatefulMessage(this, "game_event", { event: "gemBlockSpawned" });
+            return this.method("GemBlockSpawn").invoke(...args);
+        };
+        log("INFO", "Hook on Main.GemBlockSpawn is live.");
+        // --- SIMPLIFIED AD GEM HOOK ---
+        Ads.method("AdGemRewardClaim", 1).implementation = function (isFree) {
+            log("INFO", `Ad gem claimed via Ads.AdGemRewardClaim.`);
+            const mainContext = findMainInstance();
+            if (mainContext && !mainContext.isNull()) {
+                sendStatefulMessage(mainContext, "game_event", {
+                    event: "adGemClaimed",
+                    gemValue: GEM_VALUE_AD
+                });
+            }
+            else {
+                log("WARN", "Could not find Main instance when AdGemRewardClaim was called. Event not sent.");
+            }
+            return this.method("AdGemRewardClaim", 1).invoke(isFree);
+        };
+        log("INFO", "Hook on Ads.AdGemRewardClaim is live.");
     }
     catch (e) {
         log("ERROR", `An error occurred in the bridge: ${e.stack}`);

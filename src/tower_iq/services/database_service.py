@@ -479,3 +479,34 @@ class DatabaseService:
             ORDER BY current_wave
         '''
         return pd.read_sql_query(query, self.sqlite_conn, params=(run_id,))
+
+    @db_operation(default_return_value=pd.DataFrame())
+    def get_total_gems_over_time(self, run_id: str) -> pd.DataFrame:
+        """
+        Returns a DataFrame with columns: real_timestamp, total_gems
+        where total_gems is the sum of round_gems_from_blocks_value and round_gems_from_ads_value
+        at each timestamp for the given run_id.
+        """
+        if not self.sqlite_conn:
+            return pd.DataFrame()
+        # Get all timestamps and values for both metrics
+        query = '''
+            SELECT real_timestamp, metric_name, metric_value
+            FROM metrics
+            WHERE run_id = ? AND (metric_name = 'round_gems_from_blocks_value' OR metric_name = 'round_gems_from_ads_value')
+            ORDER BY real_timestamp
+        '''
+        df = pd.read_sql_query(query, self.sqlite_conn, params=(run_id,))
+        if df.empty:
+            return pd.DataFrame(columns=["real_timestamp", "total_gems"])
+        # Pivot to wide format: columns for each metric, fill missing with 0
+        df_wide = df.pivot_table(index="real_timestamp", columns="metric_name", values="metric_value", fill_value=0)
+        # Ensure both columns exist
+        for col in ["round_gems_from_blocks_value", "round_gems_from_ads_value"]:
+            if col not in df_wide:
+                df_wide[col] = 0
+        # Compute the sum at each timestamp (no cumsum)
+        df_wide["total_gems"] = df_wide["round_gems_from_blocks_value"] + df_wide["round_gems_from_ads_value"]
+        # Reset index to get real_timestamp as a column
+        result = df_wide.reset_index()[["real_timestamp", "total_gems"]]
+        return result

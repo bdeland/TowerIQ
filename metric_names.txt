@@ -1,0 +1,16 @@
+cash
+cells
+coins
+gems
+round_cash
+round_cells
+round_coins
+round_gems
+stones
+wave_cells
+wave_coins
+round_gems_from_ads_count
+round_gems_from_ads_value
+round_gems_from_blocks_count
+round_gems_from_blocks_value
+round_gems_from_guardian

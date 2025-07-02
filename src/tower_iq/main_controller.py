@@ -793,7 +793,10 @@ class MainController(QObject):
             return
             
         try:
-            df = await asyncio.to_thread(self.db_service.get_run_metrics, run_id, name)
+            if name == "round_gems":
+                df = await asyncio.to_thread(self.db_service.get_total_gems_over_time, run_id)
+            else:
+                df = await asyncio.to_thread(self.db_service.get_run_metrics, run_id, name)
             
             # Map metric names to graph names
             graph_name_mapping = {
