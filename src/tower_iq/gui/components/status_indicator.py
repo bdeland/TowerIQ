@@ -37,6 +37,17 @@ class StatusIndicator(QWidget):
         layout = QHBoxLayout(self)
         layout.setContentsMargins(5, 2, 5, 2)
         layout.setSpacing(5)
+        # Set dark background and white text
+        self.setStyleSheet("""
+            QWidget {
+                background-color: #001219;
+                color: #fff;
+            }
+            QLabel {
+                color: #fff;
+                background-color: transparent;
+            }
+        """)
         
         # Status icon
         self.icon_label = QLabel()
@@ -134,17 +145,17 @@ class StatusIndicator(QWidget):
         """
         # Color mapping for different statuses
         status_colors = {
-            "connected": "#4CAF50",      # Green
-            "disconnected": "#F44336",   # Red
-            "loading": "#FF9800",        # Orange
-            "warning": "#FF9800",        # Orange
-            "error": "#F44336"           # Red
+            "connected": "#2a9b8e",      # Jade Current
+            "disconnected": "#d72827",   # Crimson Strike
+            "loading": "#fee8a8",        # Lemon Cream
+            "warning": "#fee8a8",        # Lemon Cream
+            "error": "#d72827"           # Crimson Strike
         }
         
-        color = status_colors.get(status, "#666")
+        color = status_colors.get(status, "#fff")
         
         self.text_label.setText(message)
-        self.text_label.setStyleSheet(f"color: {color}; font-size: 11px; font-weight: bold;")
+        self.text_label.setStyleSheet(f"color: {color}; font-size: 11px; font-weight: bold; background: transparent;")
     
     def _get_default_message(self, status: str) -> str:
         """

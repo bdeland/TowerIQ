@@ -62,10 +62,12 @@ Il2Cpp.perform(() => {
     function sendMetricsBundle(context) {
         const metrics = {
             round_coins: getTypedFieldValue(context, "coinsEarnedThisRound"),
+            wave_coins: getTypedFieldValue(context, "coinsEarnedThisWave"),
             coins: getTypedFieldValue(context, "coins"),
-            round_gems: getTypedFieldValue(context, "gemsEarnedFromGemBlocks"),
+            round_gems: getTypedFieldValue(context, "gemBlocksThisRound"),
             gems: getTypedFieldValue(context, "gems"),
             round_cells: getTypedFieldValue(context, "cellsEarnedThisRound"),
+            wave_cells: getTypedFieldValue(context, "cellsEarnedThisWave"),
             cells: getTypedFieldValue(context, "cells"),
             round_cash: getTypedFieldValue(context, "cashEarnedThisRound"),
             cash: getTypedFieldValue(context, "cash"),

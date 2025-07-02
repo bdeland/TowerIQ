@@ -28,9 +28,9 @@ def get_asset_path(asset_name: str) -> str:
         FileNotFoundError: If the asset file doesn't exist
     """
     # Check if running in a PyInstaller bundle
-    if getattr(sys, '_MEIPASS', None):
+    if getattr(sys, '_MEIPASS', None):  # type: ignore[attr-defined]
         # Running in PyInstaller bundle
-        bundle_dir = Path(sys._MEIPASS)
+        bundle_dir = Path(sys._MEIPASS)  # type: ignore[attr-defined]
         asset_path = bundle_dir / "resources" / "assets" / asset_name
     else:
         # Running from source - find the project root
@@ -85,8 +85,8 @@ def list_available_assets() -> dict:
     
     try:
         # Determine base assets directory
-        if getattr(sys, '_MEIPASS', None):
-            assets_dir = Path(sys._MEIPASS) / "resources" / "assets"
+        if getattr(sys, '_MEIPASS', None):  # type: ignore[attr-defined]
+            assets_dir = Path(sys._MEIPASS) / "resources" / "assets"  # type: ignore[attr-defined]
         else:
             current_file = Path(__file__)
             project_root = current_file.parent.parent.parent.parent

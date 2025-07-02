@@ -420,3 +420,62 @@ class DatabaseService:
         )
         self.sqlite_conn.commit()
         self.logger.debug("Run end updated", run_id=run_id, end_time=end_time)
+
+    @db_operation(default_return_value=pd.DataFrame())
+    def get_recent_runs_for_histogram(self, limit: Optional[int] = None) -> pd.DataFrame:
+        """
+        Return a DataFrame with columns: tier, CPH, for the most recent N runs (by end_time DESC).
+        If limit is None, return all runs.
+        """
+        if not self.sqlite_conn:
+            return pd.DataFrame()
+        query = "SELECT tier, CPH FROM runs WHERE CPH IS NOT NULL AND tier IS NOT NULL ORDER BY end_time DESC"
+        if limit is not None:
+            query += f" LIMIT {int(limit)}"
+        df = pd.read_sql_query(query, self.sqlite_conn)
+        return df
+
+    @db_operation(default_return_value=pd.DataFrame())
+    def get_all_runs(self, limit: Optional[int] = None) -> pd.DataFrame:
+        """
+        Return a DataFrame with all columns from the runs table, for the most recent N runs (by end_time DESC).
+        If limit is None, return all runs.
+        """
+        if not self.sqlite_conn:
+            return pd.DataFrame()
+        query = "SELECT * FROM runs ORDER BY end_time DESC"
+        if limit is not None:
+            query += f" LIMIT {int(limit)}"
+        df = pd.read_sql_query(query, self.sqlite_conn)
+        return df
+
+    @db_operation(default_return_value=None)
+    def get_run_by_id(self, run_id: str) -> Optional[dict]:
+        """
+        Fetch a single run from the runs table by run_id.
+        Returns a dict of the row if found, else None.
+        """
+        if not self.sqlite_conn:
+            return None
+        cursor = self.sqlite_conn.execute(
+            "SELECT * FROM runs WHERE run_id = ?",
+            (str(run_id),)
+        )
+        row = cursor.fetchone()
+        if row is None:
+            return None
+        # Get column names
+        col_names = [desc[0] for desc in cursor.description]
+        return dict(zip(col_names, row))
+
+    @db_operation(default_return_value=pd.DataFrame())
+    def get_wave_coins_per_wave(self, run_id: str) -> pd.DataFrame:
+        if not self.sqlite_conn:
+            return pd.DataFrame()
+        query = '''
+            SELECT current_wave, metric_value
+            FROM metrics
+            WHERE run_id = ? AND metric_name = 'wave_coins'
+            ORDER BY current_wave
+        '''
+        return pd.read_sql_query(query, self.sqlite_conn, params=(run_id,))

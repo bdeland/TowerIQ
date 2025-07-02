@@ -15,6 +15,7 @@ import os
 import qasync
 import structlog
 from PyQt6.QtWidgets import QApplication
+from PyQt6.QtGui import QFont
 
 from tower_iq.core.config import ConfigurationManager
 from tower_iq.core.logging_config import setup_logging
@@ -77,15 +78,16 @@ def main() -> None:
             return
         
         # Initialize PyQt Application
-        qt_app = QApplication(sys.argv)
-        qt_app.setApplicationName("TowerIQ")
-        qt_app.setApplicationVersion("1.0")
+        app = QApplication(sys.argv)
+        app.setFont(QFont("Roboto", 11))
+        app.setApplicationName("TowerIQ")
+        app.setApplicationVersion("1.0")
         
         # Instantiate Controller
         controller = MainController(config, logger)
         
         # Set up Async Bridge (qasync) - Critical step for PyQt + asyncio
-        loop = qasync.QEventLoop(qt_app)
+        loop = qasync.QEventLoop(app)
         asyncio.set_event_loop(loop)
         
         # Instantiate Main Window
@@ -122,7 +124,7 @@ def main() -> None:
                             except Exception as quit_error:
                                 logger.error("Error stopping event loop", error=str(quit_error))
                         
-                        qt_app.aboutToQuit.connect(on_app_quit)
+                        app.aboutToQuit.connect(on_app_quit)
                         logger.info("Qt app quit signal connected")
                     except Exception as e:
                         logger.error("Failed to connect quit signal", error=str(e))

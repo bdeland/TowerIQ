@@ -799,7 +799,11 @@ class MainController(QObject):
             graph_name_mapping = {
                 "coins": "coins_timeline",
                 "total_coins": "coins_timeline",
-                "efficiency": "efficiency_timeline"
+                "round_gems": "gems_timeline",
+                "round_cells": "cells_timeline",
+                "round_cash": "cash_timeline",
+                "efficiency": "efficiency_timeline",
+                "wave_coins": "wave_coins_timeline"
             }
             
             graph_name = graph_name_mapping.get(name, f"{name}_graph")

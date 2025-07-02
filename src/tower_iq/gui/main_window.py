@@ -13,16 +13,83 @@ import time
 from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QHBoxLayout, QVBoxLayout, QFrame, 
     QPushButton, QStackedWidget, QStatusBar, QLabel,
-    QMessageBox  # Add QMessageBox for confirmation dialogs
+    QMessageBox, QButtonGroup, QHBoxLayout  # Add QHBoxLayout for custom nav button
 )
-from PyQt6.QtCore import Qt, pyqtSlot
-from PyQt6.QtGui import QIcon, QPixmap
+from PyQt6.QtCore import Qt, pyqtSlot, QPropertyAnimation, QEasingCurve, QSize, QObject, pyqtSignal
+from PyQt6.QtGui import QIcon, QPixmap, QPalette, QColor
+from PyQt6.QtSvgWidgets import QSvgWidget
 
 from tower_iq.gui.components.dashboard_page import DashboardPage
 from tower_iq.gui.components.settings_page import SettingsPage
 from tower_iq.gui.components.history_page import HistoryPage
 from tower_iq.gui.components.status_indicator import StatusIndicator
 from tower_iq.gui.assets import get_asset_path
+
+
+class SidebarFrame(QFrame):
+    pass
+
+
+class SidebarNavButton(QWidget):
+    def __init__(self, icon: QIcon, text: str, parent=None):
+        super().__init__(parent)
+        self.icon_label = QLabel()
+        self.icon_label.setPixmap(icon.pixmap(28, 28))
+        self.icon_label.setAlignment(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft)
+        self.text_label = QLabel(text)
+        self.text_label.setStyleSheet("color: #fff; font-size: 14px; padding-left: 12px;")
+        self.text_label.setAlignment(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft)
+        self._layout = QHBoxLayout(self)
+        self._layout.setContentsMargins(12, 0, 0, 0)  # Fixed left margin for icon
+        self._layout.setSpacing(0)
+        self._layout.addWidget(self.icon_label, 0, Qt.AlignmentFlag.AlignLeft)
+        # Do not add text_label yet; will be managed by update_state
+        self.setFixedSize(48, 48)
+        self.setStyleSheet("background: transparent; border-radius: 5px;")
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        self._checked = False
+        self._collapsed = True
+        self.button_group = None  # Will be set by NavButtonGroup
+        self._text = text  # Store for re-adding
+        self.update_state()
+    def setChecked(self, checked: bool):
+        self._checked = checked
+        self.update_state()
+    def isChecked(self):
+        return self._checked
+    def setCollapsed(self, collapsed: bool):
+        self._collapsed = collapsed
+        self.update_state()
+    def update_state(self):
+        # Remove text_label from layout if present
+        if self.text_label.parent() is self:
+            self._layout.removeWidget(self.text_label)
+            self.text_label.hide()
+        if self._collapsed:
+            self.setFixedSize(48, 48)
+            self.icon_label.setAlignment(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft)
+            self.setStyleSheet("background: transparent; border-radius: 5px;")
+        else:
+            # Add text_label to layout if not present
+            if self.text_label.parent() is not self:
+                self.text_label.setParent(self)
+            self._layout.addWidget(self.text_label, 1)
+            self.text_label.show()
+            self.setMinimumWidth(160)
+            self.setMaximumWidth(16777215)
+            self.setFixedHeight(48)
+            self.icon_label.setAlignment(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft)
+            if self._checked:
+                self.setStyleSheet("background: #2a9b8e; border-radius: 5px;")
+            else:
+                self.setStyleSheet("background: transparent; border-radius: 5px;")
+    def mousePressEvent(self, event):
+        self.setChecked(True)
+        if self.button_group is not None:
+            self.button_group.buttonClicked.emit(self)
+        super().mousePressEvent(event)
 
 
 class MainWindow(QMainWindow):
@@ -47,8 +114,8 @@ class MainWindow(QMainWindow):
         
         # Set window properties
         self.setWindowTitle("TowerIQ")
-        self.setMinimumSize(1200, 800)
-        self.resize(1400, 900)
+        self.setMinimumSize(700, 300)  # Allow smaller resizing
+        self.resize(1000, 700)
         
         # Set window icon
         try:
@@ -58,9 +125,16 @@ class MainWindow(QMainWindow):
             # Fallback if icon not found
             pass
         
+        # Sidebar state attributes
+        self.SIDEBAR_EXPANDED_WIDTH = 200
+        self.SIDEBAR_COLLAPSED_WIDTH = 60
+        self.is_sidebar_pinned = False
+        
         # Initialize UI and connect signals
         self._init_ui()
         self._connect_signals()
+        # Collapse sidebar by default
+        self.collapse_sidebar()
     
     def _init_ui(self) -> None:
         """
@@ -69,35 +143,100 @@ class MainWindow(QMainWindow):
         Sets up the navigation panel on the left and the main content area
         on the right using a QStackedWidget for page switching.
         """
+        # Set dark theme for the main window and all children
+        self.setStyleSheet("""
+            QMainWindow, QWidget {
+                background-color: #001219;
+                color: #fff;
+            }
+            QStatusBar, QLabel {
+                background-color: #001219;
+                color: #fff;
+            }
+            QFrame {
+                background-color: #001219;
+                color: #fff;
+            }
+            QScrollArea, QAbstractScrollArea {
+                background: #001219;
+                color: #fff;
+            }
+            QLineEdit {
+                background: #001219;
+                color: #fff;
+                border: 1px solid #79a2bc;
+                border-radius: 5px;
+                padding: 2px 8px;
+            }
+            QPushButton {
+                background-color: #001219;
+                color: #fff;
+                border: 1px solid #2a9b8e;
+                border-radius: 5px;
+                padding: 8px 16px;
+            }
+            QPushButton:hover {
+                background-color: #2a9b8e;
+                color: #001219;
+            }
+            QPushButton:pressed, QPushButton:checked {
+                background-color: #2a9b8e;
+                color: #fff;
+            }
+            QTableWidget, QHeaderView::section {
+                background-color: #001219;
+                color: #fff;
+                border: 1px solid #79a2bc;
+            }
+            QTableWidget::item:selected {
+                background: #2a9b8e;
+                color: #fff;
+            }
+            QHeaderView::section {
+                background-color: #001219;
+                color: #fff;
+                border: 1px solid #2a9b8e;
+            }
+        """)
+        
         # Create central widget and main layout
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
+        # Explicitly set palette for central widget
+        pal = central_widget.palette()
+        pal.setColor(QPalette.ColorRole.Window, QColor('#001219'))
+        pal.setColor(QPalette.ColorRole.Base, QColor('#001219'))
+        pal.setColor(QPalette.ColorRole.Text, QColor('#ffffff'))
+        central_widget.setPalette(pal)
         main_layout = QHBoxLayout(central_widget)
         main_layout.setContentsMargins(0, 0, 0, 0)
         main_layout.setSpacing(0)
         
         # Left Panel (Navigation)
-        self.nav_frame = QFrame()
+        self.nav_frame = SidebarFrame()
         self.nav_frame.setFrameStyle(QFrame.Shape.StyledPanel)
-        self.nav_frame.setFixedWidth(200)
+        self.nav_frame.setFixedWidth(self.SIDEBAR_COLLAPSED_WIDTH)  # Collapsed by default
         self.nav_frame.setStyleSheet("""
             QFrame {
-                background-color: #2b2b2b;
-                border-right: 1px solid #555;
+                background-color: #001219;
+                /* border-right: 2px solid #79a2bc; */
             }
             QPushButton {
                 background-color: transparent;
-                border: none;
-                color: white;
+                color: #fff;
                 text-align: left;
                 padding: 12px 16px;
                 font-size: 14px;
+                border: none;
+                border-radius: 5px;
             }
             QPushButton:hover {
-                background-color: #3a3a3a;
+                background-color: #1d3a4a;
             }
-            QPushButton:pressed {
-                background-color: #4a4a4a;
+            QPushButton:checked {
+                background-color: #2a9b8e;
+                color: #fff;
+                font-weight: bold;
             }
         """)
         
@@ -105,27 +244,59 @@ class MainWindow(QMainWindow):
         nav_layout.setContentsMargins(0, 20, 0, 0)
         nav_layout.setSpacing(5)
         
-        # Application title/logo area
-        title_label = QLabel("TowerIQ")
-        title_label.setStyleSheet("""
-            QLabel {
-                color: #4CAF50;
-                font-size: 18px;
-                font-weight: bold;
-                padding: 10px 16px 20px 16px;
+        # Application logo area (SVG)
+        self.logo_label = QLabel()
+        self.logo_label.setAlignment(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter)
+        self.logo_label.setFixedHeight(70)  # Fixed height to prevent button jumping
+        self.logo_label.setStyleSheet("padding: 10px 0 20px 0;")
+        nav_layout.addWidget(self.logo_label)
+        self._update_sidebar_logo(expanded=False)
+        
+        # Navigation buttons with icons (now SidebarNavButton)
+        self.nav_dashboard_button = SidebarNavButton(self._safe_icon("dashboard_icon.svg"), "Dashboard", self.nav_frame)
+        self.nav_history_button = SidebarNavButton(self._safe_icon("history_icon.svg"), "Run History", self.nav_frame)
+        self.nav_settings_button = SidebarNavButton(self._safe_icon("settings_icon.svg"), "Settings", self.nav_frame)
+        self.nav_buttons = [self.nav_dashboard_button, self.nav_history_button, self.nav_settings_button]
+        class NavButtonGroup(QObject):
+            buttonClicked = pyqtSignal(object)
+            def __init__(self, buttons):
+                super().__init__()
+                self._buttons = buttons
+                for btn in buttons:
+                    btn.button_group = self
+                    btn.mousePressEvent = self._make_handler(btn)
+            def _make_handler(self, btn):
+                def handler(event):
+                    for b in self._buttons:
+                        b.setChecked(False)
+                    btn.setChecked(True)
+                    self.buttonClicked.emit(btn)
+                    QWidget.mousePressEvent(btn, event)
+                return handler
+            def buttons(self):
+                return self._buttons
+        self.nav_button_group = NavButtonGroup(self.nav_buttons)
+        self.nav_dashboard_button.setChecked(True)
+        for btn in self.nav_buttons:
+            btn.setCollapsed(True)
+            nav_layout.addWidget(btn)
+        nav_layout.addStretch()
+        # Sidebar toggle button at the bottom
+        self.sidebar_toggle_button = QPushButton()
+        self.sidebar_toggle_button.setIcon(self._safe_icon("sidebar_close.svg"))
+        self.sidebar_toggle_button.setIconSize(QSize(24, 24))
+        self.sidebar_toggle_button.setToolTip("Close sidebar")
+        self.sidebar_toggle_button.setStyleSheet("""
+            QPushButton {
+                background-color: transparent;
+                border: none;
+                padding: 10px;
+            }
+            QPushButton:hover {
+                background-color: #2a9b8e;
             }
         """)
-        nav_layout.addWidget(title_label)
-        
-        # Navigation buttons
-        self.nav_dashboard_button = QPushButton("📊 Dashboard")
-        self.nav_history_button = QPushButton("📈 Run History")
-        self.nav_settings_button = QPushButton("⚙️ Settings")
-        
-        nav_layout.addWidget(self.nav_dashboard_button)
-        nav_layout.addWidget(self.nav_history_button)
-        nav_layout.addWidget(self.nav_settings_button)
-        nav_layout.addStretch()  # Push buttons to top
+        nav_layout.addWidget(self.sidebar_toggle_button, alignment=Qt.AlignmentFlag.AlignHCenter)
         
         main_layout.addWidget(self.nav_frame)
         
@@ -133,7 +304,7 @@ class MainWindow(QMainWindow):
         self.stacked_widget = QStackedWidget()
         self.stacked_widget.setStyleSheet("""
             QStackedWidget {
-                background-color: #f5f5f5;
+                background-color: #001219;
             }
         """)
         
@@ -171,68 +342,72 @@ class MainWindow(QMainWindow):
         """
         # Set dashboard reference in controller for connection panel updates
         self.controller.set_dashboard(self.dashboard_page)
-        
-        # Navigation button connections
-        self.nav_dashboard_button.clicked.connect(
-            lambda: self._switch_to_page(self.dashboard_page, "Dashboard")
-        )
-        self.nav_history_button.clicked.connect(
-            lambda: self._switch_to_page(self.history_page, "Run History")
-        )
-        self.nav_settings_button.clicked.connect(
-            lambda: self._switch_to_page(self.settings_page, "Settings")
-        )
-        
+        # Navigation button group connection
+        self.nav_button_group.buttonClicked.connect(self._on_nav_button_clicked)
+        # Sidebar toggle button connection
+        self.sidebar_toggle_button.clicked.connect(self.toggle_sidebar)
         # Controller signal connections
         self.controller.new_metric_received.connect(self.dashboard_page.update_metric_display)
         self.controller.new_graph_data.connect(self.dashboard_page.update_graph)
         self.controller.status_changed.connect(self.status_indicator.update_status)
-        # self.controller.status_message_changed.connect(self.status_label.setText)
     
-    def _switch_to_page(self, page_widget: QWidget, page_name: str) -> None:
-        """
-        Switch to a different page in the main content area.
-        
-        Args:
-            page_widget: The widget to switch to
-            page_name: Name of the page for status display
-        """
-        self.stacked_widget.setCurrentWidget(page_widget)
-        self.status_label.setText(f"Viewing: {page_name}")
-        
-        # Update navigation button styles to show active state
-        self._update_nav_button_styles(page_widget)
+    def _on_nav_button_clicked(self, button):
+        if button == self.nav_dashboard_button:
+            self.stacked_widget.setCurrentWidget(self.dashboard_page)
+            self.status_label.setText("Viewing: Dashboard")
+        elif button == self.nav_history_button:
+            self.stacked_widget.setCurrentWidget(self.history_page)
+            self.status_label.setText("Viewing: Run History")
+        elif button == self.nav_settings_button:
+            self.stacked_widget.setCurrentWidget(self.settings_page)
+            self.status_label.setText("Viewing: Settings")
     
-    def _update_nav_button_styles(self, active_page: QWidget) -> None:
-        """
-        Update navigation button styles to highlight the active page.
-        
-        Args:
-            active_page: The currently active page widget
-        """
-        # Reset all buttons to default style
-        buttons = [self.nav_dashboard_button, self.nav_history_button, self.nav_settings_button]
-        for button in buttons:
-            button.setStyleSheet(button.styleSheet().replace("background-color: #4CAF50;", ""))
-        
-        # Highlight active button
-        if active_page == self.dashboard_page:
-            self._highlight_nav_button(self.nav_dashboard_button)
-        elif active_page == self.history_page:
-            self._highlight_nav_button(self.nav_history_button)
-        elif active_page == self.settings_page:
-            self._highlight_nav_button(self.nav_settings_button)
+    def toggle_sidebar(self):
+        # Determine current state by width
+        expanded = self.nav_frame.width() > (self.SIDEBAR_EXPANDED_WIDTH + self.SIDEBAR_COLLAPSED_WIDTH) // 2
+        if expanded:
+            self.collapse_sidebar()
+            self.sidebar_toggle_button.setIcon(self._safe_icon("sidebar_open.svg"))
+            self.sidebar_toggle_button.setToolTip("Open sidebar")
+        else:
+            self.expand_sidebar()
+            self.sidebar_toggle_button.setIcon(self._safe_icon("sidebar_close.svg"))
+            self.sidebar_toggle_button.setToolTip("Close sidebar")
+
+    def expand_sidebar(self):
+        for btn in self.nav_buttons:
+            btn.setCollapsed(False)
+        self._update_sidebar_logo(expanded=True)
+        self.animation = QPropertyAnimation(self.nav_frame, b"minimumWidth")
+        self.animation.setDuration(350)
+        self.animation.setStartValue(self.nav_frame.width())
+        self.animation.setEndValue(self.SIDEBAR_EXPANDED_WIDTH)
+        self.animation.setEasingCurve(QEasingCurve.Type.OutCubic)
+        self.animation.start()
+
+    def collapse_sidebar(self):
+        for btn in self.nav_buttons:
+            btn.setCollapsed(True)
+        self._update_sidebar_logo(expanded=False)
+        self.animation = QPropertyAnimation(self.nav_frame, b"minimumWidth")
+        self.animation.setDuration(350)
+        self.animation.setStartValue(self.nav_frame.width())
+        self.animation.setEndValue(self.SIDEBAR_COLLAPSED_WIDTH)
+        self.animation.setEasingCurve(QEasingCurve.Type.OutCubic)
+        self.animation.start()
     
-    def _highlight_nav_button(self, button: QPushButton) -> None:
-        """
-        Apply highlighting style to a navigation button.
-        
-        Args:
-            button: The button to highlight
-        """
-        current_style = button.styleSheet()
-        if "background-color: #4CAF50;" not in current_style:
-            button.setStyleSheet(current_style + "QPushButton { background-color: #4CAF50; }")
+    def _update_sidebar_logo(self, expanded: bool):
+        # Placeholder: swap SVGs when available
+        if expanded:
+            logo_path = self._safe_icon("sidebar_logo_expanded.svg")
+        else:
+            logo_path = self._safe_icon("sidebar_logo_collapsed.svg")
+        # Use QPixmap for now, can switch to QSvgWidget if needed
+        if isinstance(logo_path, QIcon):
+            pixmap = logo_path.pixmap(QSize(48, 48))
+            self.logo_label.setPixmap(pixmap)
+        else:
+            self.logo_label.clear()
     
     @pyqtSlot(str)
     def show_status_message(self, message: str) -> None:
@@ -335,4 +510,11 @@ class MainWindow(QMainWindow):
                     timer.stop()
             
         except Exception as e:
-            print(f"Error cleaning up timers: {e}") 
+            print(f"Error cleaning up timers: {e}")
+
+    def _safe_icon(self, icon_name):
+        try:
+            return QIcon(get_asset_path(f"icons/{icon_name}"))
+        except Exception as e:
+            print(f"Warning: Could not load icon {icon_name}: {e}")
+            return QIcon() 

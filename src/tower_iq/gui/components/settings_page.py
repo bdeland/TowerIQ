@@ -42,6 +42,21 @@ class SettingsPage(QWidget):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(20, 20, 20, 20)
         layout.setSpacing(20)
+        # Set dark background and white text for settings page
+        self.setStyleSheet("""
+            QWidget {
+                background-color: #001219;
+                color: #fff;
+            }
+            QLabel {
+                color: #fff;
+                background-color: transparent;
+            }
+            QFrame {
+                background-color: #001219;
+                color: #fff;
+            }
+        """)
         
         # Page title
         title_label = QLabel("Settings")
