@@ -10,6 +10,7 @@ from .settings_page import SettingsPage
 from .history_page import HistoryPage
 from .status_indicator import StatusIndicator
 from .connection_state_panel import ConnectionStatePanel
+from .explore_page import ExplorePage
 
 __all__ = [
     "DashboardPage", 
@@ -17,5 +18,6 @@ __all__ = [
     "SettingsPage",
     "HistoryPage",
     "StatusIndicator",
-    "ConnectionStatePanel"
+    "ConnectionStatePanel",
+    "ExplorePage"
 ] 

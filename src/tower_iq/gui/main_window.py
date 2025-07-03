@@ -24,6 +24,7 @@ from tower_iq.gui.components.settings_page import SettingsPage
 from tower_iq.gui.components.history_page import HistoryPage
 from tower_iq.gui.components.status_indicator import StatusIndicator
 from tower_iq.gui.assets import get_asset_path
+from tower_iq.gui.components.explore_page import ExplorePage
 
 
 class SidebarFrame(QFrame):
@@ -70,7 +71,10 @@ class SidebarNavButton(QWidget):
         if self._collapsed:
             self.setFixedSize(48, 48)
             self.icon_label.setAlignment(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft)
-            self.setStyleSheet("background: transparent; border-radius: 5px;")
+            if self._checked:
+                self.setStyleSheet("background: #2a9b8e; border-radius: 5px;")
+            else:
+                self.setStyleSheet("background: transparent; border-radius: 5px;")
         else:
             # Add text_label to layout if not present
             if self.text_label.parent() is not self:
@@ -253,10 +257,11 @@ class MainWindow(QMainWindow):
         self._update_sidebar_logo(expanded=False)
         
         # Navigation buttons with icons (now SidebarNavButton)
+        self.nav_explore_button = SidebarNavButton(self._safe_icon("explore_icon.svg"), "Explore", self.nav_frame)
         self.nav_dashboard_button = SidebarNavButton(self._safe_icon("dashboard_icon.svg"), "Dashboard", self.nav_frame)
         self.nav_history_button = SidebarNavButton(self._safe_icon("history_icon.svg"), "Run History", self.nav_frame)
         self.nav_settings_button = SidebarNavButton(self._safe_icon("settings_icon.svg"), "Settings", self.nav_frame)
-        self.nav_buttons = [self.nav_dashboard_button, self.nav_history_button, self.nav_settings_button]
+        self.nav_buttons = [self.nav_dashboard_button, self.nav_explore_button, self.nav_history_button, self.nav_settings_button]
         class NavButtonGroup(QObject):
             buttonClicked = pyqtSignal(object)
             def __init__(self, buttons):
@@ -310,11 +315,13 @@ class MainWindow(QMainWindow):
         
         # Create page instances
         self.dashboard_page = DashboardPage(self.controller)
+        self.explore_page = ExplorePage(self.controller)
         self.history_page = HistoryPage(self.controller)
         self.settings_page = SettingsPage(self.controller)
         
         # Add pages to stack
         self.stacked_widget.addWidget(self.dashboard_page)
+        self.stacked_widget.addWidget(self.explore_page)
         self.stacked_widget.addWidget(self.history_page)
         self.stacked_widget.addWidget(self.settings_page)
         
@@ -355,6 +362,9 @@ class MainWindow(QMainWindow):
         if button == self.nav_dashboard_button:
             self.stacked_widget.setCurrentWidget(self.dashboard_page)
             self.status_label.setText("Viewing: Dashboard")
+        elif button == self.nav_explore_button:
+            self.stacked_widget.setCurrentWidget(self.explore_page)
+            self.status_label.setText("Viewing: Explore")
         elif button == self.nav_history_button:
             self.stacked_widget.setCurrentWidget(self.history_page)
             self.status_label.setText("Viewing: Run History")
