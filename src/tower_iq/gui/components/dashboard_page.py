@@ -797,6 +797,14 @@ class DashboardPage(QWidget):
         if run is not None:
             run_id_val = run.get("run_id")
             start_time = run.get("start_time")
+            # --- RESET CHARTS IF NEW RUN DETECTED ---
+            if self._last_run_id != run_id_val:
+                if hasattr(self, 'coins_chart'):
+                    self.coins_chart.clear_data()
+                if hasattr(self, 'gems_chart'):
+                    self.gems_chart.clear_data()
+                if hasattr(self, 'cells_chart'):
+                    self.cells_chart.clear_data()
             self.run_id_label.setText(str(run_id_val) if run_id_val else "-")
             # Tier
             tier_val = run.get("tier")
@@ -851,24 +859,26 @@ class DashboardPage(QWidget):
             metric_name: The name/ID of the metric to update  
             value: The new value for the metric
         """
-        # For coins metric, add a point to the chart using current time
+        # For coins metric, update the chart using the DataFrame from the database (prevents x-axis desync in test mode)
         if metric_name == "round_coins":
-            current_time = time.time()
-            if hasattr(self, 'coins_chart'):
-                self.coins_chart.append_data_point(current_time, float(value))
-            # Update stat panel for coins
-            self.coins_total_label.setText(f"Total Coins: {format_currency(value)}")
-            # Calculate elapsed time in hours since round start
-            session = self.controller.session
-            start_time = getattr(session, 'current_round_start_time', None)
-            if start_time:
-                # start_time may be in ms or s
-                start_time_sec = start_time / 1000.0 if start_time > 1e12 else start_time
-                elapsed_hours = (current_time - start_time_sec) / 3600.0
-                cph = float(value) / elapsed_hours if elapsed_hours > 0 else 0
-                self.coins_per_hour_label.setText(f"CPH: {format_currency(cph)}")
+            run_id = getattr(self.controller.session, 'current_round_seed', None)
+            if run_id is not None:
+                df = self.controller.db_service.get_run_metrics(str(run_id), "round_coins")
+                if not df.empty:
+                    total = df["round_coins"].iloc[-1]
+                    elapsed = (df["real_timestamp"].iloc[-1] - df["real_timestamp"].iloc[0]) / 3600 if len(df) > 1 else 0
+                    cph = total / elapsed if elapsed > 0 else 0
+                    self.coins_total_label.setText(f"Total Coins: {format_currency(total)}")
+                    self.coins_per_hour_label.setText(f"CPH: {format_currency(cph)}")
+                    self.coins_chart.plot_data(df, metric_name="round_coins", normalize_x=True)
+                else:
+                    self.coins_total_label.setText("Total Coins: -")
+                    self.coins_per_hour_label.setText("CPH: -")
+                    self.coins_chart.clear_data()
             else:
+                self.coins_total_label.setText("Total Coins: -")
                 self.coins_per_hour_label.setText("CPH: -")
+                self.coins_chart.clear_data()
         # For gems, update the chart and stat panel if either underlying metric is updated
         if metric_name in ("round_gems_from_blocks_value", "round_gems_from_ads_value"):
             # Trigger a full update of the gems chart and stat panel

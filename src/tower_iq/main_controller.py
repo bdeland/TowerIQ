@@ -9,6 +9,10 @@ import asyncio
 from typing import Any, Optional
 import os
 import time
+import random
+import math
+import cProfile
+import pstats
 
 from PyQt6.QtCore import QObject, pyqtSignal, pyqtSlot
 
@@ -65,6 +69,11 @@ class MainController(QObject):
         
         # Reference to dashboard for connection panel updates
         self.dashboard = None
+        
+        self._test_mode = getattr(config, '_test_mode', False)
+        self._test_mode_replay = getattr(config, '_test_mode_replay', False)
+        self._test_mode_generate = getattr(config, '_test_mode_generate', False)
+        self._test_mode_task = None
     
     def _emit_signal_safely(self, signal, *args) -> None:
         """
@@ -141,6 +150,17 @@ class MainController(QObject):
         This method is started in the background by main_app_entry.py.
         """
         self._is_running = True
+        
+        if self._test_mode:
+            await asyncio.to_thread(self.db_service.connect)
+            self.logger.info("Test mode: database connected. Starting simulation.")
+            self._emit_signal_safely(self.setup_finished, True)
+            if self._test_mode_replay:
+                self._test_mode_task = asyncio.create_task(self._run_test_mode_replay())
+            else:
+                self._test_mode_task = asyncio.create_task(self._run_test_mode_simulation())
+            await self._test_mode_task
+            return
         
         # Connect to database and run migrations
         try:
@@ -823,4 +843,187 @@ class MainController(QObject):
         Calls the robust, unified shutdown logic.
         """
         await self.shutdown()
+
+    async def _run_test_mode_simulation(self):
+        """
+        Simulate fake game runs and write metrics to the database for chart testing.
+        Profile the entire simulation using cProfile and dump stats to a file.
+        """
+        profile = cProfile.Profile()
+        profile_output_path = os.path.abspath("test_mode_profile.prof")
+        profile.enable()
+        try:
+            while self._is_running:
+                # Randomize parameters for each run
+                a = round(random.uniform(4, 5) / 0.1) * 0.1
+                n = random.choice([0.65, 0.75])
+                k = round(random.uniform(0.001, 0.009) / 0.0001) * 0.0001
+                b = random.randint(500, 1500)
+
+                # --- Set session state for dashboard/stat panels ---
+                # Use an int for current_round_seed (DB run_id is str, but session expects int)
+                run_id_num = int(time.time() * 1000) + random.randint(0, 999)
+                run_id = f"testrun_{run_id_num}"
+                start_time = int(time.time())
+                tier = random.randint(3, 9)
+                self.db_service.insert_run_start(run_id, start_time, tier=tier)
+                self.logger.info(f"Test mode: started new run {run_id} with a={a}, n={n}, k={k}, b={b}, tier={tier}")
+
+                self.session.current_round_seed = run_id
+                self.session.is_round_active = True
+                self.session.is_emulator_connected = True
+                self.session.is_hook_active = True
+                if self.dashboard:
+                    self.dashboard.set_connection_active(True)
+
+                # Initialize gem and cell values and next increment times
+                gems_blocks = 0
+                gems_ads = 0
+                cells = 0
+                next_gems_blocks = random.randint(180, 600)  # 3-10 min
+                next_gems_ads = random.randint(180, 600)     # 3-10 min
+                next_cells = random.randint(60, 300)         # 1-5 min
+
+                # --- For wave coins ---
+                current_wave = 1
+                last_wave = 1
+                coins_at_wave_start = 0.0
+                last_coins = 0.0
+
+                # Simulate 1800 seconds (30 minutes) of game time, 1s per step
+                for x in range(1800):
+                    if not self._is_running:
+                        break
+                    # f(x) = a * (x^n) / (1 + exp(-k * (x - b)))
+                    coins = a * (x ** n) / (1 + math.exp(-k * (x - b)))
+
+                    # Gems from blocks
+                    if x == next_gems_blocks:
+                        gems_blocks += 2
+                        next_gems_blocks += random.randint(180, 600)
+                    # Gems from ads
+                    if x == next_gems_ads:
+                        gems_ads += 5
+                        next_gems_ads += random.randint(180, 600)
+                    # Cells
+                    if x == next_cells:
+                        add_cells = random.randint(5, 20)
+                        cells += add_cells
+                        next_cells += random.randint(60, 300)
+
+                    real_timestamp = start_time + x
+                    game_timestamp = x
+                    # current_wave increments every 12 seconds
+                    wave_incremented = False
+                    if x > 0 and x % 12 == 0:
+                        current_wave += 1
+                        wave_incremented = True
+
+                    # --- Calculate wave_coins when wave increments ---
+                    wave_coins = None
+                    if wave_incremented:
+                        wave_coins = coins - coins_at_wave_start
+                        coins_at_wave_start = coins
+                        last_wave = current_wave
+                    # For the very first wave, set coins_at_wave_start
+                    if x == 0:
+                        coins_at_wave_start = coins
+
+                    # --- Main metrics dict (no round_gems) ---
+                    metrics = {
+                        "round_coins": coins,
+                        "round_gems_from_blocks_value": gems_blocks,
+                        "round_gems_from_ads_value": gems_ads,
+                        "round_cells": cells,
+                        "current_wave": current_wave
+                    }
+                    self.db_service.write_metric(run_id, real_timestamp, game_timestamp, current_wave, metrics)
+
+                    # If wave incremented, write a separate wave_coins metric row
+                    if wave_incremented and wave_coins is not None:
+                        self.db_service.write_metric(run_id, real_timestamp, game_timestamp, current_wave, {"wave_coins": wave_coins})
+
+                    # Emit signals to update UI (metrics)
+                    self._emit_signal_safely(self.new_metric_received, "round_coins", coins)
+                    self._emit_signal_safely(self.new_metric_received, "round_gems_from_blocks_value", gems_blocks)
+                    self._emit_signal_safely(self.new_metric_received, "round_gems_from_ads_value", gems_ads)
+                    self._emit_signal_safely(self.new_metric_received, "round_cells", cells)
+                    self._emit_signal_safely(self.new_metric_received, "current_wave", current_wave)
+                    if wave_coins is not None:
+                        self._emit_signal_safely(self.new_metric_received, "wave_coins", wave_coins)
+
+                    # Optionally emit new_graph_data for all relevant charts
+                    # (simulate real handler)
+                    await self._get_run_metrics_for_graph(run_id, "round_coins")
+                    await self._get_run_metrics_for_graph(run_id, "round_gems")
+                    await self._get_run_metrics_for_graph(run_id, "round_cells")
+                    await self._get_run_metrics_for_graph(run_id, "wave_coins")
+
+                    #await asyncio.sleep(0.0001)  # Fast-forward: 20x real time
+
+                # End the run
+                end_time = start_time + 1800
+                self.db_service.update_run_end(run_id, end_time, final_wave=current_wave, coins_earned=coins, duration_realtime=1800)
+                self.logger.info(f"Test mode: ended run {run_id}")
+                # Mark round as inactive in session
+                self.session.is_round_active = False
+                self.session.is_hook_active = False
+                if self.dashboard:
+                    self.dashboard.set_connection_active(False)
+                await asyncio.sleep(5)  # Wait before starting next run
+        finally:
+            profile.disable()
+            profile.dump_stats(profile_output_path)
+            self.logger.info(f"cProfile stats for test mode simulation written to {profile_output_path}")
+            print(f"[Test Mode] cProfile stats written to: {profile_output_path}")
+            # Print top 20 functions by cumulative time
+            try:
+                stats = pstats.Stats(profile_output_path)
+                print("\n[Test Mode] Top 20 functions by cumulative time:")
+                stats.sort_stats("cumulative").print_stats(20)
+            except Exception as e:
+                print(f"[Test Mode] Failed to print cProfile stats summary: {e}")
+            self.logger.info(f"cProfile stats summary printed to console (if available)")
+
+    async def _run_test_mode_replay(self):
+        """
+        Replay existing data from the test_mode.sqlite database, emitting signals as if it were a real run.
+        """
+        import pandas as pd
+        # Get all run_ids
+        run_ids = await asyncio.to_thread(self.db_service.get_all_run_ids)
+        if not run_ids:
+            self.logger.error("No test runs found in test database!")
+            return
+        run_id = run_ids[-1]  # Use the latest run
+        self.logger.info(f"Test mode replay: using run_id {run_id}")
+        # Get all metrics for that run, ordered by game_timestamp or real_timestamp
+        metrics_df = await asyncio.to_thread(self.db_service.get_all_metrics_for_run, run_id)
+        # Optionally, get events as well if needed
+        # events_df = await asyncio.to_thread(self.db_service.get_all_events_for_run, run_id)
+        self.session.current_round_seed = run_id
+        self.session.is_round_active = True
+        self.session.is_emulator_connected = True
+        self.session.is_hook_active = True
+        if self.dashboard:
+            self.dashboard.set_connection_active(True)
+        # Replay metrics
+        for idx, row in metrics_df.iterrows():
+            if not self._is_running:
+                break
+            # Emit signals to update UI (metrics)
+            for col in ["round_coins", "round_gems_from_blocks_value", "round_gems_from_ads_value", "round_cells", "current_wave", "wave_coins"]:
+                if col in row and row[col] is not None:
+                    self._emit_signal_safely(self.new_metric_received, col, row[col])
+            # Optionally emit new_graph_data for all relevant charts
+            await self._get_run_metrics_for_graph(run_id, "round_coins")
+            await self._get_run_metrics_for_graph(run_id, "round_gems")
+            await self._get_run_metrics_for_graph(run_id, "round_cells")
+            await self._get_run_metrics_for_graph(run_id, "wave_coins")
+            await asyncio.sleep(0.001)  # Fast replay
+        self.session.is_round_active = False
+        self.session.is_hook_active = False
+        if self.dashboard:
+            self.dashboard.set_connection_active(False)
+        self.logger.info(f"Test mode replay: finished run_id {run_id}")
  

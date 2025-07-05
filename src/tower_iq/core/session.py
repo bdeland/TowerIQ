@@ -6,7 +6,7 @@ management of application volatile state.
 """
 
 import threading
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Union
 
 
 class SessionManager:
@@ -20,7 +20,7 @@ class SessionManager:
         self._lock = threading.Lock()
         
         # Private state variables
-        self._current_round_seed: Optional[int] = None
+        self._current_round_seed: Optional[Union[int, str]] = None
         self._game_version: Optional[str] = None
         self._is_emulator_connected: bool = False
         self._is_frida_server_running: bool = False
@@ -39,13 +39,13 @@ class SessionManager:
     
     # Properties for current_round_seed
     @property
-    def current_round_seed(self) -> Optional[int]:
+    def current_round_seed(self) -> Optional[Union[int, str]]:
         """Get the current round seed (run identifier, from the game)."""
         with self._lock:
             return self._current_round_seed
     
     @current_round_seed.setter
-    def current_round_seed(self, value: Optional[int]) -> None:
+    def current_round_seed(self, value: Optional[Union[int, str]]) -> None:
         """Set the current round seed (run identifier, from the game)."""
         with self._lock:
             self._current_round_seed = value

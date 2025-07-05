@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import NoReturn
 import argparse
 import os
+import time
 
 import qasync
 import structlog
@@ -38,6 +39,9 @@ def main() -> None:
     # Argument parsing for CLI flags
     parser = argparse.ArgumentParser(description="TowerIQ Application")
     parser.add_argument('--reset-frida', action='store_true', help='Update and start frida-server on the first connected device, then exit')
+    parser.add_argument('--test-mode', action='store_true', help='Enable test mode with fake data and a temporary test database')
+    parser.add_argument('--test-mode-replay', action='store_true', help='Replay existing test_mode.sqlite data as if it were a real run (no new data generated)')
+    parser.add_argument('--test-mode-generate', action='store_true', help='Generate a new test_mode.sqlite and populate it with new fake data')
     args, unknown = parser.parse_known_args()
 
     # Initialize paths & environment
@@ -76,6 +80,20 @@ def main() -> None:
                     sys.exit(1)
             asyncio.run(reset_frida())
             return
+        
+        if args.test_mode_replay or args.test_mode_generate:
+            setattr(config, '_test_mode', True)
+            setattr(config, '_test_mode_replay', args.test_mode_replay)
+            setattr(config, '_test_mode_generate', args.test_mode_generate)
+            test_db_path = app_root / 'data' / f'test_mode.sqlite'
+            if args.test_mode_generate:
+                # Delete any existing test mode database before starting
+                if test_db_path.exists():
+                    try:
+                        test_db_path.unlink()
+                    except Exception as e:
+                        logger.warning(f"Failed to delete old test mode database: {e}")
+            config._override_db_path = str(test_db_path)
         
         # Initialize PyQt Application
         app = QApplication(sys.argv)

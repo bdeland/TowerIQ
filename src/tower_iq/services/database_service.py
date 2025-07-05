@@ -61,8 +61,11 @@ class DatabaseService:
         """
         self.logger = logger.bind(source="DatabaseService")
         
-        # SQLite configuration
-        self.db_path = config.get('database.sqlite_path', 'data/toweriq.sqlite')
+        # Allow test mode to override db path
+        if hasattr(config, '_override_db_path'):
+            self.db_path = getattr(config, '_override_db_path')
+        else:
+            self.db_path = config.get('database.sqlite_path', 'data/toweriq.sqlite')
         
         # Database connection
         self.sqlite_conn: Optional[sqlite3.Connection] = None
@@ -510,3 +513,26 @@ class DatabaseService:
         # Reset index to get real_timestamp as a column
         result = df_wide.reset_index()[["real_timestamp", "total_gems"]]
         return result
+
+    @db_operation(default_return_value=[])
+    def get_all_run_ids(self):
+        """Return a list of all run_ids in the runs table, ordered by start_time."""
+        if self.sqlite_conn is None:
+            return []
+        conn = self.sqlite_conn
+        cursor = conn.cursor()
+        cursor.execute("SELECT run_id FROM runs ORDER BY start_time ASC")
+        rows = cursor.fetchall()
+        return [row[0] for row in rows]
+
+    @db_operation(default_return_value=None)
+    def get_all_metrics_for_run(self, run_id):
+        """Return a DataFrame of all metrics for a run, ordered by game_timestamp or real_timestamp."""
+        if self.sqlite_conn is None:
+            import pandas as pd
+            return pd.DataFrame()
+        conn = self.sqlite_conn
+        query = "SELECT * FROM metrics WHERE run_id = ? ORDER BY game_timestamp ASC, real_timestamp ASC"
+        import pandas as pd
+        df = pd.read_sql_query(query, conn, params=(run_id,))
+        return df

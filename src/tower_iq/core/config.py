@@ -17,6 +17,9 @@ class ConfigurationManager:
     Loads, validates, and provides access to settings from YAML and .env files.
     """
 
+    _override_db_path: Optional[str] = None
+    _test_mode: Optional[bool] = None
+
     def __init__(self, yaml_path: str, env_path: str) -> None:
         """
         Initialize the configuration manager.
