@@ -46,6 +46,7 @@ class ConfigurationManager:
         env_config = self._load_dotenv()
         self._merge_configs(yaml_config, env_config)
         self._validate_config()
+        print(f"Loaded config settings: {self.settings}")
 
     def get(self, key: str, default: Any = None) -> Any:
         """

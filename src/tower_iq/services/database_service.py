@@ -62,10 +62,15 @@ class DatabaseService:
         self.logger = logger.bind(source="DatabaseService")
         
         # Allow test mode to override db path
-        if hasattr(config, '_override_db_path'):
-            self.db_path = getattr(config, '_override_db_path')
+        override = getattr(config, '_override_db_path', None)
+        if override:
+            self.db_path = override
         else:
             self.db_path = config.get('database.sqlite_path', 'data/toweriq.sqlite')
+        
+        # Debug log for db_path
+        self.logger.debug("Database path resolved", db_path=self.db_path, db_path_type=str(type(self.db_path)))
+        print(f"Database path resolved: {self.db_path} (type: {type(self.db_path)})")
         
         # Database connection
         self.sqlite_conn: Optional[sqlite3.Connection] = None

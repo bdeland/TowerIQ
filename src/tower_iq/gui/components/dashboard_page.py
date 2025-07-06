@@ -13,10 +13,10 @@ import logging
 
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QLabel, 
-    QFrame, QScrollArea, QSizePolicy, QStackedLayout, QGraphicsBlurEffect, QToolTip, QCheckBox
+    QFrame, QScrollArea, QSizePolicy, QStackedLayout, QGraphicsBlurEffect, QToolTip, QCheckBox, QPushButton
 )
 from PyQt6.QtCore import Qt, pyqtSlot, QTimer
-from PyQt6.QtGui import QFont, QPalette
+from PyQt6.QtGui import QFont, QPalette, QIcon
 
 from .connection_state_panel import ConnectionStatePanel
 from src.tower_iq.core.utils import format_duration, format_currency
@@ -104,7 +104,7 @@ class GraphWidget(QWidget):
     # Increase to show points only at higher zoom levels, decrease to show more often.
     scatter_point_threshold = 10  # <--- EDIT THIS VALUE TO FINE-TUNE
     
-    def __init__(self, title: str, y_label: str = "Value", line_color: str = "#9a4dda", scatter_color: str = "#9a4dda", use_wave_axis: bool = False, bar_mode: bool = False) -> None:
+    def __init__(self, title: str, y_label: str = "Value", line_color: str = "#9a4dda", scatter_color: str = "#9a4dda", use_wave_axis: bool = False, bar_mode: bool = False, dashboard_page=None) -> None:
         """
         Initialize a graph widget.
         
@@ -115,6 +115,7 @@ class GraphWidget(QWidget):
             scatter_color: Color for the scatter points in the chart
             use_wave_axis: If True, use a standard integer axis for x (for wave charts)
             bar_mode: If True, use pg.BarGraphItem for plotting instead of a line plot
+            dashboard_page: Reference to the DashboardPage (for autoscale state)
         """
         super().__init__()
         
@@ -128,6 +129,7 @@ class GraphWidget(QWidget):
         self.start_time = None  # Track start time for relative X-axis
         self.use_wave_axis = use_wave_axis
         self.bar_mode = bar_mode
+        self.dashboard_page = dashboard_page
         self._main_layout = QVBoxLayout(self)
         self._main_layout.setContentsMargins(10, 10, 10, 10)
         
@@ -135,6 +137,9 @@ class GraphWidget(QWidget):
             self._init_pyqtgraph()
         else:
             self._init_placeholder()
+        # Add context menu for expand/view
+        self.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.customContextMenuRequested.connect(self._show_context_menu)
     
     def _init_pyqtgraph(self) -> None:
         """Initialize the pyqtgraph plot widget."""
@@ -257,7 +262,7 @@ class GraphWidget(QWidget):
             self.data_x = self.data_x[-self.max_points:]
             self.data_y = self.data_y[-self.max_points:]
         vb = self.plot_widget.getViewBox() if pg is not None else None
-        if not getattr(self.parent(), 'autoscale_enabled', True) and vb is not None:
+        if not getattr(self.dashboard_page, 'autoscale_enabled', True) and vb is not None:
             old_xrange = vb.viewRange()[0]
         else:
             old_xrange = None
@@ -270,8 +275,15 @@ class GraphWidget(QWidget):
             if vb is not None:
                 xrange = vb.viewRange()[0]
                 self._on_xrange_changed(vb, xrange)
-        if not getattr(self.parent(), 'autoscale_enabled', True) and old_xrange is not None and vb is not None:
+        if self.dashboard_page is not None:
+            autoscale_enabled = getattr(self.dashboard_page, 'autoscale_enabled', True)
+        else:
+            autoscale_enabled = True
+        if not autoscale_enabled and old_xrange is not None and vb is not None:
             vb.setXRange(*old_xrange, padding=0)
+        # --- AUTOSCALE FIX ---
+        if autoscale_enabled and vb is not None:
+            vb.autoRange()
     
     def _on_xrange_changed(self, view_box, xrange):
         """
@@ -332,6 +344,9 @@ class GraphWidget(QWidget):
                 values = df[y_col]
                 self.data_x = x_vals
                 self.data_y = values.tolist()
+            # Print number of points for coins chart only
+            if hasattr(self, 'title') and self.title == "Cumulative Coins Over Time":
+                print(f"[COINS CHART] Plotting {len(self.data_x)} points.")
             if self.bar_mode and hasattr(self, 'bar_item'):
                 self.bar_item.setOpts(x=self.data_x, height=self.data_y, width=0.8, brush=pg.mkBrush(self.line_color))
                 # Hide line and scatter if present
@@ -349,6 +364,14 @@ class GraphWidget(QWidget):
                 if vb is not None:
                     xrange = vb.viewRange()[0]
                     self._on_xrange_changed(vb, xrange)
+        # --- AUTOSCALE FIX ---
+        vb = self.plot_widget.getViewBox() if pg is not None else None
+        if self.dashboard_page is not None:
+            autoscale_enabled = getattr(self.dashboard_page, 'autoscale_enabled', True)
+        else:
+            autoscale_enabled = True
+        if autoscale_enabled and vb is not None:
+            vb.autoRange()
     
     def clear_data(self) -> None:
         """Clear all data points from the graph."""
@@ -365,6 +388,18 @@ class GraphWidget(QWidget):
         for point in points:
             value = point.data()
             QToolTip.showText(event.screenPos().toPoint(), f"Value: {format_currency(value, symbol='', pad_to_cents=False)}")
+
+    def _show_context_menu(self, pos):
+        from PyQt6.QtWidgets import QMenu
+        menu = QMenu(self)
+        view_action = menu.addAction("View")
+        action = menu.exec(self.mapToGlobal(pos))
+        if action == view_action and self.dashboard_page is not None:
+            # Find the panel widget containing this chart
+            if hasattr(self.dashboard_page, '_find_panel_for_chart'):
+                panel, title = self.dashboard_page._find_panel_for_chart(self)
+                if panel and title:
+                    self.dashboard_page._expand_chart(panel, title)
 
 class DashboardPage(QWidget):
     """
@@ -384,6 +419,8 @@ class DashboardPage(QWidget):
         self.graphs: Dict[str, GraphWidget] = {}
         self.autoscale_enabled = True
         self._autoscale_glow_timer = None
+        self.expanded_chart_name = None  # Track which chart is expanded
+        self.expanded_chart_panel = None # Reference to expanded chart panel
         # Create the connection panel
         self.connection_panel = ConnectionStatePanel(self)
         # --- Stat panel labels (init for linter) ---
@@ -412,11 +449,16 @@ class DashboardPage(QWidget):
         """
         Set up the layout and create the coins chart.
         """
-        # Create the main layout
         main_layout = QVBoxLayout(self)
         main_layout.setContentsMargins(0, 0, 0, 0)
         main_layout.setSpacing(0)
-        
+
+        # Breadcrumb navigation
+        self.breadcrumb_layout = QHBoxLayout()
+        self.breadcrumb_layout.setContentsMargins(10, 10, 10, 0)
+        main_layout.addLayout(self.breadcrumb_layout)
+        self._update_breadcrumb()
+
         # Autoscale checkbox (top right)
         autoscale_layout = QHBoxLayout()
         autoscale_layout.addStretch()
@@ -425,18 +467,141 @@ class DashboardPage(QWidget):
         self.autoscale_checkbox.stateChanged.connect(self._on_autoscale_toggled)
         autoscale_layout.addWidget(self.autoscale_checkbox)
         main_layout.addLayout(autoscale_layout)
-        
+
         # Create the dashboard content
         self.dashboard_widget = self._create_dashboard_content()
         main_layout.addWidget(self.dashboard_widget)
-        
+
         # Create the connection overlay widget (initially hidden)
         self.connection_overlay_widget = self._create_connection_overlay()
         self.connection_overlay_widget.hide()
-        
-        # Add overlay as a child widget with absolute positioning
         self.connection_overlay_widget.setParent(self)
     
+    def _update_breadcrumb(self):
+        # Clear old widgets
+        while self.breadcrumb_layout.count():
+            item = self.breadcrumb_layout.takeAt(0)
+            if item is not None:
+                widget = item.widget()
+                if widget:
+                    widget.deleteLater()
+        # Home
+        home_label = QLabel("Home")
+        self.breadcrumb_layout.addWidget(home_label)
+        arrow1 = QLabel(" > ")
+        self.breadcrumb_layout.addWidget(arrow1)
+        # Dashboard
+        dashboard_btn = QPushButton("Dashboard")
+        dashboard_btn.setFlat(True)
+        dashboard_btn.clicked.connect(self._on_breadcrumb_dashboard_clicked)
+        self.breadcrumb_layout.addWidget(dashboard_btn)
+        if self.expanded_chart_name:
+            arrow2 = QLabel(" > ")
+            self.breadcrumb_layout.addWidget(arrow2)
+            view_label = QLabel(f"View: {self.expanded_chart_name}")
+            self.breadcrumb_layout.addWidget(view_label)
+        self.breadcrumb_layout.addStretch()
+
+    def _on_breadcrumb_dashboard_clicked(self):
+        if self.expanded_chart_name:
+            self._collapse_chart()
+
+    def _expand_chart(self, chart_panel, chart_title):
+        self.expanded_chart_name = chart_title
+        self.expanded_chart_panel = chart_panel
+        self.dashboard_widget.hide()
+        # Create expanded chart area if not already present
+        if not hasattr(self, 'expanded_chart_area'):
+            self.expanded_chart_area = QWidget()
+            self.expanded_chart_layout = QVBoxLayout(self.expanded_chart_area)
+            self.expanded_chart_layout.setContentsMargins(30, 30, 30, 30)
+            self.expanded_chart_layout.setSpacing(10)
+        else:
+            # Remove any previous widgets
+            while self.expanded_chart_layout.count():
+                item = self.expanded_chart_layout.takeAt(0)
+                if item is not None:
+                    widget = item.widget()
+                    if widget:
+                        widget.setParent(None)
+        # Add collapse button
+        collapse_btn = QPushButton()
+        collapse_btn.setIcon(QIcon("@/icons/close.svg"))
+        collapse_btn.setToolTip("Collapse chart")
+        collapse_btn.setFixedSize(32, 32)
+        collapse_btn.setStyleSheet("QPushButton { border: none; background: transparent; position: absolute; top: 10px; right: 10px; }")
+        collapse_btn.clicked.connect(self._collapse_chart)
+        collapse_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.expanded_chart_layout.addWidget(collapse_btn, alignment=Qt.AlignmentFlag.AlignRight)
+        self.expanded_chart_layout.addWidget(chart_panel)
+        layout = self.layout()
+        if layout is not None and self.expanded_chart_area.parent() != self:
+            layout.addWidget(self.expanded_chart_area)
+        self.expanded_chart_area.show()
+        self._update_breadcrumb()
+
+    def _collapse_chart(self):
+        if self.expanded_chart_panel:
+            # Re-parent the chart panel back to the dashboard grid
+            panel = self.expanded_chart_panel
+            # Find which panel it is and its grid position
+            grid = None
+            row_col = None
+            if hasattr(self.dashboard_widget, 'layout'):
+                main_layout = self.dashboard_widget.layout()
+                if main_layout is not None:
+                    for i in range(main_layout.count()):
+                        item = main_layout.itemAt(i)
+                        if item is None:
+                            continue
+                        widget = item.widget() if hasattr(item, 'widget') else None
+                        if widget is not None and hasattr(widget, 'layout') and widget.layout() is not None:
+                            layout = widget.layout()
+                            if layout is not None:
+                                for j in range(layout.count()):
+                                    subitem = layout.itemAt(j)
+                                    if subitem is not None and isinstance(subitem, QGridLayout):
+                                        grid = subitem
+                                        break
+            # Map panel to grid position
+            panel_map = {
+                getattr(self, '_coins_panel', None): (0, 0),
+                getattr(self, '_wave_coins_panel', None): (0, 1),
+                getattr(self, '_gems_panel', None): (1, 0),
+                getattr(self, '_cells_panel', None): (1, 1),
+            }
+            row_col = panel_map.get(panel, None)
+            if grid is not None and row_col is not None and panel is not None:
+                # Only add if not already in grid
+                already_in_grid = False
+                if grid is not None and hasattr(grid, 'count') and hasattr(grid, 'itemAt'):
+                    for i in range(grid.count()):
+                        grid_item = grid.itemAt(i)
+                        if grid_item is not None:
+                            grid_widget = grid_item.widget() if hasattr(grid_item, 'widget') else None
+                            if grid_widget == panel:
+                                already_in_grid = True
+                                break
+                if not already_in_grid and grid is not None and hasattr(grid, 'addWidget'):
+                    if row_col is not None and isinstance(row_col, tuple) and len(row_col) == 2 and all(isinstance(x, int) for x in row_col):
+                        grid.addWidget(panel, *row_col)
+            if panel is not None:
+                panel.setParent(self.dashboard_widget)
+        if hasattr(self, 'expanded_chart_area'):
+            self.expanded_chart_area.hide()
+            # Optionally remove from layout
+            layout = self.layout()
+            if layout is not None:
+                # Only remove if present
+                try:
+                    layout.removeWidget(self.expanded_chart_area)
+                except Exception:
+                    pass
+        self.dashboard_widget.show()
+        self.expanded_chart_name = None
+        self.expanded_chart_panel = None
+        self._update_breadcrumb()
+
     def _create_dashboard_content(self) -> QWidget:
         """Create the main dashboard content widget."""
         dashboard_widget = QWidget()
@@ -590,9 +755,15 @@ class DashboardPage(QWidget):
         charts_grid.setSpacing(20)
         # Chart titles and widgets
         # Coins chart
-        self.coins_chart = GraphWidget("Cumulative Coins Over Time", "Coins", line_color="#FEE8A8", scatter_color="#FEE8A8")
+        self.coins_chart = GraphWidget("Cumulative Coins Over Time", "Coins", line_color="#FEE8A8", scatter_color="#FEE8A8", dashboard_page=self)
         self.coins_chart.setStyleSheet("")  # Remove border from chart itself
-        # Stat panel for coins
+        # Expand button
+        coins_expand_btn = QPushButton()
+        coins_expand_btn.setIcon(QIcon(":/icons/sidebar_logo_expanded.svg"))
+        coins_expand_btn.setToolTip("Expand chart")
+        coins_expand_btn.setFixedSize(24, 24)
+        coins_expand_btn.setStyleSheet("QPushButton { border: none; background: transparent; }")
+        coins_expand_btn.clicked.connect(lambda: self._expand_chart(self._coins_panel, "Cumulative Coins Over Time"))
         coins_stat_panel = QHBoxLayout()
         coins_stat_panel.setSpacing(8)
         coins_stat_panel.setContentsMargins(0, 0, 0, 0)
@@ -602,6 +773,7 @@ class DashboardPage(QWidget):
         self.coins_per_hour_label.setStyleSheet("color: #FEE8A8; font-weight: bold; background: transparent;")
         coins_stat_panel.addWidget(self.coins_total_label)
         coins_stat_panel.addWidget(self.coins_per_hour_label)
+        coins_stat_panel.addWidget(coins_expand_btn)
         coins_panel = QWidget()
         coins_panel.setObjectName("chartPanel")
         coins_panel.setStyleSheet("""
@@ -616,10 +788,17 @@ class DashboardPage(QWidget):
         coins_vbox.setContentsMargins(10, 10, 10, 10)
         coins_vbox.addLayout(coins_stat_panel)
         coins_vbox.addWidget(self.coins_chart)
+        self._coins_panel = coins_panel
         charts_grid.addWidget(coins_panel, 0, 0)
         # Coins per Wave chart (top right)
-        self.wave_coins_chart = GraphWidget("Coins per Wave", "Wave Coins", line_color="#60c86e", scatter_color="#60c86e", use_wave_axis=True, bar_mode=True)
+        self.wave_coins_chart = GraphWidget("Coins per Wave", "Wave Coins", line_color="#60c86e", scatter_color="#60c86e", use_wave_axis=True, bar_mode=True, dashboard_page=self)
         self.wave_coins_chart.setStyleSheet("")
+        wave_coins_expand_btn = QPushButton()
+        wave_coins_expand_btn.setIcon(QIcon(":/icons/sidebar_logo_expanded.svg"))
+        wave_coins_expand_btn.setToolTip("Expand chart")
+        wave_coins_expand_btn.setFixedSize(24, 24)
+        wave_coins_expand_btn.setStyleSheet("QPushButton { border: none; background: transparent; }")
+        wave_coins_expand_btn.clicked.connect(lambda: self._expand_chart(self._wave_coins_panel, "Coins per Wave"))
         wave_coins_title = QLabel("Coins per Wave")
         wave_coins_title.setAlignment(Qt.AlignmentFlag.AlignCenter)
         wave_coins_title.setFont(QFont("Arial", 14, QFont.Weight.Bold))
@@ -638,11 +817,19 @@ class DashboardPage(QWidget):
         wave_coins_vbox.setContentsMargins(10, 10, 10, 10)
         wave_coins_vbox.addWidget(wave_coins_title)
         wave_coins_vbox.addWidget(self.wave_coins_chart)
+        wave_coins_vbox.addWidget(wave_coins_expand_btn, alignment=Qt.AlignmentFlag.AlignRight)
+        self._wave_coins_panel = wave_coins_panel
         charts_grid.addWidget(wave_coins_panel, 0, 1)
         self.graphs["wave_coins_timeline"] = self.wave_coins_chart
         # Gems chart
-        self.gems_chart = GraphWidget("Cumulative Gems Over Time", "Gems", line_color="#9a4dda", scatter_color="#9a4dda")
+        self.gems_chart = GraphWidget("Cumulative Gems Over Time", "Gems", line_color="#9a4dda", scatter_color="#9a4dda", dashboard_page=self)
         self.gems_chart.setStyleSheet("")
+        gems_expand_btn = QPushButton()
+        gems_expand_btn.setIcon(QIcon(":/icons/sidebar_logo_expanded.svg"))
+        gems_expand_btn.setToolTip("Expand chart")
+        gems_expand_btn.setFixedSize(24, 24)
+        gems_expand_btn.setStyleSheet("QPushButton { border: none; background: transparent; }")
+        gems_expand_btn.clicked.connect(lambda: self._expand_chart(self._gems_panel, "Cumulative Gems Over Time"))
         gems_stat_panel = QHBoxLayout()
         gems_stat_panel.setSpacing(8)
         gems_stat_panel.setContentsMargins(0, 0, 0, 0)
@@ -652,6 +839,7 @@ class DashboardPage(QWidget):
         self.gems_per_hour_label.setStyleSheet("color: #9a4dda; font-weight: bold; background: transparent;")
         gems_stat_panel.addWidget(self.gems_total_label)
         gems_stat_panel.addWidget(self.gems_per_hour_label)
+        gems_stat_panel.addWidget(gems_expand_btn)
         gems_panel = QWidget()
         gems_panel.setObjectName("chartPanel")
         gems_panel.setStyleSheet("""
@@ -666,11 +854,18 @@ class DashboardPage(QWidget):
         gems_vbox.setContentsMargins(10, 10, 10, 10)
         gems_vbox.addLayout(gems_stat_panel)
         gems_vbox.addWidget(self.gems_chart)
+        self._gems_panel = gems_panel
         charts_grid.addWidget(gems_panel, 1, 0)
         self.graphs["gems_timeline"] = self.gems_chart
         # Cells chart
-        self.cells_chart = GraphWidget("Cumulative Cells Over Time", "Cells", line_color="#139b2d", scatter_color="#139b2d")
+        self.cells_chart = GraphWidget("Cumulative Cells Over Time", "Cells", line_color="#139b2d", scatter_color="#139b2d", dashboard_page=self)
         self.cells_chart.setStyleSheet("")
+        cells_expand_btn = QPushButton()
+        cells_expand_btn.setIcon(QIcon(":/icons/sidebar_logo_expanded.svg"))
+        cells_expand_btn.setToolTip("Expand chart")
+        cells_expand_btn.setFixedSize(24, 24)
+        cells_expand_btn.setStyleSheet("QPushButton { border: none; background: transparent; }")
+        cells_expand_btn.clicked.connect(lambda: self._expand_chart(self._cells_panel, "Cumulative Cells Over Time"))
         cells_stat_panel = QHBoxLayout()
         cells_stat_panel.setSpacing(8)
         cells_stat_panel.setContentsMargins(0, 0, 0, 0)
@@ -680,6 +875,7 @@ class DashboardPage(QWidget):
         self.cells_per_hour_label.setStyleSheet("color: #139b2d; font-weight: bold; background: transparent;")
         cells_stat_panel.addWidget(self.cells_total_label)
         cells_stat_panel.addWidget(self.cells_per_hour_label)
+        cells_stat_panel.addWidget(cells_expand_btn)
         cells_panel = QWidget()
         cells_panel.setObjectName("chartPanel")
         cells_panel.setStyleSheet("""
@@ -694,6 +890,7 @@ class DashboardPage(QWidget):
         cells_vbox.setContentsMargins(10, 10, 10, 10)
         cells_vbox.addLayout(cells_stat_panel)
         cells_vbox.addWidget(self.cells_chart)
+        self._cells_panel = cells_panel
         charts_grid.addWidget(cells_panel, 1, 1)
         self.graphs["cells_timeline"] = self.cells_chart
         main_layout.addLayout(charts_grid, 1)
@@ -985,6 +1182,8 @@ class DashboardPage(QWidget):
         if self.autoscale_enabled:
             for chart in charts:
                 chart.plot_widget.enableAutoRange(axis=ViewBox.XYAxes, enable=True)
+                # Force immediate auto-range to fit data
+                chart.plot_widget.getViewBox().autoRange()
         else:
             for chart in charts:
                 chart.plot_widget.enableAutoRange(axis=ViewBox.XYAxes, enable=False)
@@ -1009,6 +1208,18 @@ class DashboardPage(QWidget):
         self._autoscale_glow_timer.setSingleShot(True)
         self._autoscale_glow_timer.timeout.connect(lambda: self.autoscale_checkbox.setStyleSheet(orig_style))
         self._autoscale_glow_timer.start(600)
+
+    def _find_panel_for_chart(self, chart_widget):
+        # Returns (panel, title) for a given chart widget
+        if chart_widget == self.coins_chart:
+            return getattr(self, '_coins_panel', None), "Cumulative Coins Over Time"
+        if chart_widget == self.wave_coins_chart:
+            return getattr(self, '_wave_coins_panel', None), "Coins per Wave"
+        if chart_widget == self.gems_chart:
+            return getattr(self, '_gems_panel', None), "Cumulative Gems Over Time"
+        if chart_widget == self.cells_chart:
+            return getattr(self, '_cells_panel', None), "Cumulative Cells Over Time"
+        return None, None
 
 # Helper for duration formatting
 

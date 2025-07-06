@@ -959,7 +959,7 @@ class MainController(QObject):
                     await self._get_run_metrics_for_graph(run_id, "round_cells")
                     await self._get_run_metrics_for_graph(run_id, "wave_coins")
 
-                    #await asyncio.sleep(0.0001)  # Fast-forward: 20x real time
+                    await asyncio.sleep(0.01)  # Fast-forward: 20x real time
 
                 # End the run
                 end_time = start_time + 1800
