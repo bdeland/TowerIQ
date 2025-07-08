@@ -36,4 +36,8 @@ isort = "^5.12"
 ipykernel = "^6.29.5"
 
 [tool.poetry.scripts]
-tower-iq = "tower_iq.main_app_entry:main" 
+tower-iq = "tower_iq.main_app_entry:main"
+
+[tool.pyside6]
+[tool.pyside6-project]
+files = ["src/tower_iq/gui/TowerIQ_QTProject/main_app.py"]

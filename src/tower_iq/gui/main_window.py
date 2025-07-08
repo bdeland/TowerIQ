@@ -25,75 +25,9 @@ from tower_iq.gui.components.history_page import HistoryPage
 from tower_iq.gui.components.status_indicator import StatusIndicator
 from tower_iq.gui.assets import get_asset_path
 from tower_iq.gui.components.explore_page import ExplorePage
-
-
-class SidebarFrame(QFrame):
-    pass
-
-
-class SidebarNavButton(QWidget):
-    def __init__(self, icon: QIcon, text: str, parent=None):
-        super().__init__(parent)
-        self.icon_label = QLabel()
-        self.icon_label.setPixmap(icon.pixmap(28, 28))
-        self.icon_label.setAlignment(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft)
-        self.text_label = QLabel(text)
-        self.text_label.setStyleSheet("color: #fff; font-size: 14px; padding-left: 12px;")
-        self.text_label.setAlignment(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft)
-        self._layout = QHBoxLayout(self)
-        self._layout.setContentsMargins(12, 0, 0, 0)  # Fixed left margin for icon
-        self._layout.setSpacing(0)
-        self._layout.addWidget(self.icon_label, 0, Qt.AlignmentFlag.AlignLeft)
-        # Do not add text_label yet; will be managed by update_state
-        self.setFixedSize(48, 48)
-        self.setStyleSheet("background: transparent; border-radius: 5px;")
-        self.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
-        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
-        self._checked = False
-        self._collapsed = True
-        self.button_group = None  # Will be set by NavButtonGroup
-        self._text = text  # Store for re-adding
-        self.update_state()
-    def setChecked(self, checked: bool):
-        self._checked = checked
-        self.update_state()
-    def isChecked(self):
-        return self._checked
-    def setCollapsed(self, collapsed: bool):
-        self._collapsed = collapsed
-        self.update_state()
-    def update_state(self):
-        # Remove text_label from layout if present
-        if self.text_label.parent() is self:
-            self._layout.removeWidget(self.text_label)
-            self.text_label.hide()
-        if self._collapsed:
-            self.setFixedSize(48, 48)
-            self.icon_label.setAlignment(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft)
-            if self._checked:
-                self.setStyleSheet("background: #2a9b8e; border-radius: 5px;")
-            else:
-                self.setStyleSheet("background: transparent; border-radius: 5px;")
-        else:
-            # Add text_label to layout if not present
-            if self.text_label.parent() is not self:
-                self.text_label.setParent(self)
-            self._layout.addWidget(self.text_label, 1)
-            self.text_label.show()
-            self.setMinimumWidth(160)
-            self.setMaximumWidth(16777215)
-            self.setFixedHeight(48)
-            self.icon_label.setAlignment(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft)
-            if self._checked:
-                self.setStyleSheet("background: #2a9b8e; border-radius: 5px;")
-            else:
-                self.setStyleSheet("background: transparent; border-radius: 5px;")
-    def mousePressEvent(self, event):
-        self.setChecked(True)
-        if self.button_group is not None:
-            self.button_group.buttonClicked.emit(self)
-        super().mousePressEvent(event)
+from src.tower_iq.ui.pages.dashboard_test_page import DashboardTestPage
+from src.tower_iq.gui.sidebar import SidebarFrame, SidebarNavButton
+from src.tower_iq.ui.widgets.q_breadcrumb import QBreadCrumb
 
 
 class MainWindow(QMainWindow):
@@ -201,21 +135,59 @@ class MainWindow(QMainWindow):
                 color: #fff;
                 border: 1px solid #2a9b8e;
             }
+            /* --- QBreadCrumb Styles --- */
+            QBreadCrumb {
+                font-size: 14px;
+            }
+            QPushButton#breadcrumbLink {
+                color: #5794F2;
+                background-color: transparent;
+                border: none;
+                padding: 4px 0;
+                margin: 0;
+            }
+            QPushButton#breadcrumbLink:hover {
+                text-decoration: underline;
+            }
+            QPushButton#breadcrumbButton {
+                color: #E0E0E0;
+                background-color: #3A3C44;
+                border: 1px solid #555;
+                border-radius: 4px;
+                padding: 4px 8px;
+                margin: 0;
+            }
+            QPushButton#breadcrumbButton:hover {
+                background-color: #4a4d55;
+                border-color: #666;
+            }
+            QLabel#currentCrumb {
+                color: #FFFFFF;
+                font-weight: bold;
+                padding: 4px 0;
+            }
+            QLabel#breadcrumbSeparator {
+                color: #8E8F91;
+                padding: 4px 0;
+            }
         """)
         
         # Create central widget and main layout
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
-        # Explicitly set palette for central widget
         pal = central_widget.palette()
         pal.setColor(QPalette.ColorRole.Window, QColor('#001219'))
         pal.setColor(QPalette.ColorRole.Base, QColor('#001219'))
         pal.setColor(QPalette.ColorRole.Text, QColor('#ffffff'))
         central_widget.setPalette(pal)
-        main_layout = QHBoxLayout(central_widget)
+        main_layout = QVBoxLayout(central_widget)
         main_layout.setContentsMargins(0, 0, 0, 0)
         main_layout.setSpacing(0)
-        
+
+        # Main horizontal layout for sidebar + content
+        content_layout = QHBoxLayout()
+        content_layout.setContentsMargins(0, 0, 0, 0)
+        content_layout.setSpacing(0)
         # Left Panel (Navigation)
         self.nav_frame = SidebarFrame()
         self.nav_frame.setFrameStyle(QFrame.Shape.StyledPanel)
@@ -257,11 +229,12 @@ class MainWindow(QMainWindow):
         self._update_sidebar_logo(expanded=False)
         
         # Navigation buttons with icons (now SidebarNavButton)
+        self.nav_dashboard_test_button = SidebarNavButton(self._safe_icon("dashboard_icon.svg"), "Dashboard Test", self.nav_frame)
         self.nav_explore_button = SidebarNavButton(self._safe_icon("explore_icon.svg"), "Explore", self.nav_frame)
         self.nav_dashboard_button = SidebarNavButton(self._safe_icon("dashboard_icon.svg"), "Dashboard", self.nav_frame)
         self.nav_history_button = SidebarNavButton(self._safe_icon("history_icon.svg"), "Run History", self.nav_frame)
         self.nav_settings_button = SidebarNavButton(self._safe_icon("settings_icon.svg"), "Settings", self.nav_frame)
-        self.nav_buttons = [self.nav_dashboard_button, self.nav_explore_button, self.nav_history_button, self.nav_settings_button]
+        self.nav_buttons = [self.nav_dashboard_test_button, self.nav_dashboard_button, self.nav_explore_button, self.nav_history_button, self.nav_settings_button]
         class NavButtonGroup(QObject):
             buttonClicked = pyqtSignal(object)
             def __init__(self, buttons):
@@ -281,7 +254,7 @@ class MainWindow(QMainWindow):
             def buttons(self):
                 return self._buttons
         self.nav_button_group = NavButtonGroup(self.nav_buttons)
-        self.nav_dashboard_button.setChecked(True)
+        self.nav_dashboard_test_button.setChecked(True)
         for btn in self.nav_buttons:
             btn.setCollapsed(True)
             nav_layout.addWidget(btn)
@@ -303,32 +276,52 @@ class MainWindow(QMainWindow):
         """)
         nav_layout.addWidget(self.sidebar_toggle_button, alignment=Qt.AlignmentFlag.AlignHCenter)
         
-        main_layout.addWidget(self.nav_frame)
-        
-        # Right Panel (Main Content)
-        self.stacked_widget = QStackedWidget()
-        self.stacked_widget.setStyleSheet("""
+        content_layout.addWidget(self.nav_frame)
+
+        # --- Begin new content area layout (right of sidebar) ---
+        right_content_widget = QWidget()
+        right_content_layout = QVBoxLayout(right_content_widget)
+        right_content_layout.setContentsMargins(0, 0, 0, 0)
+        right_content_layout.setSpacing(0)
+        # Breadcrumb at the top of the content area
+        self.breadcrumb = QBreadCrumb(separator_type='icon', separator_value='resources/assets/icons/chevron_right.svg')
+        self.breadcrumb.setFixedHeight(40)
+        right_content_layout.addWidget(self.breadcrumb)
+        divider = QFrame()
+        divider.setFrameShape(QFrame.Shape.HLine)
+        divider.setFrameShadow(QFrame.Shadow.Sunken)
+        divider.setStyleSheet("color: #2a9b8e; background-color: #2a9b8e; min-height: 2px; max-height: 2px;")
+        right_content_layout.addWidget(divider)
+
+        # Main content area (QStackedWidget)
+        self.content_stack = QStackedWidget()
+        self.content_stack.setStyleSheet("""
             QStackedWidget {
                 background-color: #001219;
             }
         """)
-        
         # Create page instances
+        self.dashboard_test_page = DashboardTestPage(self)
         self.dashboard_page = DashboardPage(self.controller)
         self.explore_page = ExplorePage(self.controller)
         self.history_page = HistoryPage(self.controller)
         self.settings_page = SettingsPage(self.controller)
-        
         # Add pages to stack
-        self.stacked_widget.addWidget(self.dashboard_page)
-        self.stacked_widget.addWidget(self.explore_page)
-        self.stacked_widget.addWidget(self.history_page)
-        self.stacked_widget.addWidget(self.settings_page)
-        
-        # Set dashboard as default page
-        self.stacked_widget.setCurrentWidget(self.dashboard_page)
-        
-        main_layout.addWidget(self.stacked_widget, 1)  # Stretch factor 1
+        self.content_stack.addWidget(self.dashboard_test_page)
+        self.content_stack.addWidget(self.dashboard_page)
+        self.content_stack.addWidget(self.explore_page)
+        self.content_stack.addWidget(self.history_page)
+        self.content_stack.addWidget(self.settings_page)
+        # Set dashboard test as default page
+        self.content_stack.setCurrentWidget(self.dashboard_test_page)
+        self.set_breadcrumb_path([
+            ("Home", "home_id", "link"),
+            ("Dashboard Test", None, "text")
+        ])
+        right_content_layout.addWidget(self.content_stack)
+        # Add the right content area to the main horizontal layout
+        content_layout.addWidget(right_content_widget)
+        main_layout.addLayout(content_layout)
         
         # Create status bar with global status indicator
         self.status_bar = QStatusBar()
@@ -359,18 +352,41 @@ class MainWindow(QMainWindow):
         self.controller.status_changed.connect(self.status_indicator.update_status)
     
     def _on_nav_button_clicked(self, button):
-        if button == self.nav_dashboard_button:
-            self.stacked_widget.setCurrentWidget(self.dashboard_page)
+        if button == self.nav_dashboard_test_button:
+            self.content_stack.setCurrentWidget(self.dashboard_test_page)
+            self.status_label.setText("Viewing: Dashboard Test")
+            self.set_breadcrumb_path([
+                ("Home", "home_id", "link"),
+                ("Dashboard Test", None, "text")
+            ])
+        elif button == self.nav_dashboard_button:
+            self.content_stack.setCurrentWidget(self.dashboard_page)
             self.status_label.setText("Viewing: Dashboard")
+            self.set_breadcrumb_path([
+                ("Home", "home_id", "link"),
+                ("Dashboard", None, "text")
+            ])
         elif button == self.nav_explore_button:
-            self.stacked_widget.setCurrentWidget(self.explore_page)
+            self.content_stack.setCurrentWidget(self.explore_page)
             self.status_label.setText("Viewing: Explore")
+            self.set_breadcrumb_path([
+                ("Home", "home_id", "link"),
+                ("Explore", None, "text")
+            ])
         elif button == self.nav_history_button:
-            self.stacked_widget.setCurrentWidget(self.history_page)
+            self.content_stack.setCurrentWidget(self.history_page)
             self.status_label.setText("Viewing: Run History")
+            self.set_breadcrumb_path([
+                ("Home", "home_id", "link"),
+                ("Run History", None, "text")
+            ])
         elif button == self.nav_settings_button:
-            self.stacked_widget.setCurrentWidget(self.settings_page)
+            self.content_stack.setCurrentWidget(self.settings_page)
             self.status_label.setText("Viewing: Settings")
+            self.set_breadcrumb_path([
+                ("Home", "home_id", "link"),
+                ("Settings", None, "text")
+            ])
     
     def toggle_sidebar(self):
         # Determine current state by width
@@ -527,4 +543,7 @@ class MainWindow(QMainWindow):
             return QIcon(get_asset_path(f"icons/{icon_name}"))
         except Exception as e:
             print(f"Warning: Could not load icon {icon_name}: {e}")
-            return QIcon() 
+            return QIcon()
+
+    def set_breadcrumb_path(self, path_segments):
+        self.breadcrumb.set_path(path_segments) 

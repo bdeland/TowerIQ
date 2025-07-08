@@ -20,6 +20,7 @@ from PyQt6.QtGui import QFont, QPalette, QIcon
 
 from .connection_state_panel import ConnectionStatePanel
 from src.tower_iq.core.utils import format_duration, format_currency
+from tower_iq.gui.assets import get_asset_path
 
 try:
     import pyqtgraph as pg
@@ -453,12 +454,6 @@ class DashboardPage(QWidget):
         main_layout.setContentsMargins(0, 0, 0, 0)
         main_layout.setSpacing(0)
 
-        # Breadcrumb navigation
-        self.breadcrumb_layout = QHBoxLayout()
-        self.breadcrumb_layout.setContentsMargins(10, 10, 10, 0)
-        main_layout.addLayout(self.breadcrumb_layout)
-        self._update_breadcrumb()
-
         # Autoscale checkbox (top right)
         autoscale_layout = QHBoxLayout()
         autoscale_layout.addStretch()
@@ -477,131 +472,6 @@ class DashboardPage(QWidget):
         self.connection_overlay_widget.hide()
         self.connection_overlay_widget.setParent(self)
     
-    def _update_breadcrumb(self):
-        # Clear old widgets
-        while self.breadcrumb_layout.count():
-            item = self.breadcrumb_layout.takeAt(0)
-            if item is not None:
-                widget = item.widget()
-                if widget:
-                    widget.deleteLater()
-        # Home
-        home_label = QLabel("Home")
-        self.breadcrumb_layout.addWidget(home_label)
-        arrow1 = QLabel(" > ")
-        self.breadcrumb_layout.addWidget(arrow1)
-        # Dashboard
-        dashboard_btn = QPushButton("Dashboard")
-        dashboard_btn.setFlat(True)
-        dashboard_btn.clicked.connect(self._on_breadcrumb_dashboard_clicked)
-        self.breadcrumb_layout.addWidget(dashboard_btn)
-        if self.expanded_chart_name:
-            arrow2 = QLabel(" > ")
-            self.breadcrumb_layout.addWidget(arrow2)
-            view_label = QLabel(f"View: {self.expanded_chart_name}")
-            self.breadcrumb_layout.addWidget(view_label)
-        self.breadcrumb_layout.addStretch()
-
-    def _on_breadcrumb_dashboard_clicked(self):
-        if self.expanded_chart_name:
-            self._collapse_chart()
-
-    def _expand_chart(self, chart_panel, chart_title):
-        self.expanded_chart_name = chart_title
-        self.expanded_chart_panel = chart_panel
-        self.dashboard_widget.hide()
-        # Create expanded chart area if not already present
-        if not hasattr(self, 'expanded_chart_area'):
-            self.expanded_chart_area = QWidget()
-            self.expanded_chart_layout = QVBoxLayout(self.expanded_chart_area)
-            self.expanded_chart_layout.setContentsMargins(30, 30, 30, 30)
-            self.expanded_chart_layout.setSpacing(10)
-        else:
-            # Remove any previous widgets
-            while self.expanded_chart_layout.count():
-                item = self.expanded_chart_layout.takeAt(0)
-                if item is not None:
-                    widget = item.widget()
-                    if widget:
-                        widget.setParent(None)
-        # Add collapse button
-        collapse_btn = QPushButton()
-        collapse_btn.setIcon(QIcon("@/icons/close.svg"))
-        collapse_btn.setToolTip("Collapse chart")
-        collapse_btn.setFixedSize(32, 32)
-        collapse_btn.setStyleSheet("QPushButton { border: none; background: transparent; position: absolute; top: 10px; right: 10px; }")
-        collapse_btn.clicked.connect(self._collapse_chart)
-        collapse_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.expanded_chart_layout.addWidget(collapse_btn, alignment=Qt.AlignmentFlag.AlignRight)
-        self.expanded_chart_layout.addWidget(chart_panel)
-        layout = self.layout()
-        if layout is not None and self.expanded_chart_area.parent() != self:
-            layout.addWidget(self.expanded_chart_area)
-        self.expanded_chart_area.show()
-        self._update_breadcrumb()
-
-    def _collapse_chart(self):
-        if self.expanded_chart_panel:
-            # Re-parent the chart panel back to the dashboard grid
-            panel = self.expanded_chart_panel
-            # Find which panel it is and its grid position
-            grid = None
-            row_col = None
-            if hasattr(self.dashboard_widget, 'layout'):
-                main_layout = self.dashboard_widget.layout()
-                if main_layout is not None:
-                    for i in range(main_layout.count()):
-                        item = main_layout.itemAt(i)
-                        if item is None:
-                            continue
-                        widget = item.widget() if hasattr(item, 'widget') else None
-                        if widget is not None and hasattr(widget, 'layout') and widget.layout() is not None:
-                            layout = widget.layout()
-                            if layout is not None:
-                                for j in range(layout.count()):
-                                    subitem = layout.itemAt(j)
-                                    if subitem is not None and isinstance(subitem, QGridLayout):
-                                        grid = subitem
-                                        break
-            # Map panel to grid position
-            panel_map = {
-                getattr(self, '_coins_panel', None): (0, 0),
-                getattr(self, '_wave_coins_panel', None): (0, 1),
-                getattr(self, '_gems_panel', None): (1, 0),
-                getattr(self, '_cells_panel', None): (1, 1),
-            }
-            row_col = panel_map.get(panel, None)
-            if grid is not None and row_col is not None and panel is not None:
-                # Only add if not already in grid
-                already_in_grid = False
-                if grid is not None and hasattr(grid, 'count') and hasattr(grid, 'itemAt'):
-                    for i in range(grid.count()):
-                        grid_item = grid.itemAt(i)
-                        if grid_item is not None:
-                            grid_widget = grid_item.widget() if hasattr(grid_item, 'widget') else None
-                            if grid_widget == panel:
-                                already_in_grid = True
-                                break
-                if not already_in_grid and grid is not None and hasattr(grid, 'addWidget'):
-                    if row_col is not None and isinstance(row_col, tuple) and len(row_col) == 2 and all(isinstance(x, int) for x in row_col):
-                        grid.addWidget(panel, *row_col)
-            if panel is not None:
-                panel.setParent(self.dashboard_widget)
-        if hasattr(self, 'expanded_chart_area'):
-            self.expanded_chart_area.hide()
-            # Optionally remove from layout
-            layout = self.layout()
-            if layout is not None:
-                # Only remove if present
-                try:
-                    layout.removeWidget(self.expanded_chart_area)
-                except Exception:
-                    pass
-        self.dashboard_widget.show()
-        self.expanded_chart_name = None
-        self.expanded_chart_panel = None
-        self._update_breadcrumb()
-
     def _create_dashboard_content(self) -> QWidget:
         """Create the main dashboard content widget."""
         dashboard_widget = QWidget()
@@ -759,7 +629,7 @@ class DashboardPage(QWidget):
         self.coins_chart.setStyleSheet("")  # Remove border from chart itself
         # Expand button
         coins_expand_btn = QPushButton()
-        coins_expand_btn.setIcon(QIcon(":/icons/sidebar_logo_expanded.svg"))
+        coins_expand_btn.setIcon(QIcon(get_asset_path("icons/sidebar_logo_expanded.svg")))
         coins_expand_btn.setToolTip("Expand chart")
         coins_expand_btn.setFixedSize(24, 24)
         coins_expand_btn.setStyleSheet("QPushButton { border: none; background: transparent; }")
@@ -794,7 +664,7 @@ class DashboardPage(QWidget):
         self.wave_coins_chart = GraphWidget("Coins per Wave", "Wave Coins", line_color="#60c86e", scatter_color="#60c86e", use_wave_axis=True, bar_mode=True, dashboard_page=self)
         self.wave_coins_chart.setStyleSheet("")
         wave_coins_expand_btn = QPushButton()
-        wave_coins_expand_btn.setIcon(QIcon(":/icons/sidebar_logo_expanded.svg"))
+        wave_coins_expand_btn.setIcon(QIcon(get_asset_path("icons/sidebar_logo_expanded.svg")))
         wave_coins_expand_btn.setToolTip("Expand chart")
         wave_coins_expand_btn.setFixedSize(24, 24)
         wave_coins_expand_btn.setStyleSheet("QPushButton { border: none; background: transparent; }")
@@ -825,7 +695,7 @@ class DashboardPage(QWidget):
         self.gems_chart = GraphWidget("Cumulative Gems Over Time", "Gems", line_color="#9a4dda", scatter_color="#9a4dda", dashboard_page=self)
         self.gems_chart.setStyleSheet("")
         gems_expand_btn = QPushButton()
-        gems_expand_btn.setIcon(QIcon(":/icons/sidebar_logo_expanded.svg"))
+        gems_expand_btn.setIcon(QIcon(get_asset_path("icons/sidebar_logo_expanded.svg")))
         gems_expand_btn.setToolTip("Expand chart")
         gems_expand_btn.setFixedSize(24, 24)
         gems_expand_btn.setStyleSheet("QPushButton { border: none; background: transparent; }")
@@ -861,7 +731,7 @@ class DashboardPage(QWidget):
         self.cells_chart = GraphWidget("Cumulative Cells Over Time", "Cells", line_color="#139b2d", scatter_color="#139b2d", dashboard_page=self)
         self.cells_chart.setStyleSheet("")
         cells_expand_btn = QPushButton()
-        cells_expand_btn.setIcon(QIcon(":/icons/sidebar_logo_expanded.svg"))
+        cells_expand_btn.setIcon(QIcon(get_asset_path("icons/sidebar_logo_expanded.svg")))
         cells_expand_btn.setToolTip("Expand chart")
         cells_expand_btn.setFixedSize(24, 24)
         cells_expand_btn.setStyleSheet("QPushButton { border: none; background: transparent; }")
@@ -1220,6 +1090,100 @@ class DashboardPage(QWidget):
         if chart_widget == self.cells_chart:
             return getattr(self, '_cells_panel', None), "Cumulative Cells Over Time"
         return None, None
+
+    def _expand_chart(self, chart_panel, chart_title):
+        self.expanded_chart_name = chart_title
+        self.expanded_chart_panel = chart_panel
+        self.dashboard_widget.hide()
+        # Create expanded chart area if not already present
+        if not hasattr(self, 'expanded_chart_area'):
+            self.expanded_chart_area = QWidget()
+            self.expanded_chart_layout = QVBoxLayout(self.expanded_chart_area)
+            self.expanded_chart_layout.setContentsMargins(30, 30, 30, 30)
+            self.expanded_chart_layout.setSpacing(10)
+        else:
+            # Remove any previous widgets
+            while self.expanded_chart_layout.count():
+                item = self.expanded_chart_layout.takeAt(0)
+                if item is not None:
+                    widget = item.widget()
+                    if widget:
+                        widget.setParent(None)
+        # Add collapse button
+        collapse_btn = QPushButton()
+        collapse_btn.setIcon(QIcon(get_asset_path("icons/close.svg")))
+        collapse_btn.setToolTip("Collapse chart")
+        collapse_btn.setFixedSize(32, 32)
+        collapse_btn.setStyleSheet("QPushButton { border: none; background: transparent; position: absolute; top: 10px; right: 10px; }")
+        collapse_btn.clicked.connect(self._collapse_chart)
+        collapse_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.expanded_chart_layout.addWidget(collapse_btn, alignment=Qt.AlignmentFlag.AlignRight)
+        self.expanded_chart_layout.addWidget(chart_panel)
+        layout = self.layout()
+        if layout is not None and self.expanded_chart_area.parent() != self:
+            layout.addWidget(self.expanded_chart_area)
+        self.expanded_chart_area.show()
+
+    def _collapse_chart(self):
+        if self.expanded_chart_panel:
+            # Re-parent the chart panel back to the dashboard grid
+            panel = self.expanded_chart_panel
+            # Find which panel it is and its grid position
+            grid = None
+            row_col = None
+            if hasattr(self.dashboard_widget, 'layout'):
+                main_layout = self.dashboard_widget.layout()
+                if main_layout is not None:
+                    for i in range(main_layout.count()):
+                        item = main_layout.itemAt(i)
+                        if item is None:
+                            continue
+                        widget = item.widget() if hasattr(item, 'widget') else None
+                        if widget is not None and hasattr(widget, 'layout') and widget.layout() is not None:
+                            layout = widget.layout()
+                            if layout is not None:
+                                for j in range(layout.count()):
+                                    subitem = layout.itemAt(j)
+                                    if subitem is not None and isinstance(subitem, QGridLayout):
+                                        grid = subitem
+                                        break
+            # Map panel to grid position
+            panel_map = {
+                getattr(self, '_coins_panel', None): (0, 0),
+                getattr(self, '_wave_coins_panel', None): (0, 1),
+                getattr(self, '_gems_panel', None): (1, 0),
+                getattr(self, '_cells_panel', None): (1, 1),
+            }
+            row_col = panel_map.get(panel, None)
+            if grid is not None and row_col is not None and panel is not None:
+                # Only add if not already in grid
+                already_in_grid = False
+                if grid is not None and hasattr(grid, 'count') and hasattr(grid, 'itemAt'):
+                    for i in range(grid.count()):
+                        grid_item = grid.itemAt(i)
+                        if grid_item is not None:
+                            grid_widget = grid_item.widget() if hasattr(grid_item, 'widget') else None
+                            if grid_widget == panel:
+                                already_in_grid = True
+                                break
+                if not already_in_grid and grid is not None and hasattr(grid, 'addWidget'):
+                    if row_col is not None and isinstance(row_col, tuple) and len(row_col) == 2 and all(isinstance(x, int) for x in row_col):
+                        grid.addWidget(panel, *row_col)
+            if panel is not None:
+                panel.setParent(self.dashboard_widget)
+        if hasattr(self, 'expanded_chart_area'):
+            self.expanded_chart_area.hide()
+            # Optionally remove from layout
+            layout = self.layout()
+            if layout is not None:
+                # Only remove if present
+                try:
+                    layout.removeWidget(self.expanded_chart_area)
+                except Exception:
+                    pass
+        self.dashboard_widget.show()
+        self.expanded_chart_name = None
+        self.expanded_chart_panel = None
 
 # Helper for duration formatting
 

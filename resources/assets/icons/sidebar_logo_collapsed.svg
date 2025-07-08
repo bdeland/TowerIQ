@@ -1,2 +1,143 @@
-<?xml version="1.0" encoding="utf-8"?><!-- Uploaded to: SVG Repo, www.svgrepo.com, Generator: SVG Repo Mixer Tools -->
-<svg width="800px" height="800px" viewBox="-3 0 262 262" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="xMidYMid"><path d="M255.878 133.451c0-10.734-.871-18.567-2.756-26.69H130.55v48.448h71.947c-1.45 12.04-9.283 30.172-26.69 42.356l-.244 1.622 38.755 30.023 2.685.268c24.659-22.774 38.875-56.282 38.875-96.027" fill="#4285F4"/><path d="M130.55 261.1c35.248 0 64.839-11.605 86.453-31.622l-41.196-31.913c-11.024 7.688-25.82 13.055-45.257 13.055-34.523 0-63.824-22.773-74.269-54.25l-1.531.13-40.298 31.187-.527 1.465C35.393 231.798 79.49 261.1 130.55 261.1" fill="#34A853"/><path d="M56.281 156.37c-2.756-8.123-4.351-16.827-4.351-25.82 0-8.994 1.595-17.697 4.206-25.82l-.073-1.73L15.26 71.312l-1.335.635C5.077 89.644 0 109.517 0 130.55s5.077 40.905 13.925 58.602l42.356-32.782" fill="#FBBC05"/><path d="M130.55 50.479c24.514 0 41.05 10.589 50.479 19.438l36.844-35.974C195.245 12.91 165.798 0 130.55 0 79.49 0 35.393 29.301 13.925 71.947l42.211 32.783c10.59-31.477 39.891-54.251 74.414-54.251" fill="#EB4335"/></svg>
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<svg
+   xmlns:osb="http://www.openswatchbook.org/uri/2009/osb"
+   xmlns:dc="http://purl.org/dc/elements/1.1/"
+   xmlns:cc="http://creativecommons.org/ns#"
+   xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"
+   xmlns:svg="http://www.w3.org/2000/svg"
+   xmlns="http://www.w3.org/2000/svg"
+   xmlns:xlink="http://www.w3.org/1999/xlink"
+   xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd"
+   xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"
+   viewBox="0 0 577.73204 500.3306"
+   width="577.73206"
+   height="500.3306"
+   version="1.1"
+   id="svg111"
+   sodipodi:docname="toweriq_logo.svg"
+   inkscape:version="1.0.1 (3bc2e813f5, 2020-09-07)">
+  <metadata
+     id="metadata115">
+    <rdf:RDF>
+      <cc:Work
+         rdf:about="">
+        <dc:format>image/svg+xml</dc:format>
+        <dc:type
+           rdf:resource="http://purl.org/dc/dcmitype/StillImage" />
+        <dc:title></dc:title>
+      </cc:Work>
+    </rdf:RDF>
+  </metadata>
+  <sodipodi:namedview
+     pagecolor="#ffffff"
+     bordercolor="#666666"
+     borderopacity="1"
+     objecttolerance="10"
+     gridtolerance="10"
+     guidetolerance="10"
+     inkscape:pageopacity="0"
+     inkscape:pageshadow="2"
+     inkscape:window-width="2558"
+     inkscape:window-height="1341"
+     id="namedview113"
+     showgrid="false"
+     inkscape:pagecheckerboard="true"
+     showguides="false"
+     inkscape:zoom="1"
+     inkscape:cx="67.766163"
+     inkscape:cy="237.17436"
+     inkscape:window-x="1272"
+     inkscape:window-y="121"
+     inkscape:window-maximized="0"
+     inkscape:current-layer="g107"
+     inkscape:document-rotation="0" />
+  <defs
+     id="defs75">
+    <linearGradient
+       id="linearGradient1836"
+       osb:paint="solid">
+      <stop
+         style="stop-color:#22272e;stop-opacity:1;"
+         offset="0"
+         id="stop1834" />
+    </linearGradient>
+    <marker
+       id="DistanceX"
+       orient="auto"
+       refX="0"
+       refY="0"
+       style="overflow:visible">
+      <path
+         d="M 3,-3 -3,3 M 0,-5 V 5"
+         style="stroke:#000000;stroke-width:0.5"
+         id="path62" />
+    </marker>
+    <pattern
+       id="Hatch"
+       patternUnits="userSpaceOnUse"
+       width="8"
+       height="8"
+       x="0"
+       y="0">
+      <path
+         d="M8 4 l-4,4"
+         stroke="#000000"
+         stroke-width="0.25"
+         linecap="square"
+         id="path65" />
+      <path
+         d="M6 2 l-4,4"
+         stroke="#000000"
+         stroke-width="0.25"
+         linecap="square"
+         id="path67" />
+      <path
+         d="M4 0 l-4,4"
+         stroke="#000000"
+         stroke-width="0.25"
+         linecap="square"
+         id="path69" />
+    </pattern>
+    <symbol
+       id="*Model_Space" />
+    <symbol
+       id="*Paper_Space" />
+    <symbol
+       id="*Paper_Space0" />
+    <linearGradient
+       inkscape:collect="always"
+       xlink:href="#linearGradient1836"
+       id="linearGradient1838"
+       x1="182.68069"
+       y1="627.64191"
+       x2="760.41272"
+       y2="627.64191"
+       gradientUnits="userSpaceOnUse" />
+  </defs>
+  <g
+     inkscape:groupmode="layer"
+     inkscape:label="0"
+     id="g77"
+     transform="translate(-182.68069,-377.47661)" />
+  <g
+     inkscape:groupmode="layer"
+     inkscape:label="Visible"
+     id="g107"
+     transform="translate(-182.68069,-377.47661)">
+    <g
+       id="g1842">
+      <path
+         id="path97"
+         style="fill:url(#linearGradient1838);fill-opacity:1;stroke:#22272e;stroke-opacity:1"
+         d="m 327.54672,627.39191 144,249.41529 54.25843,-93.97843 -89.74157,-155.43686 89.74157,-155.43696 h 179.48304 l 54.25853,-93.97834 h -576 l 54.25843,93.97834 h 179.48304 z"
+         sodipodi:nodetypes="ccccccccccc" />
+      <path
+         d="m 680.34672,515.15495 h -129.6 l -64.8,112.23696 64.8,112.23686 z"
+         style="fill:#22272e;fill-opacity:1;stroke:#22272e;stroke-opacity:1"
+         id="path105"
+         sodipodi:nodetypes="ccccc" />
+    </g>
+  </g>
+  <desc
+     id="desc109">toweriq Drawing v2 Sheet1.dxf - scale = 25.400000, origin = (0.000000, 0.000000), method = file</desc>
+</svg>
