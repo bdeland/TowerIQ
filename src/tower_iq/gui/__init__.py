@@ -5,4 +5,6 @@ This package contains the PyQt6-based graphical user interface components for To
 """
 
 __version__ = "1.0.0"
-__author__ = "TowerIQ Development Team" 
+__author__ = "TowerIQ Development Team"
+
+from .settings_page import SettingsPage 
