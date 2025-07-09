@@ -53,8 +53,8 @@ def main() -> None:
     
     try:
         # Create core components
-        config = ConfigurationManager(str(yaml_path), str(env_path))
-        config.load_and_validate()
+        config = ConfigurationManager(str(yaml_path))
+        # No need to call load_and_validate()
         
         # Initialize unified logging system with console output initially
         setup_logging(config)
@@ -84,9 +84,9 @@ def main() -> None:
             return
         
         if args.test_mode_replay or args.test_mode_generate:
-            setattr(config, '_test_mode', True)
-            setattr(config, '_test_mode_replay', args.test_mode_replay)
-            setattr(config, '_test_mode_generate', args.test_mode_generate)
+            test_mode = True
+            test_mode_replay = args.test_mode_replay
+            test_mode_generate = args.test_mode_generate
             test_db_path = app_root / 'data' / f'test_mode.sqlite'
             if args.test_mode_generate:
                 # Delete any existing test mode database before starting
@@ -95,7 +95,12 @@ def main() -> None:
                         test_db_path.unlink()
                     except Exception as e:
                         logger.warning(f"Failed to delete old test mode database: {e}")
-            config._override_db_path = str(test_db_path)
+            # Pass test_db_path and test_mode flags to MainController instead of setting on config
+        else:
+            test_mode = False
+            test_mode_replay = False
+            test_mode_generate = False
+            test_db_path = None
         
         # Initialize PyQt Application
         app = QApplication(sys.argv)
@@ -104,9 +109,17 @@ def main() -> None:
         app.setApplicationVersion("1.0")
         
         # Instantiate Main Controller
-        controller = MainController(config, logger)
+        if test_db_path is not None:
+            controller = MainController(config, logger, db_path=str(test_db_path))
+        else:
+            controller = MainController(config, logger)
+        # Set test mode attributes if needed
+        controller._test_mode = test_mode
+        controller._test_mode_replay = test_mode_replay
+        controller._test_mode_generate = test_mode_generate
+        # test_db_path is now passed as db_path
         # Instantiate Main Window with controller
-        window = MainWindow()
+        window = MainWindow(session_manager=controller.session, config_manager=controller.config)
         
         # Run the Application
         try:

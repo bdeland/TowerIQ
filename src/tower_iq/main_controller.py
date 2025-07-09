@@ -37,13 +37,13 @@ class MainController(QObject):
     setup_finished = pyqtSignal(bool)
     connection_state_changed = pyqtSignal(bool)  # New signal for connection state
     
-    def __init__(self, config: ConfigurationManager, logger: Any) -> None:
+    def __init__(self, config: ConfigurationManager, logger: Any, db_path: str = '') -> None:
         """
         Initialize the main controller.
-        
         Args:
             config: Configuration manager instance
             logger: Logger instance
+            db_path: Optional override for the database file path
         """
         super().__init__()
         
@@ -52,7 +52,7 @@ class MainController(QObject):
         
         # Initialize core services
         self.session = SessionManager()
-        self.db_service = DatabaseService(config, logger)
+        self.db_service = DatabaseService(config, logger, db_path=db_path)
         self.emulator_service = EmulatorService(config, logger)
         self.frida_service = FridaService(config, logger)
         

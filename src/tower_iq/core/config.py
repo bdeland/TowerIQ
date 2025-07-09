@@ -5,183 +5,97 @@ This module provides the ConfigurationManager class, which serves as the single
 source of truth for all application configuration settings.
 """
 
-import os
 import yaml
-from typing import Any, Optional, Dict
-from dotenv import load_dotenv
+from typing import Any, Optional
+from pathlib import Path
+from PyQt6.QtCore import QObject, pyqtSignal
 
+# Forward reference for type hinting
+class DatabaseService:
+    def get_all_settings(self): ...
+    def set_setting(self, key: str, value: str): ...
 
-class ConfigurationManager:
+class ConfigurationManager(QObject):
     """
-    Single source of truth for all configuration values.
-    Loads, validates, and provides access to settings from YAML and .env files.
+    Manages application configuration with a layered approach and signals.
+    1. Loads default settings from a YAML file.
+    2. Loads and overlays user-specific settings from the database.
+    3. Provides a unified interface to get/set settings and emits signals on change.
     """
+    settingChanged = pyqtSignal(str, object)
 
-    _override_db_path: Optional[str] = None
-    _test_mode: Optional[bool] = None
+    def __init__(self, yaml_path: str = 'config/main_config.yaml'):
+        super().__init__()
+        self._db_service: Optional[DatabaseService] = None
+        self._file_config: dict = self._load_from_file(yaml_path)
+        self._user_settings: dict = {}
 
-    def __init__(self, yaml_path: str, env_path: str) -> None:
-        """
-        Initialize the configuration manager.
+    def link_database_service(self, db_service: DatabaseService):
+        """Links the DatabaseService and loads all user settings from the DB."""
+        self._db_service = db_service
+        self._load_all_user_settings()
+
+    def _load_from_file(self, config_path: str) -> dict:
+        path = Path(config_path)
+        if not path.exists():
+            print(f"Warning: Configuration file not found at {path}")
+            return {}
+        with open(path, 'r') as f:
+            return yaml.safe_load(f) or {}
+
+    def _load_all_user_settings(self):
+        """Loads all settings from the 'settings' table."""
+        if not self._db_service: return
         
-        Args:
-            yaml_path: Absolute path to main_config.yaml
-            env_path: Absolute path to the .env file
-        """
-        self.yaml_path = yaml_path
-        self.env_path = env_path
-        self.settings: Dict[str, Any] = {}
-        
-        # Store project root for relative path resolution
-        # yaml_path is like "/path/to/project/config/main_config.yaml"
-        # We want "/path/to/project"
-        self.project_root = os.path.dirname(os.path.dirname(os.path.abspath(yaml_path)))
-
-    def load_and_validate(self) -> None:
-        """
-        Main method to perform the entire loading sequence.
-        Reads YAML, reads .env, merges them, validates the result.
-        """
-        yaml_config = self._load_yaml()
-        env_config = self._load_dotenv()
-        self._merge_configs(yaml_config, env_config)
-        self._validate_config()
+        settings_list = self._db_service.get_all_settings()
+        if settings_list is None:
+            settings_list = []
+        self._user_settings = {s['key']: s['value'] for s in settings_list}
+        print(f"Loaded {len(self._user_settings)} user settings from DB.")
 
     def get(self, key: str, default: Any = None) -> Any:
         """
-        Provides dictionary-like access to the final, merged settings.
-        Supports dot notation for nested keys (e.g., "logging.level").
-        
-        Args:
-            key: Configuration key, supports dot notation
-            default: Default value if key is not found
-            
-        Returns:
-            Configuration value or default
+        Gets a config value, checking user settings (DB) first, then file settings.
+        Supports dot notation for nested keys.
         """
-        keys = key.split('.')
-        value = self.settings
-        
+        # 1. Check user settings (from DB)
+        if key in self._user_settings:
+            # Attempt to cast to the same type as the file setting, if it exists
+            file_val = self._get_from_dict(self._file_config, key.split('.'))
+            if file_val is not None:
+                try:
+                    return type(file_val)(self._user_settings[key])
+                except (ValueError, TypeError):
+                    return self._user_settings[key]
+            return self._user_settings[key]
+
+        # 2. Check file settings
+        file_val = self._get_from_dict(self._file_config, key.split('.'))
+        if file_val is not None:
+            return file_val
+            
+        # 3. Return default
+        return default
+
+    def _get_from_dict(self, data_dict: dict, keys: list) -> Any:
+        value = data_dict
         try:
             for k in keys:
                 value = value[k]
             return value
         except (KeyError, TypeError):
-            return default
-    
-    def get_project_root(self) -> str:
-        """
-        Get the project root directory.
-        
-        Returns:
-            Absolute path to the project root directory
-        """
-        return self.project_root
+            return None
 
-    def _load_yaml(self) -> Dict[str, Any]:
-        """
-        Load the main_config.yaml file.
-        
-        Returns:
-            Dictionary representing the YAML content
-            
-        Raises:
-            FileNotFoundError: If YAML file doesn't exist
-            yaml.YAMLError: If YAML is invalid
-        """
-        if not os.path.exists(self.yaml_path):
-            raise FileNotFoundError(f"Configuration file not found: {self.yaml_path}")
-        
-        try:
-            with open(self.yaml_path, 'r', encoding='utf-8') as file:
-                return yaml.safe_load(file) or {}
-        except yaml.YAMLError as e:
-            raise yaml.YAMLError(f"Invalid YAML in {self.yaml_path}: {e}")
+    def set(self, key: str, value: Any):
+        """Saves a user-specific setting to the DB and emits a signal."""
+        if not self._db_service:
+            print(f"Error: Cannot set '{key}'. DatabaseService not linked.")
+            return
 
-    def _load_dotenv(self) -> Dict[str, Any]:
-        """
-        Load the .env file using python-dotenv.
-        
-        Returns:
-            Dictionary of environment variables from .env file
-        """
-        env_config = {}
-        
-        if os.path.exists(self.env_path):
-            load_dotenv(self.env_path)
-            
-            # Load specific environment variables that TowerIQ uses
-            env_vars = [
-                'SQLITE_ENCRYPTION_KEY',
-                'FRIDA_SIGNATURE_KEY',
-                'SCRIPT_ENCRYPTION_KEY',
-                'DEBUG_MODE'
-            ]
-            
-            for var in env_vars:
-                value = os.getenv(var)
-                if value is not None:
-                    # Convert boolean strings
-                    if value.lower() in ('true', 'false'):
-                        value = value.lower() == 'true'
-                    env_config[var.lower()] = value
-        
-        return env_config
+        current_value = self.get(key)
+        if current_value == value:
+            return # No change, do nothing
 
-    def _merge_configs(self, yaml_config: Dict[str, Any], env_config: Dict[str, Any]) -> None:
-        """
-        Merge the two configurations. Environment variables take precedence.
-        
-        Args:
-            yaml_config: Configuration from YAML file
-            env_config: Configuration from .env file
-        """
-        self.settings = yaml_config.copy()
-        
-        # Apply environment variable overrides
-        if 'sqlite_encryption_key' in env_config:
-            self.settings.setdefault('database', {}).setdefault('sqlite', {})['encryption_key'] = env_config['sqlite_encryption_key']
-        
-        if 'frida_signature_key' in env_config:
-            self.settings.setdefault('frida', {})['signature_key'] = env_config['frida_signature_key']
-        
-        if 'script_encryption_key' in env_config:
-            self.settings.setdefault('secrets', {})['script_encryption_key'] = env_config['script_encryption_key']
-        
-        if 'debug_mode' in env_config:
-            self.settings.setdefault('app', {})['debug'] = env_config['debug_mode']
-
-    def _validate_config(self) -> None:
-        """
-        Validate the final merged configuration.
-        Checks for the presence of essential keys.
-        
-        Raises:
-            ValueError: If a required configuration key is missing
-        """
-        required_keys = [
-            'app.name',
-            'app.version',
-            'logging.level',
-            'database.sqlite_path',
-            'emulator.package_name',
-            'frida.server_port'
-        ]
-        
-        missing_keys = []
-        for key in required_keys:
-            if self.get(key) is None:
-                missing_keys.append(key)
-        
-        if missing_keys:
-            raise ValueError(f"Missing required configuration keys: {', '.join(missing_keys)}")
-        
-        # Validate specific values
-        log_level = self.get('logging.level', '').upper()
-        if log_level not in ['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL']:
-            raise ValueError(f"Invalid logging level: {log_level}")
-        
-        # Validate frida port is integer
-        frida_port = self.get('frida.server_port')
-        if not isinstance(frida_port, int) or frida_port <= 0:
-            raise ValueError("Frida server port must be a positive integer") 
+        self._user_settings[key] = value
+        self._db_service.set_setting(key, str(value))
+        self.settingChanged.emit(key, value) 

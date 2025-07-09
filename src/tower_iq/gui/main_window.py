@@ -30,8 +30,10 @@ class HomePage(ThemeAwareWidget):
 
 class MainWindow(FluentWindow):
 
-    def __init__(self):
+    def __init__(self, session_manager=None, config_manager=None):
         super().__init__()
+        self.session_manager = session_manager
+        self.config_manager = config_manager
         self.init_window()
 
         # Layout Restructuring (This part is correct)
@@ -53,7 +55,7 @@ class MainWindow(FluentWindow):
         # Create pages
         self.home_page = HomePage(self)
         self.home_page.setObjectName('home')
-        self.dashboards_page = DashboardsPage(self)
+        self.dashboards_page = DashboardsPage(self.session_manager, self.config_manager, self)
         self.dashboards_page.setObjectName('dashboards')
         self.settings_page = SettingsPage(self)
         self.settings_page.setObjectName('settings')

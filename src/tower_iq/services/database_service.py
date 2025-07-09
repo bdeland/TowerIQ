@@ -51,28 +51,21 @@ class DatabaseService:
     
     DB_VERSION = "2" # Using a "long" schema for metrics
     
-    def __init__(self, config: ConfigurationManager, logger: Any) -> None:
+    def __init__(self, config: ConfigurationManager, logger: Any, db_path: str = '') -> None:
         """
         Initialize the database service.
-        
         Args:
-            config: Configuration manager instance
+            config: ConfigurationManager instance
             logger: Logger instance for this service
+            db_path: Optional override for the database file path
         """
         self.logger = logger.bind(source="DatabaseService")
-        
-        # Allow test mode to override db path
-        override = getattr(config, '_override_db_path', None)
-        if override:
-            self.db_path = override
+        if db_path:
+            self.db_path = db_path
         else:
             self.db_path = config.get('database.sqlite_path', 'data/toweriq.sqlite')
-        
-        # Debug log for db_path
         self.logger.debug("Database path resolved", db_path=self.db_path, db_path_type=str(type(self.db_path)))
         print(f"Database path resolved: {self.db_path} (type: {type(self.db_path)})")
-        
-        # Database connection
         self.sqlite_conn: Optional[sqlite3.Connection] = None
     
     def connect(self) -> None:
@@ -541,3 +534,12 @@ class DatabaseService:
         import pandas as pd
         df = pd.read_sql_query(query, conn, params=(run_id,))
         return df
+
+    @db_operation(default_return_value=[])
+    def get_all_settings(self) -> list[dict[str, str]]:
+        """Gets all key-value pairs from the settings table."""
+        if not self.sqlite_conn:
+            return []
+        cursor = self.sqlite_conn.execute("SELECT key, value FROM settings")
+        rows = cursor.fetchall()
+        return [{'key': row[0], 'value': row[1]} for row in rows]
