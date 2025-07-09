@@ -1,13 +1,13 @@
-from PyQt6.QtWidgets import QWidget, QVBoxLayout, QLabel
+from PyQt6.QtWidgets import QVBoxLayout, QLabel
 from qfluentwidgets import ComboBox, Theme, setTheme, qconfig
+from .utils_gui import ThemeAwareWidget, get_title_font, get_text_color
 
-class SettingsPage(QWidget):
+class SettingsPage(ThemeAwareWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         layout = QVBoxLayout(self)
-        label = QLabel("Settings", self)
-        label.setStyleSheet("font-size: 24px; font-weight: bold;")
-        layout.addWidget(label)
+        self.label = QLabel("Settings", self)
+        layout.addWidget(self.label)
 
         # Theme selection
         theme_label = QLabel("Theme:", self)
@@ -26,12 +26,21 @@ class SettingsPage(QWidget):
         else:
             self.theme_combo.setCurrentIndex(2)
 
-        self.theme_combo.currentIndexChanged.connect(self.on_theme_changed)
+        self.theme_combo.currentIndexChanged.connect(self.on_theme_combo_changed)
 
-    def on_theme_changed(self, index):
+        self.update_theme_styles()  # Set initial style
+
+    def update_theme_styles(self):
+        self.label.setFont(get_title_font())
+        self.label.setStyleSheet(f"color: {get_text_color()};")
+        # Add more theme-dependent styling here if needed
+
+    def on_theme_combo_changed(self, index):
         if index == 0:
             setTheme(Theme.LIGHT)
         elif index == 1:
             setTheme(Theme.DARK)
         else:
             setTheme(Theme.AUTO) 
+
+    
