@@ -289,10 +289,21 @@ class MainController(QObject):
             return False
 
     # Connection panel slot implementations
+    def _create_async_task(self, coro):
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            # No running loop, get the main event loop (qasync)
+            from qasync import QEventLoop
+            from PyQt6.QtWidgets import QApplication
+            app = QApplication.instance()
+            loop = QEventLoop(app)
+        return loop.create_task(coro)
+
     @pyqtSlot()
     def on_scan_devices_requested(self) -> None:
         """Handle scan devices request from connection panel."""
-        asyncio.create_task(self._handle_scan_devices())
+        self._create_async_task(self._handle_scan_devices())
     
     async def _handle_scan_devices(self) -> None:
         """Handle the actual device scanning."""
@@ -318,7 +329,7 @@ class MainController(QObject):
     @pyqtSlot(str)
     def on_connect_device_requested(self, device_id: str) -> None:
         """Handle connect device request from connection panel."""
-        asyncio.create_task(self._handle_connect_device(device_id))
+        self._create_async_task(self._handle_connect_device(device_id))
     
     async def _handle_connect_device(self, device_id: str) -> None:
         """Handle the actual device connection."""
@@ -340,7 +351,7 @@ class MainController(QObject):
     @pyqtSlot()
     def on_refresh_processes_requested(self) -> None:
         """Handle refresh processes request from connection panel."""
-        asyncio.create_task(self._handle_refresh_processes())
+        self._create_async_task(self._handle_refresh_processes())
     
     async def _handle_refresh_processes(self) -> None:
         """Handle the actual process refresh."""
@@ -364,7 +375,7 @@ class MainController(QObject):
     @pyqtSlot(dict)
     def on_select_process_requested(self, process_info: dict) -> None:
         """Handle process selection request from connection panel."""
-        asyncio.create_task(self._handle_select_process(process_info))
+        self._create_async_task(self._handle_select_process(process_info))
     
     async def _handle_select_process(self, process_info: dict) -> None:
         """Handle the actual process selection."""
@@ -399,7 +410,7 @@ class MainController(QObject):
     @pyqtSlot()
     def on_activate_hook_requested(self) -> None:
         """Handle hook activation request from connection panel."""
-        asyncio.create_task(self._handle_activate_hook())
+        self._create_async_task(self._handle_activate_hook())
     
     async def _handle_activate_hook(self) -> None:
         """Handle the actual hook activation."""
@@ -469,7 +480,7 @@ class MainController(QObject):
     @pyqtSlot(int)
     def on_back_to_stage_requested(self, target_stage: int) -> None:
         """Handle back to stage request from connection panel."""
-        asyncio.create_task(self._handle_back_to_stage(target_stage))
+        self._create_async_task(self._handle_back_to_stage(target_stage))
     
     async def _handle_back_to_stage(self, target_stage: int) -> None:
         """Handle the actual back to stage."""

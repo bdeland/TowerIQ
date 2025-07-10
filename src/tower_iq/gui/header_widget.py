@@ -15,16 +15,11 @@ class HeaderWidget(ThemeAwareWidget):
         self.v_layout.setSpacing(0)
 
         self.h_layout = QHBoxLayout()
-        self.h_layout.setContentsMargins(24, 8, 24, 8)
+        self.h_layout.setContentsMargins(24, 3, 24, 3)
         self.h_layout.setSpacing(16)
 
         self.breadcrumb = BreadcrumbBar(self)
         self.breadcrumb.setVisible(True)
-        self.breadcrumb.setStyleSheet("""
-            QPushButton:hover, QLabel:hover {
-                text-decoration: underline;
-            }
-        """)
         self.h_layout.addWidget(self.breadcrumb, 1, Qt.AlignmentFlag.AlignVCenter)
 
         self.search_edit = SearchLineEdit(self)
@@ -35,10 +30,10 @@ class HeaderWidget(ThemeAwareWidget):
         self.v_layout.addLayout(self.h_layout)
 
         # Add horizontal divider
-        self.divider = QFrame(self)
-        self.divider.setFrameShape(QFrame.Shape.HLine)
-        self.divider.setFrameShadow(QFrame.Shadow.Raised)
-        self.v_layout.addWidget(self.divider)
+        #self.divider = QFrame(self)
+        #self.divider.setFrameShape(QFrame.Shape.HLine)
+        #self.divider.setFrameShadow(QFrame.Shadow.Raised)
+        #self.v_layout.addWidget(self.divider)
 
         self.update_theme_styles()  # Set initial style
 
@@ -51,4 +46,4 @@ class HeaderWidget(ThemeAwareWidget):
                 border-bottom: 1px solid {border_color};
             }}
         """)
-        self.divider.setStyleSheet(f"QFrame {{ color: {divider_color}; background: {divider_color}; min-height: 1px; max-height: 1px; }}")
+        #self.divider.setStyleSheet(f"QFrame {{ color: {divider_color}; background: {divider_color}; min-height: 1px; max-height: 1px; }}")

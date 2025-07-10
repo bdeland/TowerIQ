@@ -67,7 +67,14 @@ def main() -> None:
             async def reset_frida():
                 logger.info("--reset-frida flag detected, starting frida-server reset workflow")
                 emulator_service = EmulatorService(config, logger)
-                devices = await emulator_service._get_connected_devices()
+                try:
+                    logger.debug("Calling emulator_service._get_connected_devices() (entry)")
+                    devices = await emulator_service._get_connected_devices()
+                    logger.debug(f"emulator_service._get_connected_devices() returned: {devices}")
+                except Exception as e:
+                    logger.error(f"Exception in _get_connected_devices: {e}")
+                    print(f"Exception in _get_connected_devices: {e}", file=sys.stderr)
+                    sys.exit(3)
                 if not devices:
                     print("No connected devices found for frida reset.", file=sys.stderr)
                     sys.exit(2)
@@ -107,29 +114,28 @@ def main() -> None:
         app.setFont(QFont("Roboto", 11))
         app.setApplicationName("TowerIQ")
         app.setApplicationVersion("1.0")
-        
+
+        # Set up qasync event loop
+        loop = qasync.QEventLoop(app)
+        asyncio.set_event_loop(loop)
+
         # Instantiate Main Controller
         if test_db_path is not None:
             controller = MainController(config, logger, db_path=str(test_db_path))
         else:
             controller = MainController(config, logger)
-        # Set test mode attributes if needed
         controller._test_mode = test_mode
         controller._test_mode_replay = test_mode_replay
         controller._test_mode_generate = test_mode_generate
-        # test_db_path is now passed as db_path
-        # Instantiate Main Window with controller
-        window = MainWindow(session_manager=controller.session, config_manager=controller.config)
-        
-        # Run the Application
+        window = MainWindow(session_manager=controller.session, config_manager=controller.config, controller=controller)
+
         try:
             logger.info("Showing main window")
             window.show()
             logger.info("Main window shown successfully")
-            
-            # Start the event loop
             logger.info("Starting main event loop")
-            sys.exit(app.exec())
+            with loop:
+                loop.run_forever()
         except Exception as e:
             logger.error("Exception in event loop", error=str(e))
             raise

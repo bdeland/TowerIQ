@@ -1,3 +1,7 @@
+import asyncio
+import subprocess
+from typing import Optional, Tuple
+
 def format_currency(value: float, symbol: str = "$", pad_to_cents: bool = False) -> str:
     """
     Formats a number into a Grafana-style abbreviated currency string up to decillion.
@@ -44,4 +48,82 @@ def format_duration(seconds: float) -> str:
     if days > 0:
         return f"{days:02}:{hours:02}:{minutes:02}:{secs:02}"
     else:
-        return f"{hours:02}:{minutes:02}:{secs:02}" 
+        return f"{hours:02}:{minutes:02}:{secs:02}"
+
+class AdbError(Exception):
+    """Custom exception for ADB command failures."""
+    def __init__(self, message, stdout=None, stderr=None):
+        super().__init__(message)
+        self.stdout = stdout
+        self.stderr = stderr
+
+class AdbWrapper:
+    """A wrapper for executing ADB commands asynchronously."""
+
+    def __init__(self, logger):
+        self.logger = logger.bind(source="AdbWrapper")
+
+    async def run_command(self, *args, timeout: float = 10.0) -> Tuple[str, str]:
+        """
+        Executes an ADB command and returns its output.
+
+        Args:
+            *args: Command and arguments for adb.
+            timeout: Command timeout in seconds.
+
+        Returns:
+            A tuple of (stdout, stderr).
+
+        Raises:
+            AdbError: If the command returns a non-zero exit code or times out.
+        """
+        try:
+            process = await asyncio.create_subprocess_exec(
+                "adb", *args,
+                stdout=subprocess.PIPE, stderr=subprocess.PIPE
+            )
+            stdout_b, stderr_b = await asyncio.wait_for(process.communicate(), timeout=timeout)
+
+            stdout = stdout_b.decode().strip()
+            stderr = stderr_b.decode().strip()
+
+            if process.returncode != 0:
+                self.logger.warning("ADB command failed", args=args, retcode=process.returncode, stderr=stderr)
+                raise AdbError(f"ADB command failed: {' '.join(args)}", stdout, stderr)
+
+            return stdout, stderr
+        except asyncio.TimeoutError:
+            raise AdbError(f"ADB command timed out after {timeout}s: {' '.join(args)}")
+        except FileNotFoundError:
+            raise AdbError("`adb` executable not found. Is it in your system's PATH?")
+        except Exception as e:
+            raise AdbError(f"An unexpected error occurred: {e}")
+
+    async def shell(self, device_id: str, command: str, timeout: float = 10.0) -> str:
+        """Executes a shell command on a device and returns stdout."""
+        stdout, _ = await self.run_command("-s", device_id, "shell", command, timeout=timeout)
+        return stdout
+
+    async def push(self, device_id: str, local_path: str, device_path: str):
+        """Pushes a file to the device."""
+        await self.run_command("-s", device_id, "push", local_path, device_path)
+
+    async def connect(self, host: str, port: int) -> str:
+        """Connects to a network device."""
+        stdout, _ = await self.run_command("connect", f"{host}:{port}", timeout=2.0)
+        return stdout
+
+    async def list_devices(self) -> list[str]:
+        """Lists all connected device serials."""
+        self.logger.debug("AdbWrapper.list_devices called (entry)")
+        try:
+            stdout, _ = await self.run_command("devices", timeout=5.0)
+            devices = []
+            for line in stdout.split('\n')[1:]:
+                if '\tdevice' in line:
+                    devices.append(line.split('\t')[0].strip())
+            self.logger.debug(f"AdbWrapper.list_devices returning {len(devices)} devices: {devices}")
+            return devices
+        except AdbError as e:
+            self.logger.error(f"AdbWrapper.list_devices caught AdbError: {e}")
+            return [] # Return empty list if command fails 

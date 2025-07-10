@@ -1,6 +1,7 @@
 import sys
 
 from PyQt6.QtCore import Qt
+from PyQt6.QtCore import QTimer
 from PyQt6.QtWidgets import QApplication, QVBoxLayout, QWidget, QLabel
 from qfluentwidgets import (FluentIcon, FluentWindow, NavigationItemPosition, 
                             qconfig)
@@ -12,6 +13,7 @@ from .utils_gui import ThemeAwareWidget, get_text_color, get_title_font
 from .header_widget import HeaderWidget
 from .dashboards_page import DashboardsPage
 from .settings_page import SettingsPage
+from .connection_page import ConnectionPage
 
 
 class HomePage(ThemeAwareWidget):
@@ -30,10 +32,11 @@ class HomePage(ThemeAwareWidget):
 
 class MainWindow(FluentWindow):
 
-    def __init__(self, session_manager=None, config_manager=None):
+    def __init__(self, session_manager=None, config_manager=None, controller=None):
         super().__init__()
         self.session_manager = session_manager
         self.config_manager = config_manager
+        self.controller = controller
         self.init_window()
 
         # Layout Restructuring (This part is correct)
@@ -60,15 +63,25 @@ class MainWindow(FluentWindow):
         self.settings_page = SettingsPage(self)
         self.settings_page.setObjectName('settings')
 
+        # Add ConnectionPage
+        self.connection_page = ConnectionPage(self.session_manager, self.config_manager)
+        self.connection_page.setObjectName('connection')
+
+        # Set dashboard in MainController if provided
+        if self.controller is not None:
+            self.controller.set_dashboard(self.connection_page)
+
         self._nav_key_to_text = {
             'home': 'Home',
             'dashboards': 'Dashboards',
+            'connection': 'Connection',
             'settings': 'Settings',
         }
 
         # Add navigation items
         self.addSubInterface(self.home_page, FluentIcon.HOME, 'Home', position=NavigationItemPosition.TOP)
         self.addSubInterface(self.dashboards_page, FluentIcon.TILES, 'Dashboards')
+        self.addSubInterface(self.connection_page, FluentIcon.CONNECT, 'Connection', position=NavigationItemPosition.BOTTOM)
         self.addSubInterface(self.settings_page, FluentIcon.SETTING, 'Settings', position=NavigationItemPosition.BOTTOM)
 
         # Connect signals
@@ -77,7 +90,7 @@ class MainWindow(FluentWindow):
             self.header.breadcrumb.currentItemChanged.connect(self.on_breadcrumb_item_changed)
         
         # Initialize first page
-        self.on_current_interface_changed(self.stackedWidget.currentIndex())
+        QTimer.singleShot(0, lambda: self.on_current_interface_changed(self.stackedWidget.currentIndex()))
 
     def init_window(self):
         self.resize(1200, 800)
@@ -87,7 +100,7 @@ class MainWindow(FluentWindow):
         widget = self.stackedWidget.widget(index)
         if not widget or not hasattr(self, 'header'):
             return
-            
+        
         key = widget.objectName()
         text = self._nav_key_to_text.get(key, "Page")
         
@@ -101,6 +114,10 @@ class MainWindow(FluentWindow):
         
         # Re-enable signals for user clicks
         self.header.breadcrumb.blockSignals(False)
+
+        # Auto-trigger device discovery when navigating to ConnectionPage
+        if key == 'connection':
+            self.connection_page.connection_panel.trigger_device_scan()
             
     def on_breadcrumb_item_changed(self, key: str):
         # Find widget by object name and switch to it

@@ -37,11 +37,8 @@ except ImportError:
     FridaError = Exception  # Define for type checking even if frida is not installed
 
 from ..core.config import ConfigurationManager
-
-
-class FridaServerSetupError(Exception):
-    """Raised when frida-server setup fails."""
-    pass
+from src.tower_iq.core.utils import AdbWrapper, AdbError
+from .frida_manager import FridaServerManager, FridaServerSetupError
 
 
 class EmulatorService:
@@ -66,6 +63,8 @@ class EmulatorService:
         # Connection state
         self.connected_device: Optional[str] = None
         self.device_architecture: Optional[str] = None
+        self.adb = AdbWrapper(self.logger)
+        self.frida_manager = FridaServerManager(self.logger, self.adb)
     
     async def find_and_connect_device(self, device_id: Optional[str] = None) -> Optional[str]:
         """
@@ -124,24 +123,11 @@ class EmulatorService:
     async def get_device_architecture(self, device_id: str) -> str:
         """Get the CPU architecture of the specified device."""
         try:
-            result = await asyncio.create_subprocess_exec(
-                "adb", "-s", device_id, "shell", "getprop", "ro.product.cpu.abi",
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE
-            )
-            
-            stdout, stderr = await result.communicate()
-            
-            if result.returncode == 0 and stdout:
-                architecture = stdout.decode().strip()
-                self.logger.info("Device architecture detected", device=device_id, arch=architecture)
-                self.device_architecture = architecture
-                return architecture
-            else:
-                error_msg = stderr.decode().strip() if stderr else "Unknown error"
-                raise RuntimeError(f"Failed to get device architecture: {error_msg}")
-                
-        except Exception as e:
+            architecture = await self.adb.shell(device_id, "getprop ro.product.cpu.abi")
+            self.logger.info("Device architecture detected", device=device_id, arch=architecture)
+            self.device_architecture = architecture
+            return architecture
+        except AdbError as e:
             self.logger.error("Error getting device architecture", device=device_id, error=str(e))
             raise RuntimeError(f"Failed to get device architecture: {e}") from e
 
@@ -165,109 +151,12 @@ class EmulatorService:
         """
         if frida is None:
             raise FridaServerSetupError("Frida library is not installed. Please run 'pip install frida frida-tools'.")
-
         self.logger.info("Starting frida-server setup check...", device=device_id)
-
-        # Step 1: Check if a compatible server is already responsive.
-        if await self.is_frida_server_responsive(device_id):
-            self.logger.info("Frida-server is already running and responsive.", device=device_id)
-            return
-
-        self.logger.info("Frida-server not responsive. Starting full setup process.", device=device_id)
-
         try:
-            # Step 2: Determine required version and get architecture.
-            assert frida is not None  # Type guard: we know frida is not None here
-            target_version = frida.__version__
             arch = self.device_architecture or await self.get_device_architecture(device_id)
-            self.logger.info(f"Targeting frida-server version {target_version} for {arch}.")
-
-            # Step 3: Download the correct binary if needed.
-            local_path = await self._get_frida_server_version(arch, target_version)
-            device_path = "/data/local/tmp/frida-server"
-
-            # Step 4: Push to device if outdated.
-            needs_push = await self._check_if_device_server_is_outdated(device_id, local_path, device_path)
-            if needs_push:
-                self.logger.info("Pushing frida-server to device...", version=target_version)
-                
-                # Create a temporary copy with the correct name for pushing
-                temp_path = local_path.parent / "frida-server"
-                try:
-                    self.logger.debug("Creating temporary copy for push", 
-                                    source=str(local_path), 
-                                    temp=str(temp_path))
-                    
-                    # Copy the versioned file to a simple name
-                    import shutil
-                    shutil.copy2(local_path, temp_path)
-                    temp_path.chmod(0o755)
-                    
-                    # Push the renamed file
-                    await self.push_file(device_id, temp_path, device_path)
-                    
-                finally:
-                    # Clean up the temporary file
-                    if temp_path.exists():
-                        temp_path.unlink()
-                        self.logger.debug("Cleaned up temporary file", temp=str(temp_path))
-            else:
-                self.logger.info("Device already has the correct frida-server binary.")
-            
-            # Step 5: Verify the file exists and is executable before starting
-            self.logger.info("Verifying frida-server file on device before starting...")
-            verify_proc = await asyncio.create_subprocess_exec(
-                "adb", "-s", device_id, "shell", "ls", "-la", device_path,
-                stdout=subprocess.PIPE, stderr=subprocess.PIPE
-            )
-            verify_stdout, verify_stderr = await verify_proc.communicate()
-            
-            if verify_proc.returncode == 0:
-                file_info = verify_stdout.decode().strip()
-                self.logger.info("Frida-server file verification successful", file_info=file_info)
-            else:
-                error_msg = verify_stderr.decode().strip()
-                self.logger.error("Frida-server file verification failed", error=error_msg)
-                raise FridaServerSetupError(f"Frida-server file not found on device: {error_msg}")
-            
-            # Step 6: Start the server.
-            self.logger.info("Attempting to start frida-server on device...")
-            await self.start_frida_server(device_id, device_path)
-
-            # Step 7: Verification loop. Poll for responsiveness.
-            max_attempts = 15  # Wait up to 15 seconds.
-            for attempt in range(max_attempts):
-                self.logger.debug(f"Waiting for frida-server to become responsive... (attempt {attempt + 1}/{max_attempts})")
-                await asyncio.sleep(1)
-                
-                # Check each step of responsiveness individually for debugging
-                process_running = await self._is_frida_process_running(device_id)
-                can_execute = await self._can_frida_server_execute(device_id)
-                connection_works = await self._test_frida_connection(device_id)
-                injection_works = await self._test_frida_injection(device_id)
-                
-                self.logger.info("Frida-server health check details",
-                                attempt=attempt + 1,
-                                process_running=process_running,
-                                can_execute=can_execute,
-                                connection_works=connection_works,
-                                injection_works=injection_works)
-                
-                if await self.is_frida_server_responsive(device_id):
-                    self.logger.info(
-                        "Frida-server started and is now responsive!", 
-                        device=device_id, version=target_version
-                    )
-                    return # Success!
-
-            # If the loop finishes, the server failed to start.
-            self.logger.error("Frida-server failed to become responsive after all attempts",
-                            max_attempts=max_attempts,
-                            device=device_id)
-            raise FridaServerSetupError("Frida-server was started but failed to become responsive in time.")
-
-        except Exception as e:
-            self.logger.error("Frida-server setup failed.", error=str(e), exc_info=True)
+            await self.frida_manager.provision(device_id, arch)
+        except (AdbError, FridaServerSetupError, Exception) as e:
+            self.logger.error("Frida-server provisioning failed.", error=str(e))
             raise FridaServerSetupError(f"Failed to set up frida-server: {e}") from e
 
     async def _get_frida_server_version(self, arch: str, version: str) -> Path:
@@ -757,7 +646,7 @@ fi
         """Find all connected ADB devices and return detailed information."""
         self.logger.info("Scanning for connected ADB devices")
         try:
-            devices = await asyncio.wait_for(self._get_connected_devices(), timeout=10.0)
+            devices = await asyncio.wait_for(self.adb.list_devices(), timeout=10.0)
             if not devices:
                 self.logger.info("No connected devices found")
                 return []
@@ -777,20 +666,10 @@ fi
     async def _get_device_info(self, device_id: str) -> dict:
         """Get basic information about a device."""
         try:
-            result = await asyncio.create_subprocess_exec(
-                "adb", "-s", device_id, "shell", "getprop", "ro.product.model",
-                stdout=subprocess.PIPE, stderr=subprocess.PIPE
-            )
-            stdout, _ = await result.communicate()
-            
-            name = f"Device {device_id}"
-            if result.returncode == 0 and stdout:
-                model = stdout.decode().strip()
-                if model:
-                    name = model
-            
+            model = await self.adb.shell(device_id, "getprop ro.product.model")
+            name = model or f"Device {device_id}"
             return {'serial': device_id, 'name': name, 'status': 'connected'}
-        except Exception as e:
+        except AdbError as e:
             self.logger.warning("Error getting device info", device=device_id, error=str(e))
             return {'serial': device_id, 'name': f"Device {device_id}", 'status': 'error'}
     
@@ -803,46 +682,24 @@ fi
     async def _get_connected_devices(self) -> list[str]:
         """Get list of connected ADB devices using both standard discovery and network scan."""
         self.logger.info("Starting comprehensive device discovery...")
-        found_devices: Set[str] = set()
-        
-        # Stage 1: Proactive network scan for emulators
         await self._scan_and_connect_network_devices()
-
-        # Stage 2: 'adb devices' to consolidate all findings
         try:
-            process = await asyncio.create_subprocess_exec("adb", "devices", stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-            stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=5.0)
-            
-            if process.returncode == 0:
-                for line in stdout.decode().split('\n')[1:]:
-                    if '\tdevice' in line:
-                        device_id = line.split('\t')[0].strip()
-                        if device_id:
-                            found_devices.add(device_id)
+            devices = await self.adb.list_devices()
+            if devices:
+                self.logger.info("Comprehensive discovery completed.", final_devices=devices)
             else:
-                self.logger.warning("Final 'adb devices' command failed.", error=stderr.decode())
-        except asyncio.TimeoutError:
-            self.logger.error("'adb devices' command timed out.")
-        except Exception as e:
+                self.logger.warning("No devices found after comprehensive discovery.")
+            return devices
+        except AdbError as e:
             self.logger.error("Error during final device consolidation", error=str(e))
-            
-        if found_devices:
-            self.logger.info("Comprehensive discovery completed.", final_devices=list(found_devices))
-        else:
-            self.logger.warning("No devices found after comprehensive discovery.")
-            
-        return list(found_devices)
+            return []
     
     async def _test_device_connection(self, device_id: str) -> bool:
         """Test if we can communicate with the specified device."""
         try:
-            result = await asyncio.create_subprocess_exec(
-                "adb", "-s", device_id, "shell", "echo", "test",
-                stdout=subprocess.PIPE, stderr=subprocess.PIPE
-            )
-            stdout, _ = await result.communicate()
-            return result.returncode == 0 and b"test" in stdout
-        except Exception:
+            output = await self.adb.shell(device_id, "echo test")
+            return "test" in output
+        except AdbError:
             return False
     
     async def _check_if_device_server_is_outdated(self, device_id: str, local_path: Path, device_path: str) -> bool:
@@ -875,84 +732,15 @@ fi
         """Push a file to the device, ensuring it's clean and executable."""
         self.logger.info("Pushing file to device", local=str(local_path), device=device_path)
         try:
-            # Step 1: Clean up any existing file
-            self.logger.debug("Cleaning up existing file on device", device_path=device_path)
-            cleanup_proc = await asyncio.create_subprocess_exec(
-                "adb", "-s", device_id, "shell", "rm", "-f", device_path,
-                stdout=subprocess.PIPE, stderr=subprocess.PIPE
-            )
-            await cleanup_proc.communicate()
-            
-            # Step 2: Verify local file exists and is readable
-            if not local_path.exists():
-                raise Exception(f"Local file does not exist: {local_path}")
-            if not local_path.is_file():
-                raise Exception(f"Local path is not a file: {local_path}")
-            
-            self.logger.debug("Local file verified", size=local_path.stat().st_size, path=str(local_path))
-            
-            # Step 3: Create target directory if needed
+            await self.adb.shell(device_id, f"rm -f {device_path}")
+            if not local_path.exists() or not local_path.is_file():
+                raise Exception(f"Local file does not exist or is not a file: {local_path}")
             target_dir = str(Path(device_path).parent)
-            self.logger.debug("Ensuring target directory exists", target_dir=target_dir)
-            mkdir_proc = await asyncio.create_subprocess_exec(
-                "adb", "-s", device_id, "shell", "mkdir", "-p", target_dir,
-                stdout=subprocess.PIPE, stderr=subprocess.PIPE
-            )
-            await mkdir_proc.communicate()
-            
-            # Step 4: Push the file
-            self.logger.debug("Starting file push operation")
-            push_proc = await asyncio.create_subprocess_exec(
-                "adb", "-s", device_id, "push", str(local_path), device_path,
-                stdout=subprocess.PIPE, stderr=subprocess.PIPE
-            )
-            push_stdout, push_stderr = await push_proc.communicate()
-            
-            if push_proc.returncode != 0:
-                error_msg = push_stderr.decode().strip() if push_stderr else "Unknown push error"
-                self.logger.error("Push command failed", 
-                                returncode=push_proc.returncode,
-                                stdout=push_stdout.decode().strip() if push_stdout else None,
-                                stderr=error_msg)
-                raise Exception(f"Failed to push file: {error_msg}")
-            
-            self.logger.debug("Push completed successfully", 
-                            stdout=push_stdout.decode().strip() if push_stdout else None)
-            
-            # Step 5: Verify file was pushed
-            self.logger.debug("Verifying file was pushed successfully")
-            verify_proc = await asyncio.create_subprocess_exec(
-                "adb", "-s", device_id, "shell", "ls", "-la", device_path,
-                stdout=subprocess.PIPE, stderr=subprocess.PIPE
-            )
-            verify_stdout, verify_stderr = await verify_proc.communicate()
-            
-            if verify_proc.returncode != 0:
-                error_msg = verify_stderr.decode().strip() if verify_stderr else "File not found after push"
-                self.logger.error("File verification failed", error=error_msg)
-                raise Exception(f"File not found on device after push: {error_msg}")
-            
-            self.logger.debug("File verification successful", 
-                            file_info=verify_stdout.decode().strip() if verify_stdout else None)
-            
-            # Step 6: Set executable permissions
-            self.logger.debug("Setting executable permissions")
-            chmod_proc = await asyncio.create_subprocess_exec(
-                "adb", "-s", device_id, "shell", "chmod", "755", device_path,
-                stdout=subprocess.PIPE, stderr=subprocess.PIPE
-            )
-            chmod_stdout, chmod_stderr = await chmod_proc.communicate()
-            
-            if chmod_proc.returncode != 0:
-                error_msg = chmod_stderr.decode().strip() if chmod_stderr else "Unknown chmod error"
-                self.logger.error("Chmod command failed",
-                                returncode=chmod_proc.returncode,
-                                stdout=chmod_stdout.decode().strip() if chmod_stdout else None,
-                                stderr=error_msg)
-                raise Exception(f"Failed to set executable permissions: {error_msg}")
-            
+            await self.adb.shell(device_id, f"mkdir -p {target_dir}")
+            await self.adb.push(device_id, str(local_path), device_path)
+            await self.adb.shell(device_id, f"ls -la {device_path}")
+            await self.adb.shell(device_id, f"chmod 755 {device_path}")
             self.logger.info("Successfully pushed and configured file on device.")
-            
-        except Exception as e:
+        except (AdbError, Exception) as e:
             self.logger.error("Error during file push operation", error=str(e))
             raise
