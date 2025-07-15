@@ -17,14 +17,15 @@ class SettingsPage(ThemeAwareWidget):
         layout.addWidget(self.theme_combo)
         layout.addStretch()
 
-        # Set current theme in combo box
+        # Set default theme to Follow System
+        setTheme(Theme.AUTO)  # Set initial theme to Follow System
         current_theme = qconfig.theme
         if current_theme == Theme.LIGHT:
             self.theme_combo.setCurrentIndex(0)
         elif current_theme == Theme.DARK:
             self.theme_combo.setCurrentIndex(1)
         else:
-            self.theme_combo.setCurrentIndex(2)
+            self.theme_combo.setCurrentIndex(2)  # Follow System
 
         self.theme_combo.currentIndexChanged.connect(self.on_theme_combo_changed)
 

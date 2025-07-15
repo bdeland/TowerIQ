@@ -1,7 +1,28 @@
 from .utils_gui import ThemeAwareWidget, get_text_color, get_title_font
-from PyQt6.QtWidgets import QHBoxLayout, QVBoxLayout, QLabel, QStackedWidget, QPushButton, QWidget, QGroupBox, QTextEdit, QFrame, QTableWidget, QTableWidgetItem, QHeaderView
-from qfluentwidgets import SwitchButton, FluentIcon, PushButton
-from PyQt6.QtCore import pyqtSignal
+from PyQt6.QtWidgets import (
+    QHBoxLayout, QVBoxLayout, QLabel, QStackedWidget, QPushButton, QWidget, 
+    QGroupBox, QTextEdit, QFrame, QHeaderView, QTableWidgetItem
+)
+from qfluentwidgets import SwitchButton, FluentIcon, PushButton, TableWidget, TableItemDelegate, isDarkTheme
+from PyQt6.QtCore import pyqtSignal, Qt
+from PyQt6.QtGui import QPalette, QColor
+
+class CustomTableItemDelegate(TableItemDelegate):
+    """Custom table item delegate for the device table"""
+    def initStyleOption(self, option, index):
+        super().initStyleOption(option, index)
+        # Change color of the Status column
+        if index.column() == 2:  # Status column
+            status = index.data()
+            if status == "Connected":
+                color = QColor("#2ecc71") if isDarkTheme() else QColor("#27ae60")  # Green
+            elif status == "Disconnected":
+                color = QColor("#e74c3c") if isDarkTheme() else QColor("#c0392b")  # Red
+            else:
+                color = QColor("#f1c40f") if isDarkTheme() else QColor("#f39c12")  # Yellow/Orange
+            
+            option.palette.setColor(QPalette.ColorRole.Text, color)
+            option.palette.setColor(QPalette.ColorRole.HighlightedText, color)
 
 class ConnectionPanel(ThemeAwareWidget):
     scan_devices_requested = pyqtSignal()
@@ -21,16 +42,56 @@ class ConnectionPanel(ThemeAwareWidget):
         s1_layout = QVBoxLayout()
         self.stage1_label = QLabel("Stage 1: Device Discovery")
         s1_layout.addWidget(self.stage1_label)
+        
+        # Button container
+        button_layout = QHBoxLayout()
+        
         # Refresh button
         self.refresh_button = PushButton(FluentIcon.SYNC, "Refresh Device List")
         self.refresh_button.clicked.connect(self._on_refresh_clicked)
-        s1_layout.addWidget(self.refresh_button)
-        self.device_table = QTableWidget()
+        button_layout.addWidget(self.refresh_button)
+        
+        # Connect button
+        self.connect_button = PushButton(FluentIcon.LINK, "Connect")
+        self.connect_button.setEnabled(False)  # Disabled by default
+        self.connect_button.clicked.connect(self._on_connect_clicked)
+        button_layout.addWidget(self.connect_button)
+        
+        button_layout.addStretch()  # Push buttons to the left
+        s1_layout.addLayout(button_layout)
+        
+        # Enhanced table widget
+        self.device_table = TableWidget(self)
         self.device_table.setColumnCount(3)
         self.device_table.setHorizontalHeaderLabels(["Serial", "Model", "Status"])
+        self.device_table.setBorderVisible(True)
+        self.device_table.setBorderRadius(8)
+        self.device_table.setWordWrap(False)
+        
+        # Set row height constraints
+        vertical_header = self.device_table.verticalHeader()
+        if vertical_header is not None:
+            vertical_header.setMinimumSectionSize(30)  # Minimum row height
+            vertical_header.setDefaultSectionSize(40)  # Default row height
+            vertical_header.setMaximumSectionSize(50)  # Maximum row height
+            vertical_header.hide()  # Hide vertical header
+        
+        # Set selection behavior
+        self.device_table.setSelectionBehavior(TableWidget.SelectionBehavior.SelectRows)
+        self.device_table.setSelectionMode(TableWidget.SelectionMode.SingleSelection)
+        self.device_table.setItemDelegate(CustomTableItemDelegate(self.device_table))
+        self.device_table.setSortingEnabled(False)  # Disable sorting
+        
+        # Connect selection signal
+        self.device_table.itemSelectionChanged.connect(self._on_table_selection_changed)
+        
+        # Set stretch mode for columns
         header = self.device_table.horizontalHeader()
         if header is not None:
-            header.setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+            header.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)  # Serial
+            header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)  # Model
+            header.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)  # Status
+        
         s1_layout.addWidget(self.device_table)
         self.stage1.setLayout(s1_layout)
 
@@ -84,10 +145,25 @@ class ConnectionPanel(ThemeAwareWidget):
             serial = emulator.get('serial', '')
             model = emulator.get('model', '')
             status = emulator.get('status', '')
-            self.device_table.setItem(row, 0, QTableWidgetItem(str(serial)))
-            self.device_table.setItem(row, 1, QTableWidgetItem(str(model)))
-            self.device_table.setItem(row, 2, QTableWidgetItem(str(status)))
+            
+            # Create items with proper alignment
+            serial_item = QTableWidgetItem(str(serial))
+            serial_item.setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+            
+            model_item = QTableWidgetItem(str(model))
+            model_item.setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+            
+            status_item = QTableWidgetItem(str(status))
+            status_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter | Qt.AlignmentFlag.AlignVCenter)
+            
+            self.device_table.setItem(row, 0, serial_item)
+            self.device_table.setItem(row, 1, model_item)
+            self.device_table.setItem(row, 2, status_item)
+        
         self.device_table.resizeRowsToContents()
+        header = self.device_table.horizontalHeader()
+        if header is not None:
+            header.setStretchLastSection(False)
 
     def update_theme_styles(self):
         color = get_text_color()
@@ -113,6 +189,20 @@ class ConnectionPanel(ThemeAwareWidget):
     def update_state(self, session):
         # TODO: Implement state update logic for the panel
         pass
+
+    def _on_connect_clicked(self):
+        """Handle connect button click"""
+        selected_rows = self.device_table.selectedItems()
+        if selected_rows:
+            row = selected_rows[0].row()
+            item = self.device_table.item(row, 0)
+            if item:
+                serial = item.text()
+                self.connect_device_requested.emit(serial)
+
+    def _on_table_selection_changed(self):
+        """Enable/disable connect button based on table selection"""
+        self.connect_button.setEnabled(bool(self.device_table.selectedItems()))
 
 class SettingsAndLogsPanel(ThemeAwareWidget):
     def __init__(self, config_manager, log_signal=None, parent=None):
@@ -172,4 +262,4 @@ class ConnectionPage(ThemeAwareWidget):
     def update_theme_styles(self):
         self.setStyleSheet(f"background: transparent;")
         self.connection_panel.update_theme_styles()
-        self.settings_logs_panel.update_theme_styles() 
+        self.settings_logs_panel.update_theme_styles()
