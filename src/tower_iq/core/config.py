@@ -30,6 +30,19 @@ class ConfigurationManager(QObject):
         self._file_config: dict = self._load_from_file(yaml_path)
         self._user_settings: dict = {}
 
+    def get_project_root(self) -> str:
+        """
+        Get the project root directory path.
+        
+        Returns:
+            str: The absolute path to the project root directory
+        """
+        # The project root is typically 3 levels up from this file
+        # src/tower_iq/core/config.py -> project root
+        current_file = Path(__file__)
+        project_root = current_file.parent.parent.parent.parent
+        return str(project_root.resolve())
+
     def link_database_service(self, db_service: DatabaseService):
         """Links the DatabaseService and loads all user settings from the DB."""
         self._db_service = db_service

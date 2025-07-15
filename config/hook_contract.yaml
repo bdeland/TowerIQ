@@ -14,4 +14,4 @@ script_info:
   # The application will only allow injection if both the package name matches
   # AND the detected game version is present in this list.
   supported_versions:
-    - "26.4.0"
+    - "26.5.3"

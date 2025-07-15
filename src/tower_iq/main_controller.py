@@ -218,74 +218,63 @@ class MainController(QObject):
 
     async def _run_automatic_connection(self) -> bool:
         """
-        Attempt automatic connection flow.
+        Attempt automatic connection flow using saved connection settings.
         
         Returns:
             True if automatic connection was successful, False otherwise
         """
-        self.logger.info("Attempting automatic connection")
-        
+        self.logger.info("Attempting automatic connection...")
+        saved_serial = self.config.get('connection.last_device_serial')
+        saved_package = self.config.get('connection.last_package_name')
+
+        if not saved_serial or not saved_package:
+            self.logger.info("No saved connection found.")
+            return False
+
         try:
-            # Try to find and connect to a device automatically with timeout
-            device_id = await asyncio.wait_for(
-                self.emulator_service.find_and_connect_device(),
-                timeout=30.0  # 30 second timeout for automatic connection
-            )
-            if not device_id:
-                self.logger.info("No device found for automatic connection")
+            # Sanity Check 1: Is device connected?
+            connected_devices = await self.emulator_service.adb.list_devices()
+            if saved_serial not in connected_devices:
+                self.logger.warning("Auto-connect failed: Saved device not found.", expected=saved_serial)
                 return False
-            
-            self.session.connected_emulator_serial = device_id
+
+            # Sanity Check 2: Get all processes to find version and PID
+            all_packages = await self.emulator_service.get_installed_third_party_packages(saved_serial)
+            target_process = next((p for p in all_packages if p['package'] == saved_package and p['is_running']), None)
+
+            if not target_process:
+                self.logger.warning("Auto-connect failed: Saved package not found or not running.", expected=saved_package)
+                return False
+
+            # Populate session and start the hook activation flow
+            self.session.connected_emulator_serial = saved_serial
             self.session.is_emulator_connected = True
-            
-            # Try to find the target game package
-            target_package = self.config.get('emulator.package_name', 'com.techtreegames.thetower')
-            
-            # Get the game PID
-            pid = await self.emulator_service.get_game_pid(device_id, target_package)
-            if not pid:
-                self.logger.info("Target game not running for automatic connection")
-                return False
-            
-            # Set up session with found process
-            self.session.selected_target_package = target_package
-            self.session.selected_target_pid = pid
-            
-            # Try to get game version (simplified for automatic mode)
-            self.session.selected_target_version = "auto-detected"
+            self.session.selected_target_package = saved_package
+            self.session.selected_target_pid = target_process.get('pid')
+            self.session.selected_target_version = target_process.get('version')
             
             # Check hook compatibility
+            version = self.session.selected_target_version
+            if not version:
+                self.logger.warning("Auto-connect failed: No version found for target process.")
+                return False
+                
             is_compatible = self.frida_service.check_local_hook_compatibility(
-                target_package, 
-                self.session.selected_target_version
+                saved_package, 
+                version
             )
             self.session.is_hook_compatible = is_compatible
             
             if not is_compatible:
-                self.logger.warning("Hook not compatible for automatic connection")
+                self.logger.warning("Auto-connect failed: Hook not compatible.")
                 return False
             
-            # Ensure frida-server is running with the latest version
-            await self.emulator_service.ensure_frida_server_is_running(device_id)
-            
-            # Try to inject and run the script
-            success = await self.frida_service.inject_and_run_script(
-                device_id, pid, self.session.selected_target_version
-            )
-            
-            if success:
-                self.set_hook_active(True)
-                self.logger.info("Automatic connection successful")
-                return True
-            else:
-                self.logger.warning("Failed to inject script in automatic connection")
-                return False
-                
-        except asyncio.TimeoutError:
-            self.logger.warning("Automatic connection timed out after 30 seconds")
-            return False
+            # The UI will reactively move to the activation stage
+            await self._handle_activate_hook()
+            return self.session.is_hook_active
+
         except Exception as e:
-            self.logger.error("Error in automatic connection", error=str(e))
+            self.logger.error("Auto-connect process failed with an exception", error=str(e))
             return False
 
     # Connection panel slot implementations
@@ -329,18 +318,23 @@ class MainController(QObject):
     @pyqtSlot(str)
     def on_connect_device_requested(self, device_id: str) -> None:
         """Handle connect device request from connection panel."""
+        print(f"[DEBUG] MainController.on_connect_device_requested called with device_id: {device_id}")
         self._create_async_task(self._handle_connect_device(device_id))
     
     async def _handle_connect_device(self, device_id: str) -> None:
         """Handle the actual device connection."""
         try:
+            print(f"[DEBUG] _handle_connect_device started for device: {device_id}")
             self.session.connected_emulator_serial = device_id
+            print(f"[DEBUG] Set connected_emulator_serial to: {device_id}")
             self.session.is_emulator_connected = True
+            print(f"[DEBUG] Set is_emulator_connected to: True")
             
             if self.dashboard and hasattr(self.dashboard, 'connection_panel'):
                 self.dashboard.connection_panel.update_state(self.session)
             
             # Automatically trigger process refresh
+            print(f"[DEBUG] Triggering process refresh...")
             await self._handle_refresh_processes()
                 
         except Exception as e:
@@ -413,69 +407,51 @@ class MainController(QObject):
         self._create_async_task(self._handle_activate_hook())
     
     async def _handle_activate_hook(self) -> None:
-        """Handle the actual hook activation."""
+        """Handle the actual hook activation using the new state-driven workflow."""
+        device_id = self.session.connected_emulator_serial
+        pid = self.session.selected_target_pid
+        version = self.session.selected_target_version
+        
+        # Guard clause
+        if not device_id or pid is None or not version:
+            self.session.hook_activation_message = "Error: Missing device, PID, or version."
+            self.session.hook_activation_stage = "failed"
+            return
+            
         try:
-            # Validate all required fields are present and not None
-            if not all([
-                self.session.connected_emulator_serial,
-                self.session.selected_target_pid is not None,
-                self.session.selected_target_version
-            ]):
-                raise ValueError("Missing required connection information")
-            
-            # Additional type validation
-            device_id = self.session.connected_emulator_serial
-            pid = self.session.selected_target_pid
-            version = self.session.selected_target_version
-            
-            if device_id is None or pid is None or version is None:
-                raise ValueError("Invalid connection parameters")
-
-            # Step 1: Ensure frida-server is running with the latest version
-            self.logger.info("Setting up frida-server on device...")
-            if self.dashboard and hasattr(self.dashboard, 'connection_panel'):
-                self.dashboard.connection_panel.status_text.setText("Setting up frida-server on device...")
-            
+            # --- Step 1: Frida Server ---
+            self.session.hook_activation_stage = "checking_frida"
+            self.session.hook_activation_message = "Checking and preparing Frida server..."
             await self.emulator_service.ensure_frida_server_is_running(device_id)
             
-            # Step 2: Set up the event loop on FridaService before injection
-            self.logger.info("Setting up Frida service event loop...")
+            # --- Step 2: Validation (already done in UI, but double check) ---
+            self.session.hook_activation_stage = "validating_hook"
+            self.session.hook_activation_message = "Validating hook script compatibility..."
+            if not self.session.is_hook_compatible:
+                 raise ValueError("Hook script is not compatible with the selected application version.")
+            await asyncio.sleep(0.5)  # Artificial delay for UX
+            
+            # --- Step 3: Attach and Inject ---
+            self.session.hook_activation_stage = "attaching"
+            self.session.hook_activation_message = "Attaching to process and injecting script..."
             self.frida_service.set_event_loop(asyncio.get_running_loop())
+            success = await self.frida_service.inject_and_run_script(device_id, pid, version)
             
-            # Step 3: Inject and run the script
-            self.logger.info("Injecting and running Frida script...")
-            if self.dashboard and hasattr(self.dashboard, 'connection_panel'):
-                self.dashboard.connection_panel.status_text.setText("Injecting and running Frida script...")
+            if not success:
+                raise RuntimeError("Failed to inject script into the target process.")
+
+            # --- Success ---
+            self.session.hook_activation_message = "Hook Activated!"
+            self.session.hook_activation_stage = "success"
+            self.set_hook_active(True)  # This will start the listener
             
-            success = await self.frida_service.inject_and_run_script(
-                device_id,
-                pid,
-                version
-            )
-            
-            if success:
-                self.set_hook_active(True)
-                self._emit_signal_safely(self.connection_state_changed, True)
-                
-                if self.dashboard:
-                    self.dashboard.set_connection_active(True)
-                    if hasattr(self.dashboard, 'connection_panel'):
-                        self.dashboard.connection_panel.show_success("Hook activated successfully!")
-                
-                self.logger.info("Hook activation successful")
-            else:
-                if self.dashboard and hasattr(self.dashboard, 'connection_panel'):
-                    self.dashboard.connection_panel.show_error("Failed to activate hook")
-                    self.dashboard.connection_panel.update_state(self.session)
-                
-        except FridaServerSetupError as e:
-            self.logger.error("Frida-server setup failed", error=str(e))
-            if self.dashboard and hasattr(self.dashboard, 'connection_panel'):
-                self.dashboard.connection_panel.show_error(f"Frida-server setup failed: {str(e)}")
+            # Persist settings for auto-connect
+            self._save_connection_settings_if_enabled()
+
         except Exception as e:
-            self.logger.error("Error activating hook", error=str(e))
-            if self.dashboard and hasattr(self.dashboard, 'connection_panel'):
-                self.dashboard.connection_panel.show_error(f"Failed to activate hook: {str(e)}")
+            self.logger.error("Hook activation failed", error=str(e))
+            self.session.hook_activation_message = f"Error: {e}"
+            self.session.hook_activation_stage = "failed"
 
     @pyqtSlot(int)
     def on_back_to_stage_requested(self, target_stage: int) -> None:
@@ -607,6 +583,18 @@ class MainController(QObject):
             # Hook became inactive - stop listener
             self._stop_frida_listener()
             self.logger.info("Hook deactivated - message listener stopped")
+    
+    def _save_connection_settings_if_enabled(self):
+        """Save successful connection for auto-connect if enabled."""
+        if self.config.get('gui.auto_connect_emulator', False):
+            serial = self.session.connected_emulator_serial
+            package = self.session.selected_target_package
+            if serial and package:
+                self.logger.info("Saving successful connection for auto-connect", device=serial, package=package)
+                self.config.set('connection.last_device_serial', serial)
+                self.config.set('connection.last_package_name', package)
+    
+
     
     def _register_handlers(self) -> None:
         """

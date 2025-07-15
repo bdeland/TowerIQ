@@ -18,6 +18,9 @@ class SessionManager(QObject):
     available_emulators_changed = pyqtSignal(list)
     available_processes_changed = pyqtSignal(list)
     selected_process_changed = pyqtSignal()
+    hook_activation_stage_changed = pyqtSignal(str)
+    hook_activation_message_changed = pyqtSignal(str)
+    emulator_connection_changed = pyqtSignal(bool) # True if emulator is connected
 
     def __init__(self):
         super().__init__()
@@ -96,7 +99,7 @@ class SessionManager(QObject):
         with QMutexLocker(self._mutex): return self._is_emulator_connected
     @is_emulator_connected.setter
     def is_emulator_connected(self, value: bool):
-        with QMutexLocker(self._mutex): self._is_emulator_connected = value
+        self._set_property('_is_emulator_connected', value, self.emulator_connection_changed)
 
     @property
     def selected_target_package(self) -> Optional[str]:
@@ -119,6 +122,20 @@ class SessionManager(QObject):
     def is_hook_compatible(self, value: bool):
         with QMutexLocker(self._mutex): self._is_hook_compatible = value
 
+    @property
+    def hook_activation_stage(self) -> str:
+        with QMutexLocker(self._mutex): return self._hook_activation_stage
+    @hook_activation_stage.setter
+    def hook_activation_stage(self, value: str):
+        self._set_property('_hook_activation_stage', value, self.hook_activation_stage_changed)
+
+    @property
+    def hook_activation_message(self) -> str:
+        with QMutexLocker(self._mutex): return self._hook_activation_message
+    @hook_activation_message.setter
+    def hook_activation_message(self, value: str):
+        self._set_property('_hook_activation_message', value, self.hook_activation_message_changed)
+
     def reset_connection_state(self) -> None:
         """Resets only the connection-related state variables."""
         with QMutexLocker(self._mutex):
@@ -130,6 +147,8 @@ class SessionManager(QObject):
             self._selected_target_version = None
             self._is_hook_compatible = False
             self._is_emulator_connected = False
+            self._hook_activation_stage = "idle"
+            self._hook_activation_message = ""
 
     # ... and so on for other properties like selected_target_package, version, is_hook_compatible, etc.
     # get_status_summary and reset methods remain useful.
@@ -151,4 +170,6 @@ class SessionManager(QObject):
             self._selected_target_pid = None
             self._selected_target_version = None
             self._is_hook_compatible = False
-            self._is_emulator_connected = False 
+            self._is_emulator_connected = False
+            self._hook_activation_stage = "idle"  # idle, checking_frida, validating_hook, attaching, failed, success
+            self._hook_activation_message = ""    # A user-friendly message for the current stage or error 
