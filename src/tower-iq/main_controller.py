@@ -21,6 +21,7 @@ from .core.session import SessionManager
 from .services.database_service import DatabaseService
 from .services.emulator_service import EmulatorService, FridaServerSetupError
 from .services.frida_service import FridaService
+from .services.connection_stage_manager import ConnectionStageManager
 
 
 class MainController(QObject):
@@ -55,6 +56,11 @@ class MainController(QObject):
         self.db_service = DatabaseService(config, logger, db_path=db_path)
         self.emulator_service = EmulatorService(config, logger)
         self.frida_service = FridaService(config, logger)
+        
+        # Initialize connection stage manager
+        self.connection_stage_manager = ConnectionStageManager(
+            self.session, self.emulator_service, self.frida_service, logger
+        )
         
         # Message dispatch pattern
         self._message_handlers: dict = {}
@@ -138,11 +144,12 @@ class MainController(QObject):
         # Connect the connection panel signals
         if hasattr(dashboard, 'connection_panel'):
             dashboard.connection_panel.scan_devices_requested.connect(self.on_scan_devices_requested)
-            dashboard.connection_panel.connect_device_requested.connect(self.on_connect_device_requested)
+            # dashboard.connection_panel.connect_device_requested.connect(self.on_connect_device_requested)  # REMOVED: MainWindow now handles this
             dashboard.connection_panel.refresh_processes_requested.connect(self.on_refresh_processes_requested)
             dashboard.connection_panel.select_process_requested.connect(self.on_select_process_requested)
             dashboard.connection_panel.activate_hook_requested.connect(self.on_activate_hook_requested)
             dashboard.connection_panel.back_to_stage_requested.connect(self.on_back_to_stage_requested)
+        # Note: connect_device_requested is now routed through MainWindow for navigation control
 
     async def run(self) -> None:
         """
@@ -389,6 +396,15 @@ class MainController(QObject):
                     version
                 )
                 self.session.is_hook_compatible = is_compatible
+                
+                # If compatible and we have a device connected, automatically trigger hook activation
+                # This ensures the full connection flow runs after process selection
+                if is_compatible and self.session.connected_emulator_serial:
+                    self.logger.info("Process selected and compatible - automatically activating hook", 
+                                   package=package, version=version)
+                    # Trigger the full connection flow automatically
+                    await self._handle_activate_hook()
+                    return  # Early return since _handle_activate_hook will update UI
             else:
                 self.session.is_hook_compatible = False
                 self.logger.warning("Invalid package or version selected")
@@ -407,50 +423,52 @@ class MainController(QObject):
         self._create_async_task(self._handle_activate_hook())
     
     async def _handle_activate_hook(self) -> None:
-        """Handle the actual hook activation using the new state-driven workflow."""
+        """Handle the actual hook activation using the enhanced ConnectionStageManager."""
         device_id = self.session.connected_emulator_serial
         pid = self.session.selected_target_pid
         version = self.session.selected_target_version
+        package = self.session.selected_target_package
         
         # Guard clause
-        if not device_id or pid is None or not version:
-            self.session.hook_activation_message = "Error: Missing device, PID, or version."
+        if not device_id or pid is None or not version or not package:
+            self.session.hook_activation_message = "Error: Missing device, PID, version, or package."
             self.session.hook_activation_stage = "failed"
             return
-            
+        
+        # Prepare process info for ConnectionStageManager
+        process_info = {
+            'package': package,
+            'version': version,
+            'pid': pid
+        }
+        
         try:
-            # --- Step 1: Frida Server ---
-            self.session.hook_activation_stage = "checking_frida"
-            self.session.hook_activation_message = "Checking and preparing Frida server..."
-            await self.emulator_service.ensure_frida_server_is_running(device_id)
+            # Reset Frida service shutdown state before attempting new connection
+            self.frida_service.reset_shutdown_state()
             
-            # --- Step 2: Validation (already done in UI, but double check) ---
-            self.session.hook_activation_stage = "validating_hook"
-            self.session.hook_activation_message = "Validating hook script compatibility..."
-            if not self.session.is_hook_compatible:
-                 raise ValueError("Hook script is not compatible with the selected application version.")
-            await asyncio.sleep(0.5)  # Artificial delay for UX
-            
-            # --- Step 3: Attach and Inject ---
-            self.session.hook_activation_stage = "attaching"
-            self.session.hook_activation_message = "Attaching to process and injecting script..."
+            # Set up Frida service event loop
             self.frida_service.set_event_loop(asyncio.get_running_loop())
-            success = await self.frida_service.inject_and_run_script(device_id, pid, version)
             
-            if not success:
-                raise RuntimeError("Failed to inject script into the target process.")
-
-            # --- Success ---
-            self.session.hook_activation_message = "Hook Activated!"
-            self.session.hook_activation_stage = "success"
-            self.set_hook_active(True)  # This will start the listener
+            # Use ConnectionStageManager for the complete connection flow
+            success = await self.connection_stage_manager.execute_connection_flow(
+                device_id, process_info
+            )
             
-            # Persist settings for auto-connect
-            self._save_connection_settings_if_enabled()
+            if success:
+                # Connection flow completed successfully
+                self.set_hook_active(True)  # This will start the listener
+                
+                # Persist settings for auto-connect
+                self._save_connection_settings_if_enabled()
+                
+                self.logger.info("Hook activation completed successfully")
+            else:
+                # Connection flow failed - error details already set by ConnectionStageManager
+                self.logger.error("Hook activation failed via ConnectionStageManager")
 
         except Exception as e:
-            self.logger.error("Hook activation failed", error=str(e))
-            self.session.hook_activation_message = f"Error: {e}"
+            self.logger.error("Unexpected error during hook activation", error=str(e))
+            self.session.hook_activation_message = f"Unexpected error: {str(e)}"
             self.session.hook_activation_stage = "failed"
 
     @pyqtSlot(int)
@@ -462,19 +480,67 @@ class MainController(QObject):
         """Handle the actual back to stage."""
         try:
             # Reset session state based on target stage
-            if target_stage == 1:
-                # Going back to stage 1, reset all connection state
+            if target_stage == 0:
+                # Going back to stage 0 (device selection) - full disconnect
+                self.logger.info("Disconnecting and returning to device selection")
                 # First deactivate hook if active (this stops the listener)
                 if self.session.is_hook_active:
                     self.set_hook_active(False)
+                # Detach from Frida
+                try:
+                    await self.frida_service.detach()
+                except Exception as e:
+                    self.logger.warning("Error during Frida detach", error=str(e))
+                # Reset Frida service shutdown state for future connections
+                self.frida_service.reset_shutdown_state()
+                # Reset all connection state
                 self.session.reset_connection_state()
-            elif target_stage == 2:
-                # Going back to stage 2, keep device but reset process selection
+                # Update UI to show device selection stage
+                if self.dashboard and hasattr(self.dashboard, 'connection_panel'):
+                    self.dashboard.connection_panel.set_stage(0)
+                    
+            elif target_stage == 1:
+                # Going back to stage 1 (process selection), keep device connection
+                self.logger.info("Returning to process selection")
+                # First deactivate hook if active (this stops the listener)
+                if self.session.is_hook_active:
+                    self.set_hook_active(False)
+                # Detach from Frida but keep device connection
+                try:
+                    await self.frida_service.detach()
+                except Exception as e:
+                    self.logger.warning("Error during Frida detach", error=str(e))
+                # Reset Frida service shutdown state for future connections
+                self.frida_service.reset_shutdown_state()
+                # Reset process-related state but keep device connection
                 self.session.available_processes = []
                 self.session.selected_target_package = None
                 self.session.selected_target_pid = None
                 self.session.selected_target_version = None
                 self.session.is_hook_compatible = False
+                # Refresh process list
+                if self.session.connected_emulator_serial:
+                    await self._handle_refresh_processes()
+                # Update UI to show process selection stage
+                if self.dashboard and hasattr(self.dashboard, 'connection_panel'):
+                    self.dashboard.connection_panel.set_stage(1)
+                    
+            elif target_stage == 2:
+                # Going back to stage 2 (activation), keep device and process selection
+                self.logger.info("Returning to activation stage")
+                # First deactivate hook if active (this stops the listener)
+                if self.session.is_hook_active:
+                    self.set_hook_active(False)
+                # Detach from Frida
+                try:
+                    await self.frida_service.detach()
+                except Exception as e:
+                    self.logger.warning("Error during Frida detach", error=str(e))
+                # Reset Frida service shutdown state for future connections
+                self.frida_service.reset_shutdown_state()
+                # Update UI to show activation stage
+                if self.dashboard and hasattr(self.dashboard, 'connection_panel'):
+                    self.dashboard.connection_panel.set_stage(2)
             
             if self.dashboard and hasattr(self.dashboard, 'connection_panel'):
                 self.dashboard.connection_panel.update_state(self.session)
@@ -605,6 +671,7 @@ class MainController(QObject):
             "game_metric": self._handle_game_metric,
             "game_event": self._handle_game_event,
             "hook_log": self._handle_hook_log,
+            "new_round_started": self._handle_new_round_started,
         }
     
     async def _listen_for_frida_messages(self) -> None:
@@ -788,6 +855,21 @@ class MainController(QObject):
             
         except Exception as e:
             self.logger.error("Error handling hook log", error=str(e))
+    
+    async def _handle_new_round_started(self, message: dict) -> None:
+        """
+        Handles new round started events from the game.
+        This can be used to track round progression and reset per-round metrics.
+        """
+        try:
+            payload = message.get("payload", {})
+            self.logger.info("New round started", **payload)
+            
+            # Emit signal for UI components that might want to react to new rounds
+            self._emit_signal_safely(self.status_changed, "game", "new_round_started")
+            
+        except Exception as e:
+            self.logger.error("Error handling new round started", error=str(e))
     
     async def _monitor_system_health(self) -> None:
         """

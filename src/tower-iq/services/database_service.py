@@ -65,7 +65,6 @@ class DatabaseService:
         else:
             self.db_path = config.get('database.sqlite_path', 'data/toweriq.sqlite')
         self.logger.debug("Database path resolved", db_path=self.db_path, db_path_type=str(type(self.db_path)))
-        print(f"Database path resolved: {self.db_path} (type: {type(self.db_path)})")
         self.sqlite_conn: Optional[sqlite3.Connection] = None
     
     def connect(self) -> None:

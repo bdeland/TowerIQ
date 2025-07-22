@@ -118,7 +118,13 @@ def main() -> None:
         # Set up qasync event loop
         loop = qasync.QEventLoop(app)
         asyncio.set_event_loop(loop)
-
+        
+        # Enable asyncio debug mode if configured
+        asyncio_debug_enabled = config.get('logging.asyncio.debug_enabled', False)
+        if asyncio_debug_enabled:
+            loop.set_debug(True)
+            logger.info("asyncio debug mode enabled")
+        
         # Instantiate Main Controller
         if test_db_path is not None:
             controller = MainController(config, logger, db_path=str(test_db_path))
@@ -134,11 +140,23 @@ def main() -> None:
             window.show()
             logger.info("Main window shown successfully")
             logger.info("Starting main event loop")
+            
+            # Set up proper cleanup on app quit
+            app.aboutToQuit.connect(lambda: asyncio.create_task(controller.shutdown()) if loop.is_running() else None)
+            
             with loop:
                 loop.run_forever()
         except Exception as e:
             logger.error("Exception in event loop", error=str(e))
             raise
+        finally:
+            # Ensure cleanup happens
+            if 'controller' in locals():
+                try:
+                    if loop.is_running():
+                        loop.run_until_complete(controller.shutdown())
+                except Exception as cleanup_error:
+                    logger.warning("Error during final cleanup", error=str(cleanup_error))
     
     except Exception as e:
         # Handle any startup errors

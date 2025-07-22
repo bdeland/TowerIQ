@@ -10,7 +10,7 @@ import logging.handlers
 import json
 import time
 from datetime import datetime
-from typing import Any, Dict, Set
+from typing import Any, Dict, Set, Optional
 from pathlib import Path
 import sys
 
@@ -33,8 +33,10 @@ def setup_logging(config: ConfigurationManager, db_service=None) -> None:
     # Initialize colorama for Windows console colors
     colorama.init()
     
+    # Capture warnings and redirect them to logging
+    logging.captureWarnings(True)
+    
     # Extract logging settings from config
-    log_level = config.get('logging.level', 'INFO').upper()
     console_enabled = config.get('logging.console.enabled', True)
     console_level = config.get('logging.console.level', 'INFO').upper()
     file_enabled = config.get('logging.file.enabled', True)
@@ -43,6 +45,13 @@ def setup_logging(config: ConfigurationManager, db_service=None) -> None:
     max_size_mb = config.get('logging.file.max_size_mb', 50)
     backup_count = config.get('logging.file.backup_count', 5)
     enabled_sources = set(config.get('logging.sources.enabled', []))
+    
+    # Read asyncio logging configuration
+    asyncio_debug_enabled = config.get('logging.asyncio.debug_enabled', False)
+
+    # Determine the lowest level needed for any handler
+    levels = [console_level, file_level]
+    min_level = min(levels, key=lambda lvl: getattr(logging, lvl, 0))
 
     # Configure structlog with nice console output
     timestamper = structlog.processors.TimeStamper(fmt="%Y-%m-%d %H:%M:%S.%f", utc=False)
@@ -61,7 +70,7 @@ def setup_logging(config: ConfigurationManager, db_service=None) -> None:
     structlog.configure(
         processors=console_processors,
         wrapper_class=structlog.make_filtering_bound_logger(
-            getattr(logging, log_level)
+            getattr(logging, min_level)
         ),
         logger_factory=structlog.stdlib.LoggerFactory(),
         cache_logger_on_first_use=True,
@@ -71,11 +80,21 @@ def setup_logging(config: ConfigurationManager, db_service=None) -> None:
     logging.basicConfig(
         format="%(message)s",
         stream=sys.stdout,
-        level=getattr(logging, log_level),
+        level=getattr(logging, min_level),
     )
 
     # Get root logger and remove default handlers if we want custom ones
     root_logger = logging.getLogger()
+    
+    # Configure the asyncio logger
+    asyncio_logger = logging.getLogger("asyncio")
+    if asyncio_debug_enabled:
+        asyncio_logger.setLevel(logging.DEBUG)
+    else:
+        asyncio_logger.setLevel(logging.WARNING)
+    
+    # By default, the asyncio logger will propagate its records to the root logger,
+    # which is what we want. We do not need to add any specific handlers to it.
     
     # Add file handler if enabled
     if file_enabled:
@@ -86,7 +105,7 @@ def setup_logging(config: ConfigurationManager, db_service=None) -> None:
     # Add SQLite handler if db_service is available
     if db_service:
         sqlite_handler = SQLiteLogHandler(db_service)
-        sqlite_handler.setLevel(getattr(logging, log_level))
+        sqlite_handler.setLevel(getattr(logging, min_level))
         sqlite_handler.setFormatter(StructlogFormatter())
         root_logger.addHandler(sqlite_handler)
 
@@ -311,9 +330,10 @@ class StructlogFormatter(logging.Formatter):
             'logger': record.name,
         }
         
-        # Add extra fields if present
-        if hasattr(record, 'source'):
-            event_dict['source'] = record.source
+        # Add extra fields if present - use getattr with default to avoid type errors
+        source = getattr(record, 'source', None)
+        if source is not None:
+            event_dict['source'] = source
         
         return json.dumps(event_dict, default=str)
 
@@ -389,16 +409,15 @@ def create_console_handler(level: str) -> logging.Handler:
                     if key not in ['display_timestamp', 'level', 'source', 'event', 'timestamp_ms']:
                         event_dict[key] = value
             
-            # Apply the ColoredConsoleRenderer
+            # Apply the ColoredConsoleRenderer with proper arguments
             renderer = ColoredConsoleRenderer()
-            return renderer(None, None, event_dict)
+            return renderer(None, "format", event_dict)
     
     # Use structlog's ProcessorFormatter for better integration
     handler.setFormatter(
         structlog.stdlib.ProcessorFormatter(
             processor=structlog.processors.JSONRenderer(),
             foreign_pre_chain=[
-                add_human_readable_timestamp,
                 structlog.processors.add_log_level,
             ],
         )

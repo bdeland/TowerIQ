@@ -75,10 +75,10 @@ class FridaService:
         Should be called from the main thread before injecting scripts.
         """
         self._event_loop = loop
-        # Create the message queue here to ensure it's bound to the correct loop
-        if self._message_queue is None:
-            self._message_queue = asyncio.Queue()
-            self.logger.info("Frida message queue created in the correct event loop")
+        # Always create a new message queue to ensure it's bound to the correct loop
+        # and properly tied to the connection lifecycle
+        self._message_queue = asyncio.Queue()
+        self.logger.info("Frida message queue created and tied to connection lifecycle")
         self.logger.info("Event loop set for Frida message handling")
     
     @property
@@ -169,9 +169,15 @@ class FridaService:
             self.logger.error("Error attaching to process", pid=pid, error=str(e))
             return False
     
-    async def detach(self) -> None:
-        """Detach from the current process and clean up resources."""
-        self.logger.info("Detaching from process")
+    async def detach(self, timeout: float = 3.0, force_cleanup: bool = False) -> None:
+        """
+        Detach from the current process and clean up resources with improved timeout handling.
+        
+        Args:
+            timeout: Maximum time to wait for graceful cleanup (default: 3.0 seconds)
+            force_cleanup: If True, skip graceful cleanup and force immediate cleanup
+        """
+        self.logger.info("Detaching from process", timeout=timeout, force_cleanup=force_cleanup)
         
         # Set shutdown flag to prevent new message processing
         self._shutdown_requested = True
@@ -185,72 +191,122 @@ class FridaService:
                 # If queue is full, that's fine - the poison pill will be processed eventually
                 self.logger.debug("Message queue full, poison pill may be delayed")
         
+        cleanup_start_time = asyncio.get_event_loop().time()
+        
         try:
-            # Forcefully unload script first - this stops message generation
-            if self.script:
-                try:
-                    # Give the script a moment to clean up gracefully
-                    await asyncio.wait_for(
-                        asyncio.to_thread(self.script.unload), 
-                        timeout=0.5
-                    )
-                    self.logger.debug("Script unloaded gracefully")
-                except asyncio.TimeoutError:
-                    self.logger.warning("Script unload timed out - forcing cleanup")
-                    # Force cleanup without waiting
-                    try:
-                        self.script.unload()
-                    except Exception as e:
-                        self.logger.debug(f"Error during forced script unload: {e}")
-                except Exception as e:
-                    self.logger.warning(f"Error during script unload: {e}")
-                finally:
-                    self.script = None
-            
-            # Detach from session
-            if self.session:
+            if force_cleanup:
+                self.logger.info("Force cleanup requested - skipping graceful shutdown")
+                await self._force_cleanup_all_resources()
+            else:
+                # Try graceful cleanup with timeout
                 try:
                     await asyncio.wait_for(
-                        asyncio.to_thread(self.session.detach), 
-                        timeout=1.0
+                        self._graceful_cleanup_sequence(),
+                        timeout=timeout
                     )
-                    self.logger.debug("Session detached gracefully")
+                    self.logger.debug("Graceful cleanup completed successfully")
                 except asyncio.TimeoutError:
-                    self.logger.warning("Session detach timed out - forcing cleanup")
-                    # Force cleanup without waiting
-                    try:
-                        self.session.detach()
-                    except Exception as e:
-                        self.logger.debug(f"Error during forced session detach: {e}")
-                except Exception as e:
-                    self.logger.warning(f"Error during session detach: {e}")
-                finally:
-                    self.session = None
+                    cleanup_elapsed = asyncio.get_event_loop().time() - cleanup_start_time
+                    self.logger.warning(f"Graceful cleanup timed out after {cleanup_elapsed:.2f}s - forcing cleanup")
+                    await self._force_cleanup_all_resources()
             
-            self.device = None
-            self.attached_pid = None
+            # Final state cleanup regardless of cleanup method
+            self._cleanup_internal_state()
             
-            # Clear any remaining messages
-            if self._message_queue is not None:
-                cleared_count = 0
-                while not self._message_queue.empty():
-                    try:
-                        self._message_queue.get_nowait()
-                        cleared_count += 1
-                    except asyncio.QueueEmpty:
-                        break
-                if cleared_count > 0:
-                    self.logger.debug(f"Cleared {cleared_count} remaining messages from queue")
-            
-            self.logger.info("Successfully detached from process")
+            cleanup_total_time = asyncio.get_event_loop().time() - cleanup_start_time
+            self.logger.info(f"Successfully detached from process in {cleanup_total_time:.2f}s")
             
         except Exception as e:
-            self.logger.error("Error during detachment", error=str(e))
+            cleanup_elapsed = asyncio.get_event_loop().time() - cleanup_start_time
+            self.logger.error(f"Error during detachment after {cleanup_elapsed:.2f}s", error=str(e))
             # Ensure cleanup even if there were errors
-            self.script = None
-            self.session = None
-            self.device = None
-            self.attached_pid = None
+            await self._force_cleanup_all_resources()
+            self._cleanup_internal_state()
+    
+    async def _graceful_cleanup_sequence(self) -> None:
+        """Perform graceful cleanup sequence with proper ordering."""
+        # Step 1: Unload script gracefully (stops message generation)
+        if self.script:
+            try:
+                await asyncio.wait_for(
+                    asyncio.to_thread(self.script.unload), 
+                    timeout=1.0
+                )
+                self.logger.debug("Script unloaded gracefully")
+            except asyncio.TimeoutError:
+                self.logger.warning("Script unload timed out")
+                raise  # Let the outer timeout handler deal with this
+            except Exception as e:
+                self.logger.warning(f"Error during graceful script unload: {e}")
+                raise
+            finally:
+                self.script = None
+        
+        # Step 2: Detach from session gracefully
+        if self.session:
+            try:
+                await asyncio.wait_for(
+                    asyncio.to_thread(self.session.detach), 
+                    timeout=1.5
+                )
+                self.logger.debug("Session detached gracefully")
+            except asyncio.TimeoutError:
+                self.logger.warning("Session detach timed out")
+                raise
+            except Exception as e:
+                self.logger.warning(f"Error during graceful session detach: {e}")
+                raise
+            finally:
+                self.session = None
+    
+    async def _force_cleanup_all_resources(self) -> None:
+        """Force cleanup of all resources without waiting."""
+        self.logger.debug("Starting forced cleanup of all resources")
+        
+        # Force script cleanup
+        if self.script:
+            try:
+                # Try to unload without timeout
+                await asyncio.to_thread(self.script.unload)
+                self.logger.debug("Script force-unloaded successfully")
+            except Exception as e:
+                self.logger.debug(f"Error during forced script cleanup: {e}")
+            finally:
+                self.script = None
+        
+        # Force session cleanup
+        if self.session:
+            try:
+                # Try to detach without timeout
+                await asyncio.to_thread(self.session.detach)
+                self.logger.debug("Session force-detached successfully")
+            except Exception as e:
+                self.logger.debug(f"Error during forced session cleanup: {e}")
+            finally:
+                self.session = None
+        
+        self.logger.debug("Forced cleanup completed")
+    
+    def _cleanup_internal_state(self) -> None:
+        """Clean up internal state variables."""
+        self.device = None
+        self.session = None
+        self.script = None
+        self.attached_pid = None
+        
+        # Clear any remaining messages from queue
+        if self._message_queue is not None:
+            cleared_count = 0
+            while not self._message_queue.empty():
+                try:
+                    self._message_queue.get_nowait()
+                    cleared_count += 1
+                except asyncio.QueueEmpty:
+                    break
+            if cleared_count > 0:
+                self.logger.debug(f"Cleared {cleared_count} remaining messages from queue")
+        
+        self.logger.debug("Internal state cleanup completed")
     
     async def inject_script(self, game_version: str) -> bool:
         """
@@ -745,6 +801,127 @@ class FridaService:
         return self.attached_pid
     
     def reset_shutdown_state(self) -> None:
-        """Reset the shutdown state - useful if the service needs to be reused."""
+        """
+        Reset the shutdown state and all internal state for service reuse.
+        
+        This method properly resets all internal state to prepare the service
+        for a new connection cycle after a previous disconnection.
+        """
         self._shutdown_requested = False
-        self.logger.debug("Frida service shutdown state reset") 
+        
+        # Reset Frida connection state
+        self.device = None
+        self.session = None
+        self.script = None
+        self.attached_pid = None
+        
+        # Reset message queue if it exists but don't recreate it
+        # The queue will be recreated when set_event_loop is called
+        if self._message_queue is not None:
+            # Clear any remaining messages
+            cleared_count = 0
+            while not self._message_queue.empty():
+                try:
+                    self._message_queue.get_nowait()
+                    cleared_count += 1
+                except asyncio.QueueEmpty:
+                    break
+            if cleared_count > 0:
+                self.logger.debug(f"Cleared {cleared_count} messages during reset")
+        
+        self.logger.info("Frida service state completely reset for reuse")
+    
+    def is_ready_for_connection(self) -> bool:
+        """
+        Check if the service is ready for a new connection.
+        
+        Returns:
+            True if the service is ready for connection, False otherwise
+        """
+        # Check if Frida is available
+        if frida is None:
+            self.logger.error("Frida not available - cannot establish connection")
+            return False
+        
+        # Check if service is in clean state (not attached)
+        if self.is_attached():
+            self.logger.error("Service already attached to a process - not ready for new connection")
+            return False
+        
+        # Check if shutdown is not requested
+        if self._shutdown_requested:
+            self.logger.error("Service shutdown requested - not ready for new connection")
+            return False
+        
+        # Check if event loop is set (required for message handling)
+        if self._event_loop is None:
+            self.logger.error("Event loop not set - not ready for connection")
+            return False
+        
+        # Check if message queue is available
+        if self._message_queue is None:
+            self.logger.error("Message queue not initialized - not ready for connection")
+            return False
+        
+        self.logger.debug("FridaService is ready for connection")
+        return True
+    
+    def get_service_state(self) -> dict:
+        """
+        Get detailed service state information for diagnostics.
+        
+        Returns:
+            Dictionary containing service state information
+        """
+        return {
+            "frida_available": frida is not None,
+            "is_attached": self.is_attached(),
+            "attached_pid": self.attached_pid,
+            "shutdown_requested": self._shutdown_requested,
+            "event_loop_set": self._event_loop is not None,
+            "message_queue_initialized": self._message_queue is not None,
+            "message_queue_size": self.queue_size,
+            "device_connected": self.device is not None,
+            "session_active": self.session is not None,
+            "script_loaded": self.script is not None
+        }
+    
+    def validate_service_health(self) -> tuple[bool, list[str]]:
+        """
+        Validate the health of the service and return any issues found.
+        
+        Returns:
+            Tuple of (is_healthy, list_of_issues)
+        """
+        issues = []
+        
+        # Check Frida availability
+        if frida is None:
+            issues.append("Frida not available - install 'frida-tools' package")
+        
+        # Check for inconsistent state
+        if self.is_attached() and self.attached_pid is None:
+            issues.append("Inconsistent state: session exists but no PID recorded")
+        
+        if self.attached_pid is not None and not self.is_attached():
+            issues.append("Inconsistent state: PID recorded but no active session")
+        
+        if self.script is not None and self.session is None:
+            issues.append("Inconsistent state: script exists but no session")
+        
+        # Check message queue state
+        if self._event_loop is not None and self._message_queue is None:
+            issues.append("Event loop set but message queue not initialized")
+        
+        # Check for shutdown state inconsistencies
+        if self._shutdown_requested and self.is_attached():
+            issues.append("Shutdown requested but still attached to process")
+        
+        is_healthy = len(issues) == 0
+        
+        if not is_healthy:
+            self.logger.warning("Service health check failed", issues=issues)
+        else:
+            self.logger.debug("Service health check passed")
+        
+        return is_healthy, issues 

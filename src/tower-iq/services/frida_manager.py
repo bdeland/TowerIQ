@@ -83,10 +83,35 @@ class FridaServerManager:
     async def _start_server(self, device_id: str):
         self.logger.info("Starting frida-server on device...")
         try:
-            await self.adb.shell(device_id, "su -c 'pkill frida-server'")
+            # Kill any existing frida-server processes
+            await self.adb.shell(device_id, "su -c 'pkill frida-server'", timeout=5.0)
+            await asyncio.sleep(1)  # Give it time to clean up
         except AdbError:
             pass
-        await self.adb.shell(device_id, f"su -c 'setsid {self.DEVICE_PATH} &'")
+        
+        # Use a more reliable method to start frida-server in background
+        # Try multiple approaches with shorter timeouts to avoid hanging
+        start_commands = [
+            f"su -c 'nohup {self.DEVICE_PATH} > /dev/null 2>&1 &'",
+            f"su -c '{self.DEVICE_PATH} &'",
+            f"su -c 'setsid {self.DEVICE_PATH} &'"
+        ]
+        
+        for i, cmd in enumerate(start_commands):
+            try:
+                self.logger.debug(f"Trying start method {i+1}: {cmd}")
+                # Use shorter timeout to prevent hanging
+                await self.adb.shell(device_id, cmd, timeout=3.0)
+                self.logger.debug(f"Start command {i+1} completed successfully")
+                break
+            except AdbError as e:
+                self.logger.warning(f"Start method {i+1} failed: {e}")
+                if i == len(start_commands) - 1:
+                    # If all methods fail, raise the last error
+                    raise AdbError(f"All frida-server start methods failed. Last error: {e}")
+        
+        # Give the server a moment to start
+        await asyncio.sleep(2)
 
     async def _wait_for_responsive(self, device_id: str, timeout: int = 15) -> bool:
         self.logger.info("Waiting for frida-server to become responsive...")
