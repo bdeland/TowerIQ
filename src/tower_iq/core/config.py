@@ -5,6 +5,7 @@ This module provides the ConfigurationManager class, which serves as the single
 source of truth for all application configuration settings.
 """
 
+import structlog
 import yaml
 from typing import Any, Optional
 from pathlib import Path
@@ -26,6 +27,7 @@ class ConfigurationManager(QObject):
 
     def __init__(self, yaml_path: str = 'config/main_config.yaml'):
         super().__init__()
+        self.logger = structlog.get_logger().bind(source="ConfigurationManager")
         self._db_service: Optional[DatabaseService] = None
         self._file_config: dict = self._load_from_file(yaml_path)
         self._user_settings: dict = {}
@@ -51,7 +53,7 @@ class ConfigurationManager(QObject):
     def _load_from_file(self, config_path: str) -> dict:
         path = Path(config_path)
         if not path.exists():
-            print(f"Warning: Configuration file not found at {path}")
+            self.logger.warning("Configuration file not found", path=str(path))
             return {}
         with open(path, 'r') as f:
             return yaml.safe_load(f) or {}
@@ -64,7 +66,7 @@ class ConfigurationManager(QObject):
         if settings_list is None:
             settings_list = []
         self._user_settings = {s['key']: s['value'] for s in settings_list}
-        print(f"Loaded {len(self._user_settings)} user settings from DB.")
+        self.logger.info("Loaded user settings from DB", count=len(self._user_settings))
 
     def get(self, key: str, default: Any = None) -> Any:
         """
@@ -100,9 +102,9 @@ class ConfigurationManager(QObject):
             return None
 
     def set(self, key: str, value: Any):
-        """Saves a user-specific setting to the DB and emits a signal."""
+        """Sets a config value, saving to DB if available."""
         if not self._db_service:
-            print(f"Error: Cannot set '{key}'. DatabaseService not linked.")
+            self.logger.error("Cannot set config value - DatabaseService not linked", key=key)
             return
 
         current_value = self.get(key)

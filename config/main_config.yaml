@@ -1,5 +1,5 @@
-# TowerIQ Main Configuration File
-# This file contains all non-sensitive configuration settings
+# TowerIQ Simplified Configuration File
+# This file demonstrates the new category-based logging system
 
 app:
   name: "TowerIQ"
@@ -9,23 +9,22 @@ app:
 logging:
   console:
     enabled: true
-    level: "DEBUG"
+    level: "DEBUG"  # Can be: DEBUG, INFO, WARNING, ERROR, CRITICAL
   file:
     enabled: false
     path: "logs/tower_iq.log"
     level: "INFO"
     max_size_mb: 50
     backup_count: 5
-  asyncio:
-    debug_enabled: true  # Enable asyncio debug mode to capture internal messages
-    verbose: true  # Enable verbose asyncio logging with detailed event information
-  sources:
-    enabled:
-      - "MainController"
-      - "DatabaseService"
-      - "EmulatorService"
-      - "FridaService"
-      - "GUI"
+  categories:
+    # Simple category-based logging configuration
+    # Each category groups related log sources together
+    application: true    # Application startup and main controller
+    database: true       # Database operations
+    device: true         # Device/emulator communication
+    frida: true          # Frida hook management
+    gui: true            # User interface operations
+    system: false        # Low-level system operations (usually not needed)
 
 database:
   sqlite_path: "data/toweriq.sqlite"

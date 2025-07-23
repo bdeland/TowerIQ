@@ -5,6 +5,7 @@ This module provides the SessionManager class for centralized, thread-safe
 management of application volatile state.
 """
 
+import structlog
 from typing import Optional, List, Dict, Any, Union
 from dataclasses import dataclass
 from datetime import datetime
@@ -191,6 +192,9 @@ class SessionManager(QObject):
 
     def __init__(self):
         super().__init__()
+        self.logger = structlog.get_logger().bind(source="SessionManager")
+        
+        # Thread safety
         self._mutex = QMutex()
         
         # State machine properties
@@ -231,7 +235,7 @@ class SessionManager(QObject):
     @is_hook_active.setter
     def is_hook_active(self, value: bool):
         if self._set_property('_is_hook_active', value, self.connection_state_changed):
-            print(f"Session: Hook active state changed to {value}")
+            self.logger.info("Hook active state changed", active=value)
 
     @property
     def is_round_active(self) -> bool:
@@ -401,7 +405,7 @@ class SessionManager(QObject):
             
             # Validate transition
             if not self._is_valid_transition(current_state, new_state):
-                print(f"Invalid state transition from {current_state} to {new_state}")
+                self.logger.warning("Invalid state transition", from_state=current_state, to_state=new_state)
                 return False
             
             # Perform atomic state update
@@ -426,7 +430,7 @@ class SessionManager(QObject):
         if old_sub_state != sub_state:
             self.connection_sub_state_changed.emit(sub_state)
         
-        print(f"State transition: {old_main_state}({old_sub_state}) -> {new_state}({sub_state})")
+        self.logger.info("State transition", from_state=f"{old_main_state}({old_sub_state})", to_state=f"{new_state}({sub_state})")
         return True
     
     def _is_valid_transition(self, from_state: ConnectionState, to_state: ConnectionState) -> bool:
@@ -500,8 +504,8 @@ class SessionManager(QObject):
         inconsistencies = snapshot.get_inconsistencies()
         
         if inconsistencies:
+            self.logger.warning("State inconsistencies detected", inconsistencies=[inc.value for inc in inconsistencies])
             self.state_inconsistency_detected.emit(inconsistencies)
-            print(f"State inconsistencies detected: {[inc.value for inc in inconsistencies]}")
         
         return inconsistencies
     
@@ -589,7 +593,7 @@ class SessionManager(QObject):
         
         # Emit signal outside mutex
         self.connection_main_state_changed.emit(ConnectionState.ERROR)
-        print(f"Error set: {error_info.user_message}")
+        self.logger.error("Error info set", error_type=error_info.error_type.value, message=error_info.user_message)
     
     def get_last_error_info(self) -> Optional[ErrorInfo]:
         """Get the last error information."""

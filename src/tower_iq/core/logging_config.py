@@ -20,6 +20,90 @@ from colorama import Fore, Style
 
 from .config import ConfigurationManager
 
+# Add this after the imports section
+# Category mapping for simplified logging configuration
+LOG_SOURCE_CATEGORIES = {
+    # Application category - high-level app operations
+    'application': {
+        'main_entry',
+        'MainController',
+    },
+    # Database category - all database operations
+    'database': {
+        'DatabaseService',
+    },
+    # Device category - device/emulator communication
+    'device': {
+        'EmulatorService',
+        'AdbWrapper',
+    },
+    # Frida category - hook injection and management
+    'frida': {
+        'FridaService',
+    },
+    # GUI category - user interface operations
+    'gui': {
+        'GUI',
+    },
+    # System category - low-level system operations
+    'system': {
+        'ResourceCleanupManager',
+        'qasync._windows._EventPoller',
+        'qasync._windows._EventWorker',
+        'qasync._QEventLoop',
+        'asyncio',
+    }
+}
+
+def get_source_category(source_name: str) -> str:
+    """
+    Get the category for a given source name.
+    
+    Args:
+        source_name: The individual source name (e.g., 'EmulatorService')
+        
+    Returns:
+        The category name (e.g., 'device') or 'unknown' if not found
+    """
+    for category, sources in LOG_SOURCE_CATEGORIES.items():
+        if source_name in sources:
+            return category
+    return 'unknown'
+
+def get_enabled_sources_from_categories(categories_config: dict) -> set:
+    """
+    Convert category-based configuration to individual source set.
+    
+    Args:
+        categories_config: Dict with category names as keys and boolean values
+        
+    Returns:
+        Set of enabled individual source names
+    """
+    enabled_sources = set()
+    
+    for category, enabled in categories_config.items():
+        if enabled and category in LOG_SOURCE_CATEGORIES:
+            enabled_sources.update(LOG_SOURCE_CATEGORIES[category])
+    
+    return enabled_sources
+
+def get_all_available_categories() -> dict:
+    """
+    Get all available categories with their descriptions.
+    
+    Returns:
+        Dict mapping category names to descriptions
+    """
+    return {
+        'application': 'Application startup and main controller operations',
+        'database': 'Database operations and data management',
+        'device': 'Device/emulator communication and ADB operations',
+        'frida': 'Frida hook injection and script management',
+        'gui': 'User interface operations and events',
+        'system': 'Low-level system operations (qasync, asyncio, cleanup)',
+    }
+
 
 def setup_logging(config: ConfigurationManager, db_service=None) -> None:
     """
@@ -44,7 +128,15 @@ def setup_logging(config: ConfigurationManager, db_service=None) -> None:
     file_level = config.get('logging.file.level', 'DEBUG').upper()
     max_size_mb = config.get('logging.file.max_size_mb', 50)
     backup_count = config.get('logging.file.backup_count', 5)
-    enabled_sources = set(config.get('logging.sources.enabled', []))
+    
+    # Support both old sources list and new categories configuration
+    categories_config = config.get('logging.categories', {})
+    if categories_config:
+        # Use new category-based configuration
+        enabled_sources = get_enabled_sources_from_categories(categories_config)
+    else:
+        # Fallback to old sources list for backward compatibility
+        enabled_sources = set(config.get('logging.sources', []))
     
     # Read asyncio logging configuration
     asyncio_debug_enabled = config.get('logging.asyncio.debug_enabled', False)
@@ -53,49 +145,64 @@ def setup_logging(config: ConfigurationManager, db_service=None) -> None:
     levels = [console_level, file_level]
     min_level = min(levels, key=lambda lvl: getattr(logging, lvl, 0))
 
-    # Configure structlog with nice console output
+    # Configure structlog as the central logging hub
     timestamper = structlog.processors.TimeStamper(fmt="%Y-%m-%d %H:%M:%S.%f", utc=False)
-    
-    # Define processors for nice console output
-    console_processors = [
+
+    # Define shared processors for all logs
+    shared_processors = [
         structlog.contextvars.merge_contextvars,
-        SourceFilter(enabled_sources),
-        structlog.processors.add_log_level,
-        structlog.processors.StackInfoRenderer(),
+        structlog.stdlib.add_logger_name,  # Add logger name first
+        add_logger_name_as_source,  # Then use it to set source
+        structlog.stdlib.add_log_level,
+        add_epoch_millis_timestamp,
+        add_human_readable_timestamp,  # Add display timestamp for console
         timestamper,
-        structlog.dev.ConsoleRenderer(colors=True)
     ]
 
-    # Configure structlog
     structlog.configure(
-        processors=console_processors,
-        wrapper_class=structlog.make_filtering_bound_logger(
-            getattr(logging, min_level)
-        ),
+        processors=shared_processors + [
+            # Prepare event dict for logging to standard library
+            structlog.stdlib.ProcessorFormatter.wrap_for_formatter,
+        ],
         logger_factory=structlog.stdlib.LoggerFactory(),
+        wrapper_class=structlog.stdlib.BoundLogger,
         cache_logger_on_first_use=True,
     )
 
-    # Configure standard library logging
-    logging.basicConfig(
-        format="%(message)s",
-        stream=sys.stdout,
-        level=getattr(logging, min_level),
+    # Define the formatter for our handlers
+    formatter = structlog.stdlib.ProcessorFormatter(
+        # These run ONLY on records originating from the standard library
+        foreign_pre_chain=shared_processors,
+        # These run on ALL records
+        processor=ColoredConsoleRenderer(),
     )
 
-    # Get root logger and remove default handlers if we want custom ones
+    # Get the root logger and remove any default handlers
     root_logger = logging.getLogger()
-    
+    for handler in list(root_logger.handlers):
+        root_logger.removeHandler(handler)
+
+    # Set the root logger's level
+    root_logger.setLevel(getattr(logging, min_level))
+
+    # Add our custom console handler if enabled
+    if console_enabled:
+        console_handler = logging.StreamHandler()
+        console_handler.setLevel(getattr(logging, console_level))
+        console_handler.setFormatter(formatter)
+        # Add source filter to console handler (for compatibility)
+        source_filter = SourceLogFilter(enabled_sources)
+        console_handler.addFilter(source_filter)
+        root_logger.addHandler(console_handler)
+
     # Configure the asyncio logger
     asyncio_logger = logging.getLogger("asyncio")
     if asyncio_debug_enabled:
         asyncio_logger.setLevel(logging.DEBUG)
     else:
         asyncio_logger.setLevel(logging.WARNING)
-    
-    # By default, the asyncio logger will propagate its records to the root logger,
-    # which is what we want. We do not need to add any specific handlers to it.
-    
+    # By default, the asyncio logger will propagate its records to the root logger.
+
     # Add file handler if enabled
     if file_enabled:
         # For file output, we want JSON format
@@ -143,46 +250,57 @@ def add_human_readable_timestamp(logger: Any, method_name: str, event_dict: Dict
     return event_dict
 
 
-class SourceFilter:
-    """
-    Filter that only allows log records from enabled sources to pass through.
-    """
+def add_logger_name_as_source(logger, method_name, event_dict):
+    # Always ensure we have a source
+    if 'source' not in event_dict:
+        # Use the logger name as the source for stdlib loggers
+        original_source = event_dict.get('logger', None) or getattr(logger, 'name', 'unknown')
+        event_dict['source'] = original_source
     
-    def __init__(self, enabled_sources: Set[str]) -> None:
-        """
-        Initialize the filter with enabled source names.
-        
-        Args:
-            enabled_sources: Set of source names that are allowed to pass
-        """
+    # Always set the category for the source (whether it was already set or not)
+    if 'category' not in event_dict:
+        event_dict['category'] = get_source_category(event_dict['source'])
+    
+    return event_dict
+
+
+
+
+
+class SourceLogFilter(logging.Filter):
+    """Filter that only allows log records from enabled sources."""
+    
+    def __init__(self, enabled_sources: Set[str]):
+        super().__init__()
         self.enabled_sources = enabled_sources
-        # If no sources specified, allow all
         self.filter_enabled = len(enabled_sources) > 0
     
-    def __call__(self, logger: Any, method_name: str, event_dict: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        Filter logic. Allows log records from enabled sources to pass through.
-        
-        Args:
-            logger: The logger instance
-            method_name: The method name being called
-            event_dict: The event dictionary
-            
-        Returns:
-            Unmodified event dictionary
-        """
-        # If no filtering enabled, pass everything through
+    def filter(self, record: logging.LogRecord) -> bool:
         if not self.filter_enabled:
-            return event_dict
-            
-        # Check if this source is enabled
-        source = event_dict.get('source', '')
-        if source in self.enabled_sources:
-            return event_dict
+            return True  # Allow all if no sources specified (no filtering)
         
-        # If source not enabled, still pass through for now
-        # (Could raise structlog.DropEvent() to actually filter)
-        return event_dict
+        # Get source from record
+        source = getattr(record, 'source', None)
+        if not source:
+            # Try to extract from logger name for stdlib loggers
+            source = record.name
+        
+        # For structlog records, the source might be in the event dict
+        if not source or source == record.name:
+            # Try to get source from the event dict if this is a structlog record
+            if hasattr(record, 'msg') and isinstance(record.msg, dict):
+                source = record.msg.get('source', record.name)
+        
+        # Check if the source is in the enabled sources
+        if source in self.enabled_sources:
+            return True
+        
+        # Also check if the source's category is enabled (for backward compatibility)
+        category = get_source_category(source)
+        if category in self.enabled_sources:
+            return True
+        
+        return False
 
 
 class ColoredConsoleRenderer:
@@ -190,7 +308,7 @@ class ColoredConsoleRenderer:
     Custom renderer for colored console output.
     """
     
-    def __call__(self, logger: Any, method_name: str, event_dict: Dict[str, Any]) -> str:
+    def __call__(self, logger: Any, method_name: str, event_dict: Any) -> str:
         """
         Render log record with colors for console output.
         
@@ -204,7 +322,8 @@ class ColoredConsoleRenderer:
         """
         timestamp = event_dict.get('display_timestamp', '')
         level = event_dict.get('level', '').upper()
-        source = event_dict.get('source', 'UNKNOWN')
+        category = event_dict.get('category', 'UNKNOWN')
+        original_source = event_dict.get('source', 'UNKNOWN')
         event = event_dict.get('event', '')
         
         # Color mapping for log levels
@@ -218,18 +337,28 @@ class ColoredConsoleRenderer:
         
         level_color = level_colors.get(level, Fore.WHITE)
         
-        # Base format with timestamp, level, source, and event
+        # Base format with timestamp, level, category, and event
+        # Show category in main display, original source as context in extra fields
         formatted = (
             f"{Fore.WHITE}[{timestamp}] "
             f"{level_color}[{level:^7}] "
-            f"{Fore.BLUE}[{source}] "
+            f"{Fore.BLUE}[{category.title()}] "
             f"{Fore.WHITE}{event}"
         )
         
-        # Add extra fields if present (excluding standard ones)
+        # Add extra fields if present (excluding standard ones and redundant fields)
         extra_fields = []
+        excluded_keys = {
+            'display_timestamp', 'level', 'source', 'category', 'event', 'timestamp_ms',
+            'logger', 'timestamp'  # Exclude these as they're already shown
+        }
+        
+        # Always add source as context if it's different from category
+        if original_source and original_source.lower() != category.lower():
+            extra_fields.append(f"source={original_source}")
+        
         for key, value in event_dict.items():
-            if key not in ['display_timestamp', 'level', 'source', 'event', 'timestamp_ms']:
+            if key not in excluded_keys:
                 extra_fields.append(f"{key}={value}")
         
         if extra_fields:
@@ -283,10 +412,12 @@ class SQLiteLogHandler(logging.Handler):
         """
         try:
             # Convert LogRecord to dict for the database service
+            source = getattr(record, 'source', 'unknown')
             event_dict = {
                 'timestamp': record.created,
                 'level': record.levelname,
-                'source': getattr(record, 'source', 'unknown'),
+                'source': source,
+                'category': get_source_category(source),
                 'event': record.getMessage(),
                 'logger': record.name,
             }
@@ -334,6 +465,8 @@ class StructlogFormatter(logging.Formatter):
         source = getattr(record, 'source', None)
         if source is not None:
             event_dict['source'] = source
+            # Add category for the source
+            event_dict['category'] = get_source_category(source)
         
         return json.dumps(event_dict, default=str)
 
@@ -395,18 +528,22 @@ def create_console_handler(level: str) -> logging.Handler:
                 else:
                     source = record.name
             
+            # Get category for the source
+            category = get_source_category(source)
+            
             # Build event dict
             event_dict = {
                 'display_timestamp': formatted_time,
                 'level': record.levelname,
                 'source': source,
+                'category': category,
                 'event': record.getMessage(),
             }
             
             # Add any extra attributes from the record (if it's a structlog record)
             if hasattr(record, 'msg') and isinstance(record.msg, dict):
                 for key, value in record.msg.items():
-                    if key not in ['display_timestamp', 'level', 'source', 'event', 'timestamp_ms']:
+                    if key not in ['display_timestamp', 'level', 'source', 'category', 'event', 'timestamp_ms']:
                         event_dict[key] = value
             
             # Apply the ColoredConsoleRenderer with proper arguments

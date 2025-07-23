@@ -73,19 +73,18 @@ def main() -> None:
                     logger.debug(f"emulator_service._get_connected_devices() returned: {devices}")
                 except Exception as e:
                     logger.error(f"Exception in _get_connected_devices: {e}")
-                    print(f"Exception in _get_connected_devices: {e}", file=sys.stderr)
                     sys.exit(3)
                 if not devices:
-                    print("No connected devices found for frida reset.", file=sys.stderr)
+                    logger.error("No connected devices found for frida reset.")
                     sys.exit(2)
                 device_id = devices[0]
-                print(f"Resetting frida-server on device: {device_id}")
+                logger.info(f"Resetting frida-server on device: {device_id}")
                 try:
                     await emulator_service.ensure_frida_server_is_running(device_id)
-                    print(f"Frida-server updated and started successfully on device: {device_id}")
+                    logger.info(f"Frida-server updated and started successfully on device: {device_id}")
                     sys.exit(0)
                 except Exception as e:
-                    print(f"Failed to reset frida-server: {e}", file=sys.stderr)
+                    logger.error(f"Failed to reset frida-server: {e}")
                     sys.exit(1)
             asyncio.run(reset_frida())
             return
@@ -162,8 +161,6 @@ def main() -> None:
         # Handle any startup errors
         if 'logger' in locals():
             logger.error("Fatal error during application startup", error=str(e))
-        else:
-            print(f"Fatal error during application startup: {e}")
         sys.exit(1)
 
 

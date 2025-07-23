@@ -1047,88 +1047,41 @@ fi
             return []
 
     async def get_enhanced_device_info(self, device_id: str) -> dict[str, Any]:
-        print(f"DEBUG: get_enhanced_device_info called for {device_id}")
-        """
-        Get comprehensive device information including model, Android version, etc.
-
-        Args:
-            device_id: Device serial ID
-
-        Returns:
-            Dictionary containing enhanced device information
-        """
-        self.logger.debug("Gathering enhanced device info", device=device_id)
-
+        """Get enhanced device information including architecture and properties."""
+        self.logger.debug("Getting enhanced device info", device_id=device_id)
+        
+        # Get basic device info
+        device_info = await self._get_device_info(device_id)
+        
+        # Get device architecture
         try:
-            # Define properties to gather
-            properties = [
-                'ro.product.model',           # Device model
-                'ro.product.manufacturer',    # Manufacturer
-                'ro.product.name',           # Product name
-                'ro.build.version.release',   # Android version
-                'ro.build.version.sdk',       # API level
-                'ro.product.cpu.abi',        # Architecture
-                'ro.kernel.qemu',            # Emulator detection
-                'ro.build.characteristics'    # Device characteristics
-            ]
-
-            self.logger.debug(f"Requesting device properties: {properties}", device=device_id)
-            # Gather device properties
-            device_props = await self.get_device_properties(device_id, properties)
-            self.logger.debug(f"Device properties returned: {device_props}", device=device_id)
-
-            # Format the information
-            enhanced_info = {
-                'serial': device_id,
-                'model': device_props.get('ro.product.model', 'Unknown'),
-                'manufacturer': device_props.get('ro.product.manufacturer', 'Unknown'),
-                'android_version': device_props.get('ro.build.version.release', 'Unknown'),
-                'api_level': self._parse_api_level(device_props.get('ro.build.version.sdk', '0')),
-                'architecture': device_props.get('ro.product.cpu.abi', 'Unknown'),
-                'is_emulator': self._detect_emulator(device_props),
-                'device_name': device_props.get('ro.product.name', 'Unknown'),
-                'status': 'Online'  # Changed from 'Connected' to avoid confusion
-            }
-
-            self.logger.debug(f"Enhanced device info gathered: {enhanced_info}", device=device_id)
-            return enhanced_info
-
+            device_info['architecture'] = await self.get_device_architecture(device_id)
         except Exception as e:
-            self.logger.error(
-                "Error gathering enhanced device info", device=device_id, error=str(e))
-            # Return basic info as fallback
-            return {
-                'serial': device_id,
-                'model': 'Unknown',
-                'manufacturer': 'Unknown',
-                'android_version': 'Unknown',
-                'api_level': 0,
-                'architecture': 'Unknown',
-                'is_emulator': False,
-                'device_name': 'Unknown',
-                'status': 'Online'
-            }
+            self.logger.warning("Failed to get device architecture", device_id=device_id, error=str(e))
+            device_info['architecture'] = 'unknown'
+        
+        # Get additional properties
+        try:
+            properties = ['ro.build.version.release', 'ro.build.version.sdk', 'ro.product.model']
+            device_props = await self.get_device_properties(device_id, properties)
+            device_info.update(device_props)
+        except Exception as e:
+            self.logger.warning("Failed to get device properties", device_id=device_id, error=str(e))
+        
+        return device_info
 
     async def get_device_properties(self, device_id: str, properties: list[str]) -> dict[str, str]:
-        print(f"DEBUG: get_device_properties called for {device_id} with {properties}")
-        """
-        Get specific device properties via getprop commands with caching.
-
-        Args:
-            device_id: Device serial ID
-            properties: List of property names to retrieve
-
-        Returns:
-            Dictionary mapping property names to values
-        """
+        """Get device properties using ADB shell getprop."""
+        self.logger.debug("Getting device properties", device_id=device_id, properties=properties)
+        
+        cache_key = f"{device_id}_props_{hash(tuple(sorted(properties)))}"
+        
         # Check cache first
-        cache_key = f"{device_id}_properties"
         if self._is_cache_valid(cache_key):
             cached_props = self._device_properties_cache.get(cache_key, {})
-            # Check if all requested properties are in cache
-            if all(prop in cached_props for prop in properties):
-                self.logger.debug(f"Using cached device properties: {cached_props}", device=device_id)
-                return {prop: cached_props[prop] for prop in properties}
+            if cached_props:
+                self.logger.debug("Using cached device properties", device_id=device_id)
+                return cached_props
 
         self.logger.debug(f"Gathering device properties from device: {device_id}", properties=properties)
 

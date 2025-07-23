@@ -324,24 +324,24 @@ class MainController(QObject):
 
     @pyqtSlot(str)
     def on_connect_device_requested(self, device_id: str) -> None:
-        """Handle connect device request from connection panel."""
-        print(f"[DEBUG] MainController.on_connect_device_requested called with device_id: {device_id}")
+        """Handle device connection request from UI."""
+        self.logger.debug("Device connection requested", device_id=device_id)
         self._create_async_task(self._handle_connect_device(device_id))
     
     async def _handle_connect_device(self, device_id: str) -> None:
-        """Handle the actual device connection."""
+        """Handle device connection logic."""
         try:
-            print(f"[DEBUG] _handle_connect_device started for device: {device_id}")
+            self.logger.debug("Handling device connection", device_id=device_id)
             self.session.connected_emulator_serial = device_id
-            print(f"[DEBUG] Set connected_emulator_serial to: {device_id}")
+            self.logger.debug("Set connected emulator serial", device_id=device_id)
             self.session.is_emulator_connected = True
-            print(f"[DEBUG] Set is_emulator_connected to: True")
+            self.logger.debug("Set emulator connected status", connected=True)
             
             if self.dashboard and hasattr(self.dashboard, 'connection_panel'):
                 self.dashboard.connection_panel.update_state(self.session)
             
-            # Automatically trigger process refresh
-            print(f"[DEBUG] Triggering process refresh...")
+            # Trigger process refresh to update UI
+            self.logger.debug("Triggering process refresh")
             await self._handle_refresh_processes()
                 
         except Exception as e:
@@ -610,10 +610,10 @@ class MainController(QObject):
                     break
                 await asyncio.sleep(0.05)
             if (time.time() - start_time) >= force_exit_timeout:
-                print("Shutdown did not complete in time. Forcing exit.")
-                os._exit(0)
+                self.logger.warning("Shutdown did not complete in time, forcing exit")
+                os._exit(1)
         except Exception as e:
-            print(f"Error during robust shutdown: {e}")
+            self.logger.error("Error during robust shutdown", error=str(e))
             os._exit(1)
     
     def _start_frida_listener(self) -> None:
@@ -1055,15 +1055,15 @@ class MainController(QObject):
         finally:
             profile.disable()
             profile.dump_stats(profile_output_path)
-            self.logger.info(f"cProfile stats for test mode simulation written to {profile_output_path}")
-            print(f"[Test Mode] cProfile stats written to: {profile_output_path}")
-            # Print top 20 functions by cumulative time
+            self.logger.info("Test mode cProfile stats written", output_path=profile_output_path)
+            # Print top functions
+            self.logger.info("Test mode top 20 functions by cumulative time")
             try:
                 stats = pstats.Stats(profile_output_path)
-                print("\n[Test Mode] Top 20 functions by cumulative time:")
-                stats.sort_stats("cumulative").print_stats(20)
+                stats.sort_stats('cumulative')
+                stats.print_stats(20)
             except Exception as e:
-                print(f"[Test Mode] Failed to print cProfile stats summary: {e}")
+                self.logger.error("Failed to print cProfile stats summary", error=str(e))
             self.logger.info(f"cProfile stats summary printed to console (if available)")
 
     async def _run_test_mode_replay(self):

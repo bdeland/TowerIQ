@@ -1,3 +1,11 @@
+"""
+TowerIQ Connection Page
+
+This module provides the ConnectionPage widget for managing device connections,
+process selection, and hook activation in the TowerIQ application.
+"""
+
+import structlog
 from .utils_gui import ThemeAwareWidget, get_text_color, get_title_font
 from PyQt6.QtWidgets import (
     QHBoxLayout, QVBoxLayout, QLabel, QStackedWidget, QWidget,
@@ -55,6 +63,7 @@ class ConnectionPanel(ThemeAwareWidget):
     def __init__(self, session_manager, parent=None):
         super().__init__(parent)
         self.session_manager = session_manager
+        self.logger = structlog.get_logger().bind(source="ConnectionPanel")
         layout = QVBoxLayout(self)
         self.stacked = QStackedWidget(self)
 
@@ -648,11 +657,11 @@ class ConnectionPanel(ThemeAwareWidget):
 
     def show_error(self, msg: str):
         # TODO: Implement error display logic (e.g., show a message box or set a label)
-        print(f"[ConnectionPanel ERROR] {msg}")
+        self.logger.error("Connection panel error", message=msg)
 
     def show_success(self, msg: str):
         # TODO: Implement success display logic (e.g., show a message box or set a label)
-        print(f"[ConnectionPanel SUCCESS] {msg}")
+        self.logger.info("Connection panel success", message=msg)
 
     def update_state(self, session):
         # TODO: Implement state update logic for the panel
