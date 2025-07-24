@@ -6,7 +6,7 @@ process selection, and hook activation in the TowerIQ application.
 """
 
 import structlog
-from .utils_gui import ThemeAwareWidget, get_text_color, get_title_font
+from ..utils.utils_gui import ThemeAwareWidget, get_text_color, get_title_font
 from PyQt6.QtWidgets import (
     QHBoxLayout, QVBoxLayout, QLabel, QStackedWidget, QWidget,
     QGroupBox, QTextEdit, QFrame, QHeaderView, QTableWidgetItem
@@ -682,7 +682,10 @@ class SettingsAndLogsPanel(ThemeAwareWidget):
         settings_layout = QVBoxLayout()
         self.auto_connect_switch = SwitchButton("Auto-connect on Startup")
         auto_connect = self.config_manager.get('gui.auto_connect_emulator', False)
-        self.auto_connect_switch.setChecked(auto_connect)
+        # Ensure the value is a boolean
+        if isinstance(auto_connect, str):
+            auto_connect = auto_connect.lower() in ('true', '1', 'yes', 'on')
+        self.auto_connect_switch.setChecked(bool(auto_connect))
         self.auto_connect_switch.checkedChanged.connect(self.on_auto_connect_toggled)
         settings_layout.addWidget(self.auto_connect_switch)
         

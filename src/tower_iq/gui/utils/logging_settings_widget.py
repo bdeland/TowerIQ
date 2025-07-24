@@ -13,7 +13,7 @@ from PyQt6.QtCore import pyqtSignal
 from qfluentwidgets import SwitchButton, ComboBox, SpinBox, PushButton
 
 from .utils_gui import ThemeAwareWidget, get_title_font, get_text_color
-from ..core.logging_config import get_all_available_categories, LOG_SOURCE_CATEGORIES
+from ...core.logging_config import get_all_available_categories, LOG_SOURCE_CATEGORIES
 
 
 class LoggingSettingsWidget(ThemeAwareWidget):
@@ -38,12 +38,13 @@ class LoggingSettingsWidget(ThemeAwareWidget):
         level_group = QGroupBox("Log Level")
         level_layout = QHBoxLayout()
         
-        level_label = QLabel("Console Log Level:")
+        self.level_label = QLabel("Console Log Level:")
+        self.level_label.setStyleSheet(f"color: {get_text_color()};")
         self.level_combo = ComboBox()
         self.level_combo.addItems(["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"])
         self.level_combo.currentTextChanged.connect(self.on_log_level_changed)
         
-        level_layout.addWidget(level_label)
+        level_layout.addWidget(self.level_label)
         level_layout.addWidget(self.level_combo)
         level_layout.addStretch()
         level_group.setLayout(level_layout)
@@ -77,25 +78,27 @@ class LoggingSettingsWidget(ThemeAwareWidget):
         
         # File log level
         file_level_layout = QHBoxLayout()
-        file_level_label = QLabel("File Log Level:")
+        self.file_level_label = QLabel("File Log Level:")
+        self.file_level_label.setStyleSheet(f"color: {get_text_color()};")
         self.file_level_combo = ComboBox()
         self.file_level_combo.addItems(["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"])
         self.file_level_combo.currentTextChanged.connect(self.on_file_level_changed)
         
-        file_level_layout.addWidget(file_level_label)
+        file_level_layout.addWidget(self.file_level_label)
         file_level_layout.addWidget(self.file_level_combo)
         file_level_layout.addStretch()
         file_layout.addLayout(file_level_layout)
         
         # File size settings
         size_layout = QHBoxLayout()
-        size_label = QLabel("Max File Size (MB):")
+        self.size_label = QLabel("Max File Size (MB):")
+        self.size_label.setStyleSheet(f"color: {get_text_color()};")
         self.max_size_spin = SpinBox()
         self.max_size_spin.setRange(1, 1000)
         self.max_size_spin.setValue(50)
         self.max_size_spin.valueChanged.connect(self.on_max_size_changed)
         
-        size_layout.addWidget(size_label)
+        size_layout.addWidget(self.size_label)
         size_layout.addWidget(self.max_size_spin)
         size_layout.addStretch()
         file_layout.addLayout(size_layout)
@@ -231,5 +234,12 @@ class LoggingSettingsWidget(ThemeAwareWidget):
     
     def update_theme_styles(self):
         """Update theme-dependent styles."""
-        super().update_theme_styles()
-        # Add any additional theme styling here 
+        text_color = get_text_color()
+        
+        # Update label colors
+        if hasattr(self, 'level_label'):
+            self.level_label.setStyleSheet(f"color: {text_color};")
+        if hasattr(self, 'file_level_label'):
+            self.file_level_label.setStyleSheet(f"color: {text_color};")
+        if hasattr(self, 'size_label'):
+            self.size_label.setStyleSheet(f"color: {text_color};") 

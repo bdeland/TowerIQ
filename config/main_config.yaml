@@ -1,60 +1,36 @@
-# TowerIQ Simplified Configuration File
-# This file demonstrates the new category-based logging system
+# TowerIQ System Configuration
+# This file contains only essential system settings that are required for startup
+# User-configurable settings are stored in the database with sensible defaults
 
-app:
-  name: "TowerIQ"
-  version: "1.0.0"
-  debug: false
-
-logging:
-  console:
-    enabled: true
-    level: "DEBUG"  # Can be: DEBUG, INFO, WARNING, ERROR, CRITICAL
-  file:
-    enabled: false
-    path: "logs/tower_iq.log"
-    level: "INFO"
-    max_size_mb: 50
-    backup_count: 5
-  categories:
-    # Simple category-based logging configuration
-    # Each category groups related log sources together
-    application: true    # Application startup and main controller
-    database: true       # Database operations
-    device: true         # Device/emulator communication
-    frida: true          # Frida hook management
-    gui: true            # User interface operations
-    system: false        # Low-level system operations (usually not needed)
-
+# Database configuration (required for startup)
 database:
   sqlite_path: "data/toweriq.sqlite"
-  sqlite:
-    encryption_key: "default_key"
 
-emulator:
-  adb_path: "adb"
-  connection_timeout: 10
-  package_name: "com.TechTreeGames.TheTower"
-  activity_name: ".MainActivity"
-
+# Frida configuration (system file paths)
 frida:
-  server_port: 27042
-  script_path: "scripts/"
-  signature_validation: true
-  manifest_url: "https://github.com/bdeland/toweriq-hooks/raw/main/manifest.json"
-  public_key_path: "resources/public_key.pem"
   hook_contract_path: "config/hook_contract.yaml"
-  
-monitoring:
-  default_state: "NORMAL"
-  high_resolution_interval: 100
-  normal_interval: 1000
-  
-gui:
-  theme: "dark"
-  window:
-    width: 1200
-    height: 800
-    min_width: 800
-    min_height: 600
-  auto_connect_emulator: false 
+
+# System defaults (can be overridden in database)
+system_defaults:
+  logging:
+    console:
+      enabled: true
+      level: "DEBUG"
+    file:
+      enabled: false
+      path: "logs/tower_iq.log"
+      level: "INFO"
+      max_size_mb: 50
+      backup_count: 5
+    categories:
+      application: true
+      database: true
+      device: true
+      frida: true
+      gui: true
+      system: false
+    asyncio:
+      debug_enabled: false
+  gui:
+    auto_connect_emulator: false
+    theme: "auto" 

@@ -1,5 +1,5 @@
 from PyQt6.QtWidgets import QVBoxLayout, QLabel
-from .utils_gui import ThemeAwareWidget, get_title_font, get_text_color
+from ..utils.utils_gui import ThemeAwareWidget, get_title_font, get_text_color
 from PyQt6.QtCore import pyqtSlot
 
 class DashboardsPage(ThemeAwareWidget):

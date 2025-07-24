@@ -6,7 +6,7 @@ import pytest
 from unittest.mock import MagicMock
 from PyQt6.QtWidgets import QApplication
 from PyQt6.QtCore import Qt
-from src.tower_iq.gui.connection_page import ConnectionPanel
+from tower_iq.gui.pages.connection_page import ConnectionPanel
 
 
 @pytest.fixture

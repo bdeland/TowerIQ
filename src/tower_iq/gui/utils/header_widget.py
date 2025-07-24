@@ -1,7 +1,8 @@
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import QFrame, QHBoxLayout, QVBoxLayout
-from qfluentwidgets import BreadcrumbBar, SearchLineEdit
+from qfluentwidgets import BreadcrumbBar, SearchLineEdit, isDarkTheme
 from .utils_gui import ThemeAwareWidget, get_border_color
+from ..stylesheets import HEADER_WIDGET_LIGHT_QSS, HEADER_WIDGET_DARK_QSS
 
 class HeaderWidget(ThemeAwareWidget):
     """A widget for the header of the main window, containing breadcrumbs and a search bar."""
@@ -38,12 +39,8 @@ class HeaderWidget(ThemeAwareWidget):
         self.update_theme_styles()  # Set initial style
 
     def update_theme_styles(self):
-        border_color = get_border_color()
-        divider_color = border_color  # They can be the same for simplicity
-        self.setStyleSheet(f"""
-            #HeaderWidget {{
-                background-color: transparent;
-                border-bottom: 1px solid {border_color};
-            }}
-        """)
-        #self.divider.setStyleSheet(f"QFrame {{ color: {divider_color}; background: {divider_color}; min-height: 1px; max-height: 1px; }}")
+        # Apply stylesheet based on theme
+        if isDarkTheme():
+            self.setStyleSheet(HEADER_WIDGET_DARK_QSS)
+        else:
+            self.setStyleSheet(HEADER_WIDGET_LIGHT_QSS)

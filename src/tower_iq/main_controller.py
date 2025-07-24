@@ -57,6 +57,17 @@ class MainController(QObject):
         self.emulator_service = EmulatorService(config, logger)
         self.frida_service = FridaService(config, logger)
         
+        # Connect to database immediately to ensure settings can be loaded/saved
+        try:
+            self.db_service.connect()
+            self.logger.info("Database connection established during initialization")
+        except Exception as e:
+            self.logger.error("Failed to connect to database during initialization", error=str(e))
+            # Don't raise the exception - the application can still run without database
+        
+        # Link database service to configuration manager (after connection is established)
+        self.config.link_database_service(self.db_service)
+        
         # Initialize connection stage manager
         self.connection_stage_manager = ConnectionStageManager(
             self.session, self.emulator_service, self.frida_service, logger
@@ -76,9 +87,9 @@ class MainController(QObject):
         # Reference to dashboard for connection panel updates
         self.dashboard = None
         
-        self._test_mode = getattr(config, '_test_mode', False)
-        self._test_mode_replay = getattr(config, '_test_mode_replay', False)
-        self._test_mode_generate = getattr(config, '_test_mode_generate', False)
+        self._test_mode = False
+        self._test_mode_replay = False
+        self._test_mode_generate = False
         self._test_mode_task = None
     
     def _emit_signal_safely(self, signal, *args) -> None:
@@ -159,7 +170,8 @@ class MainController(QObject):
         self._is_running = True
         
         if self._test_mode:
-            await asyncio.to_thread(self.db_service.connect)
+            if not self.db_service.sqlite_conn:
+                await asyncio.to_thread(self.db_service.connect)
             self.logger.info("Test mode: database connected. Starting simulation.")
             self._emit_signal_safely(self.setup_finished, True)
             if self._test_mode_replay:
@@ -169,15 +181,17 @@ class MainController(QObject):
             await self._test_mode_task
             return
         
-        # Connect to database and run migrations
-        try:
-            await asyncio.to_thread(self.db_service.connect)
-            self.logger.info("Database connection established successfully")
-            self._emit_signal_safely(self.setup_finished, True)
-        except Exception as e:
-            self.logger.error("Failed to connect to database", error=str(e))
-            self._emit_signal_safely(self.setup_finished, False)
-            return
+        # Connect to database and run migrations (if not already connected)
+        if not self.db_service.sqlite_conn:
+            try:
+                await asyncio.to_thread(self.db_service.connect)
+                self.logger.info("Database connection established successfully")
+            except Exception as e:
+                self.logger.error("Failed to connect to database", error=str(e))
+                self._emit_signal_safely(self.setup_finished, False)
+                return
+        
+        self._emit_signal_safely(self.setup_finished, True)
         
         # Check if automatic connection is enabled in config
         auto_connect_enabled = self.config.get('gui.auto_connect_emulator', False)

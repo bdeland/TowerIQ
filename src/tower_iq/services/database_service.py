@@ -134,19 +134,34 @@ class DatabaseService:
         if self.sqlite_conn is None:
             raise RuntimeError("Database connection is not established")
         conn = cast(sqlite3.Connection, self.sqlite_conn)
-        # Ensure settings table exists first, as it holds the version
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS settings (
-                key TEXT PRIMARY KEY,
-                value TEXT
-            )
-        """)
-        conn.commit()
-
-        current_version = self.get_setting("db_version")
-        if current_version == self.DB_VERSION:
-            self.logger.info("Database schema is up to date.", version=self.DB_VERSION)
-            return
+        
+        # Check if settings table exists and what schema it has
+        cursor = conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='settings'")
+        settings_exists = cursor.fetchone() is not None
+        
+        if settings_exists:
+            # Settings table exists, check its schema
+            cursor = conn.execute("PRAGMA table_info(settings)")
+            columns = [row[1] for row in cursor.fetchall()]
+            has_enhanced_schema = 'value_type' in columns
+            
+            if has_enhanced_schema:
+                # Enhanced schema exists, check version
+                current_version = self.get_setting("db_version")
+                if current_version == self.DB_VERSION:
+                    self.logger.info("Database schema is up to date.", version=self.DB_VERSION)
+                    return
+            else:
+                # Basic schema exists, migrate to enhanced
+                self.logger.info("Migrating settings table from basic to enhanced schema")
+                self._migrate_settings_table_if_needed()
+                current_version = self.get_setting("db_version")
+                if current_version == self.DB_VERSION:
+                    self.logger.info("Database schema is up to date after migration.", version=self.DB_VERSION)
+                    return
+        else:
+            # No settings table exists, this is a fresh database
+            current_version = None
 
         self.logger.warning(
             "Database schema is outdated or new. Running migrations.",
@@ -154,12 +169,101 @@ class DatabaseService:
             target_version=self.DB_VERSION
         )
         
-        # For this major change, we will drop old tables and create the new V2 schema.
+        # For this major change, we will create the new V2 schema.
         # A more advanced system would have sequential migration scripts (e.g., migrate_v1_to_v2).
         self._create_schema_v2()
 
         self.set_setting("db_version", self.DB_VERSION)
         self.logger.info("Database migration to version %s completed.", self.DB_VERSION)
+
+    def _migrate_settings_table_if_needed(self):
+        """Migrate the settings table to include metadata if needed."""
+        if self.sqlite_conn is None:
+            return
+            
+        try:
+            # Check if the enhanced schema already exists
+            cursor = self.sqlite_conn.execute("PRAGMA table_info(settings)")
+            columns = [row[1] for row in cursor.fetchall()]
+            
+            if 'value_type' not in columns:
+                self.logger.info("Migrating settings table to enhanced schema")
+                
+                # Create new table with enhanced schema
+                self.sqlite_conn.execute("""
+                    CREATE TABLE settings_new (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        key TEXT NOT NULL UNIQUE,
+                        value TEXT NOT NULL,
+                        value_type TEXT NOT NULL DEFAULT 'string',
+                        description TEXT,
+                        category TEXT DEFAULT 'general',
+                        is_sensitive BOOLEAN DEFAULT 0,
+                        created_at TEXT DEFAULT (datetime('now', 'localtime')),
+                        updated_at TEXT DEFAULT (datetime('now', 'localtime')),
+                        created_by TEXT DEFAULT 'system',
+                        version INTEGER DEFAULT 1
+                    )
+                """)
+                
+                # Copy existing data
+                cursor = self.sqlite_conn.execute("SELECT key, value FROM settings")
+                for row in cursor.fetchall():
+                    key, value = row
+                    # Try to determine the type
+                    value_type = 'string'
+                    try:
+                        # Try to parse as JSON
+                        json.loads(value)
+                        value_type = 'json'
+                    except (ValueError, json.JSONDecodeError):
+                        try:
+                            # Try to parse as int
+                            int(value)
+                            value_type = 'int'
+                        except ValueError:
+                            try:
+                                # Try to parse as float
+                                float(value)
+                                value_type = 'float'
+                            except ValueError:
+                                # Default to string
+                                value_type = 'string'
+                    
+                    # Determine category
+                    category = 'general'
+                    if key.startswith('logging.'):
+                        category = 'logging'
+                    elif key.startswith('database.'):
+                        category = 'database'
+                    elif key.startswith('frida.'):
+                        category = 'frida'
+                    elif key.startswith('gui.'):
+                        category = 'gui'
+                    elif key.startswith('emulator.'):
+                        category = 'emulator'
+                    
+                    self.sqlite_conn.execute("""
+                        INSERT INTO settings_new 
+                        (key, value, value_type, category, created_at, updated_at) 
+                        VALUES (?, ?, ?, ?, ?, ?)
+                    """, (key, value, value_type, category, 
+                          datetime.now().isoformat(), datetime.now().isoformat()))
+                
+                # Drop old table and rename new one
+                self.sqlite_conn.execute("DROP TABLE settings")
+                self.sqlite_conn.execute("ALTER TABLE settings_new RENAME TO settings")
+                
+                # Create indexes
+                self.sqlite_conn.execute("CREATE INDEX idx_settings_key ON settings(key)")
+                self.sqlite_conn.execute("CREATE INDEX idx_settings_category ON settings(category)")
+                
+                self.sqlite_conn.commit()
+                self.logger.info("Settings table migration completed successfully")
+                
+        except Exception as e:
+            self.logger.error("Failed to migrate settings table", error=str(e))
+            # Don't raise the exception - the application can still work with the basic schema
 
     def _create_schema_v2(self):
         """Creates the version 2 schema with a 'long' metrics table."""
@@ -167,63 +271,95 @@ class DatabaseService:
             raise RuntimeError("Database connection is not established")
         conn = cast(sqlite3.Connection, self.sqlite_conn)
         try:
-            # Drop old tables for a clean migration to the new schema
-            self.logger.info("Dropping old tables for V2 schema creation.")
-            conn.execute("DROP TABLE IF EXISTS metrics")
-            conn.execute("DROP TABLE IF EXISTS events")
-            conn.execute("DROP TABLE IF EXISTS runs")
+            # Check which tables already exist
+            cursor = conn.execute("SELECT name FROM sqlite_master WHERE type='table'")
+            existing_tables = {row[0] for row in cursor.fetchall()}
+            
+            self.logger.info("Checking existing tables", existing_tables=list(existing_tables))
+            
+            # Only create tables that don't exist
+            if 'runs' not in existing_tables:
+                self.logger.info("Creating runs table")
+                conn.execute("""
+                    CREATE TABLE runs (
+                        run_id TEXT PRIMARY KEY,
+                        start_time INTEGER NOT NULL,
+                        end_time INTEGER,
+                        duration_realtime INTEGER,
+                        duration_gametime REAL,
+                        final_wave INTEGER,
+                        coins_earned REAL,
+                        CPH REAL,
+                        round_cells REAL,
+                        round_gems REAL,
+                        round_cash REAL,
+                        game_version TEXT,
+                        tier INTEGER
+                    )
+                """)
 
-            # Create new tables
-            conn.execute("""
-                CREATE TABLE runs (
-                    run_id TEXT PRIMARY KEY,
-                    start_time INTEGER NOT NULL,
-                    end_time INTEGER,
-                    duration_realtime INTEGER,
-                    duration_gametime REAL,
-                    final_wave INTEGER,
-                    coins_earned REAL,
-                    CPH REAL,
-                    round_cells REAL,
-                    round_gems REAL,
-                    round_cash REAL,
-                    game_version TEXT,
-                    tier INTEGER
-                )
-            """)
+            if 'metrics' not in existing_tables:
+                self.logger.info("Creating metrics table")
+                # NEW "Long" format for metrics table - highly extensible
+                conn.execute("""
+                    CREATE TABLE metrics (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        run_id TEXT NOT NULL,
+                        real_timestamp INTEGER NOT NULL,
+                        game_timestamp REAL NOT NULL,
+                        current_wave INTEGER NOT NULL,
+                        metric_name TEXT NOT NULL,
+                        metric_value REAL NOT NULL
+                    )
+                """)
+                conn.execute("""
+                    CREATE INDEX idx_metrics_run_name_time 
+                    ON metrics(run_id, metric_name, real_timestamp)
+                """)
 
-            # NEW "Long" format for metrics table - highly extensible
-            conn.execute("""
-                CREATE TABLE metrics (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    run_id TEXT NOT NULL,
-                    real_timestamp INTEGER NOT NULL,
-                    game_timestamp REAL NOT NULL,
-                    current_wave INTEGER NOT NULL,
-                    metric_name TEXT NOT NULL,
-                    metric_value REAL NOT NULL
-                )
-            """)
-            conn.execute("""
-                CREATE INDEX idx_metrics_run_name_time 
-                ON metrics(run_id, metric_name, real_timestamp)
-            """)
-
-            # Events, Logs, and Settings tables remain similar
-            conn.execute("""
-                CREATE TABLE events (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    run_id TEXT NOT NULL,
-                    timestamp INTEGER NOT NULL,
-                    event_name TEXT NOT NULL,
-                    data TEXT
-                )
-            """)
-            conn.execute("""
-                CREATE TABLE logs (
-                    timestamp INTEGER, level TEXT, source TEXT, event TEXT, data TEXT
-                )
-            """)
+            if 'events' not in existing_tables:
+                self.logger.info("Creating events table")
+                conn.execute("""
+                    CREATE TABLE events (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        run_id TEXT NOT NULL,
+                        timestamp INTEGER NOT NULL,
+                        event_name TEXT NOT NULL,
+                        data TEXT
+                    )
+                """)
+                
+            if 'logs' not in existing_tables:
+                self.logger.info("Creating logs table")
+                conn.execute("""
+                    CREATE TABLE logs (
+                        timestamp INTEGER, level TEXT, source TEXT, event TEXT, data TEXT
+                    )
+                """)
+            
+            # Always ensure settings table exists (it was deleted)
+            if 'settings' not in existing_tables:
+                self.logger.info("Creating settings table")
+                conn.execute("""
+                    CREATE TABLE settings (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        key TEXT NOT NULL UNIQUE,
+                        value TEXT NOT NULL,
+                        value_type TEXT NOT NULL DEFAULT 'string',
+                        description TEXT,
+                        category TEXT DEFAULT 'general',
+                        is_sensitive BOOLEAN DEFAULT 0,
+                        created_at TEXT DEFAULT (datetime('now', 'localtime')),
+                        updated_at TEXT DEFAULT (datetime('now', 'localtime')),
+                        created_by TEXT DEFAULT 'system',
+                        version INTEGER DEFAULT 1
+                    )
+                """)
+                conn.execute("CREATE INDEX idx_settings_key ON settings(key)")
+                conn.execute("CREATE INDEX idx_settings_category ON settings(category)")
+            else:
+                self.logger.info("Settings table already exists")
+            
             conn.commit()
             self.logger.info("Successfully created V2 database schema.")
         except Exception as e:
@@ -347,10 +483,102 @@ class DatabaseService:
         """
         if not self.sqlite_conn:
             return
-        self.sqlite_conn.execute(
-            "INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)",
-            (key, value)
-        )
+        
+        # Check if setting exists
+        cursor = self.sqlite_conn.execute("SELECT id FROM settings WHERE key = ?", (key,))
+        existing_row = cursor.fetchone()
+        
+        if existing_row:
+            # Update existing setting
+            self.sqlite_conn.execute(
+                "UPDATE settings SET value = ? WHERE key = ?",
+                (value, key)
+            )
+        else:
+            # Insert new setting
+            self.sqlite_conn.execute(
+                "INSERT INTO settings (key, value) VALUES (?, ?)",
+                (key, value)
+            )
+        
+        self.sqlite_conn.commit()
+
+    @db_operation()
+    def set_setting_with_metadata(self, key: str, value: str, value_type: str = 'string', 
+                                 description: Optional[str] = None, category: str = 'general', 
+                                 is_sensitive: bool = False) -> None:
+        """
+        Set a setting value in the database with metadata.
+        Args:
+            key: Setting key
+            value: Setting value
+            value_type: Type of the value ('string', 'int', 'float', 'bool', 'json', 'yaml')
+            description: Optional description of the setting
+            category: Setting category
+            is_sensitive: Whether this setting contains sensitive data
+        """
+        if not self.sqlite_conn:
+            return
+        
+        # Check if we have the enhanced schema
+        try:
+            # Try to use the enhanced schema first
+            # First check if the setting exists
+            cursor = self.sqlite_conn.execute("SELECT id FROM settings WHERE key = ?", (key,))
+            existing_row = cursor.fetchone()
+            
+            if existing_row:
+                # Update existing setting
+                self.sqlite_conn.execute(
+                    """
+                    UPDATE settings 
+                    SET value = ?, value_type = ?, description = ?, category = ?, 
+                        is_sensitive = ?, updated_at = (datetime('now', 'localtime'))
+                    WHERE key = ?
+                    """,
+                    (value, value_type, description, category, is_sensitive, key)
+                )
+            else:
+                # Insert new setting
+                self.sqlite_conn.execute(
+                    """
+                    INSERT INTO settings 
+                    (key, value, value_type, description, category, is_sensitive) 
+                    VALUES (?, ?, ?, ?, ?, ?)
+                    """,
+                    (key, value, value_type, description, category, is_sensitive)
+                )
+        except Exception:
+            # Fallback to basic schema
+            cursor = self.sqlite_conn.execute("SELECT id FROM settings WHERE key = ?", (key,))
+            existing_row = cursor.fetchone()
+            
+            if existing_row:
+                # Update existing setting
+                self.sqlite_conn.execute(
+                    "UPDATE settings SET value = ? WHERE key = ?",
+                    (value, key)
+                )
+            else:
+                # Insert new setting
+                self.sqlite_conn.execute(
+                    "INSERT INTO settings (key, value) VALUES (?, ?)",
+                    (key, value)
+                )
+        
+        self.sqlite_conn.commit()
+        self.logger.debug("Setting committed to database", key=key, value=value, db_path=self.db_path)
+
+    @db_operation()
+    def delete_setting(self, key: str) -> None:
+        """
+        Delete a setting from the database.
+        Args:
+            key: Setting key to delete
+        """
+        if not self.sqlite_conn:
+            return
+        self.sqlite_conn.execute("DELETE FROM settings WHERE key = ?", (key,))
         self.sqlite_conn.commit()
 
     @db_operation()
@@ -535,10 +763,24 @@ class DatabaseService:
         return df
 
     @db_operation(default_return_value=[])
-    def get_all_settings(self) -> list[dict[str, str]]:
+    def get_all_settings(self) -> list[dict[str, Any]]:
         """Gets all key-value pairs from the settings table."""
         if not self.sqlite_conn:
             return []
-        cursor = self.sqlite_conn.execute("SELECT key, value FROM settings")
-        rows = cursor.fetchall()
-        return [{'key': row[0], 'value': row[1]} for row in rows]
+        
+        try:
+            # Try to use enhanced schema first
+            cursor = self.sqlite_conn.execute("""
+                SELECT key, value, value_type, description, category, is_sensitive, 
+                       created_at, updated_at, created_by, version 
+                FROM settings
+            """)
+            rows = cursor.fetchall()
+            columns = [desc[0] for desc in cursor.description]
+            
+            return [dict(zip(columns, row)) for row in rows]
+        except Exception:
+            # Fallback to basic schema
+            cursor = self.sqlite_conn.execute("SELECT key, value FROM settings")
+            rows = cursor.fetchall()
+            return [{'key': row[0], 'value': row[1]} for row in rows]

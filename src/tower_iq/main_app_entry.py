@@ -58,6 +58,10 @@ def main() -> None:
         
         # Initialize unified logging system with console output initially
         setup_logging(config)
+        
+        # Recreate the ConfigurationManager's logger to use the configured logging system
+        config._recreate_logger()
+        
         logger = structlog.get_logger("main_entry")
         
         logger.info("Starting TowerIQ application", version="1.0")

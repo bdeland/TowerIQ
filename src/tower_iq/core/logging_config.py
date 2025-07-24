@@ -27,6 +27,7 @@ LOG_SOURCE_CATEGORIES = {
     'application': {
         'main_entry',
         'MainController',
+        'ConfigurationManager',
     },
     # Database category - all database operations
     'database': {
