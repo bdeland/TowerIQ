@@ -12,6 +12,9 @@ class SettingsCategoryCard(CardWidget):
         super().__init__(parent)
         self.category = category
         
+        # Set object name for stylesheet targeting
+        self.setObjectName("SettingsCategoryCard")
+        
         # --- UI Setup ---
         layout = QVBoxLayout(self)
         layout.setContentsMargins(24, 24, 24, 24)
@@ -37,4 +40,3 @@ class SettingsCategoryCard(CardWidget):
         """Handle mouse release events to emit the clicked signal with category."""
         if event.button() == Qt.MouseButton.LeftButton:
             self.clicked.emit(self.category)
-        # Don't call super().mouseReleaseEvent(event) to avoid emitting the base class clicked signal

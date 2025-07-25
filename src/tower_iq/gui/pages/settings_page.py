@@ -10,7 +10,7 @@ from PyQt6.QtWidgets import QVBoxLayout, QHBoxLayout, QLabel, QWidget, QGridLayo
 from PyQt6.QtGui import QFont
 from qfluentwidgets import FluentIcon
 from ..utils.settings_category_card import SettingsCategoryCard
-from ..utils.content_page import ContentPage
+from ..utils.page_header import PageHeader
 
 class SettingsPage(QWidget):
     """
@@ -30,16 +30,17 @@ class SettingsPage(QWidget):
         super().__init__(parent)
         self.config_manager = config_manager
         self.setup_ui()
-        self.update_theme_styles()
         
     def setup_ui(self):
         """Set up the settings page's user interface."""
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(24, 24, 24, 24)
+        layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
+        self.setObjectName("settings_page")
         
         # Stacked widget to switch between main view and category pages
         self.stacked_widget = QStackedWidget()
+        self.stacked_widget.setObjectName("stacked_widget")
         layout.addWidget(self.stacked_widget)
         
         # Create main settings view
@@ -48,23 +49,30 @@ class SettingsPage(QWidget):
         
     def create_main_view(self) -> QWidget:
         """Create the main settings view with category cards."""
-        # Use the new ContentPage component
-        content_page = ContentPage(
+        # Create a container widget for the main view
+        container = QWidget()
+        container.setObjectName("main_view_container")
+        layout = QVBoxLayout(container)
+        layout.setContentsMargins(24, 24, 24, 24)  # Add proper page margins
+        layout.setSpacing(16)  # Add spacing between header and cards
+        
+        # Use the new PageHeader component for consistent styling
+        self.page_header = PageHeader(
             title="Settings",
             description="Customize TowerIQ to your preferences"
         )
+        layout.addWidget(self.page_header, 0)  # Add with stretch factor 0 to prevent expansion
         
-        # Create the cards grid and add it to the content container
+        # Create the cards grid and add it to the container
         cards_widget = self.create_cards_grid()
-        content_container = content_page.get_content_container()
-        layout = QVBoxLayout(content_container)
-        layout.addWidget(cards_widget)
+        layout.addWidget(cards_widget, 1)  # Add with stretch factor 1 to take remaining space
         
-        return content_page
+        return container
         
     def create_cards_grid(self) -> QWidget:
         """Create the grid of settings category cards."""
         widget = QWidget()
+        widget.setObjectName("cards_grid")
         grid_layout = QGridLayout(widget)
         grid_layout.setContentsMargins(0, 0, 0, 0)
         grid_layout.setSpacing(16)
@@ -146,10 +154,6 @@ class SettingsPage(QWidget):
     def get_current_category(self) -> str:
         """Get the currently active category."""
         return self.current_category or ""
-        
-    def update_theme_styles(self):
-        """Update theme-dependent styles."""
-        # ContentPage handles its own theme styling
-        pass 
+    
 
     

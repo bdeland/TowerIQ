@@ -13,7 +13,7 @@ SETTINGS_CATEGORY_CARD_QSS = """
 SettingsCategoryCard {{
     background-color: {card_bg};
     border: 1px solid {card_border};
-    border-radius: 8px;
+    border-radius: 50px;
 }}
 SettingsCategoryCard:hover {{
     background-color: {card_hover_bg};
@@ -26,7 +26,6 @@ SettingsCategoryCard BodyLabel {{
 }}
 SettingsCategoryCard CaptionLabel {{
     background-color: transparent;
-    opacity: 0.7;
 }}
 """
 
@@ -54,12 +53,18 @@ SettingsCategoryPage, QScrollArea, QScrollArea::viewport, #content_widget {{
     background-color: transparent;
     border: none;
 }}
-TitleLabel {{
+"""
+
+# Styles for the reusable PageHeader component
+PAGE_HEADER_QSS = """
+QWidget#page_header {{
     background-color: transparent;
-    font-size: 28px;
-    font-weight: 600;
-    padding-top: 4px;
-    padding-bottom: 4px;
+}}
+QWidget#page_header TitleLabel#title_label {{
+    background-color: transparent;
+}}
+QWidget#page_header CaptionLabel#description_label {{
+    background-color: transparent;
 }}
 """
 
@@ -68,18 +73,6 @@ CONTENT_PAGE_QSS = """
 QWidget#content_page {{
     background-color: transparent;
     border: none;
-}}
-QWidget#content_page BodyLabel#title_label {{
-    background-color: transparent;
-    font-size: 28px;
-    font-weight: 600;
-    padding-top: 4px;
-    padding-bottom: 4px;
-    margin-bottom: 8px;
-}}
-QWidget#content_page CaptionLabel#description_label {{
-    background-color: transparent;
-    margin-bottom: 16px;
 }}
 QWidget#content_page QWidget#content_widget {{
     background-color: transparent;
@@ -122,5 +115,6 @@ def get_themed_stylesheet() -> str:
         SETTINGS_CATEGORY_CARD_QSS.format(**theme_palette) +
         SETTINGS_ITEM_CARD_QSS.format(**theme_palette) +
         SETTINGS_CATEGORY_PAGE_QSS.format(**theme_palette) +
+        PAGE_HEADER_QSS.format(**theme_palette) +
         CONTENT_PAGE_QSS.format(**theme_palette)
     )

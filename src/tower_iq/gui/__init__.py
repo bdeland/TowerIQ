@@ -13,4 +13,5 @@ from .pages.settings_category_page import SettingsCategoryPage
 from .utils.header_widget import HeaderWidget
 from .utils.logging_settings_widget import LoggingSettingsWidget
 from .utils.settings_item_card import SettingsItemCard
+from .utils.page_header import PageHeader
 from .utils.utils_gui import get_text_color, get_title_font

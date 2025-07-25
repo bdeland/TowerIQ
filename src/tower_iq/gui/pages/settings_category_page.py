@@ -10,7 +10,7 @@ color and font updates.
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import QWidget, QVBoxLayout, QScrollArea
 from qfluentwidgets import (FluentIcon, ComboBox, SwitchButton, LineEdit, SpinBox,
-                            Theme, setTheme, qconfig, TitleLabel, BodyLabel)
+                            Theme, setTheme, qconfig, BodyLabel)
 
 from ..utils.settings_item_card import SettingsItemCard
 from ..utils.content_page import ContentPage

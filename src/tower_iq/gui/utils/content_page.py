@@ -11,6 +11,8 @@ from PyQt6.QtWidgets import QVBoxLayout, QHBoxLayout, QWidget, QLabel
 from PyQt6.QtGui import QFont
 from qfluentwidgets import BodyLabel, CaptionLabel, PushButton, FluentIcon
 
+from .page_header import PageHeader
+
 
 class ContentPage(QWidget):
     """
@@ -54,18 +56,9 @@ class ContentPage(QWidget):
         layout.setContentsMargins(24, 24, 24, 24)
         layout.setSpacing(20)
         
-        # Title
-        self.title_label = BodyLabel(self.title)
-        self.title_label.setObjectName("title_label")
-        layout.addWidget(self.title_label)
-        
-        # Description (only add if provided)
-        if self.description:
-            self.desc_label = CaptionLabel(self.description)
-            self.desc_label.setObjectName("description_label")
-            layout.addWidget(self.desc_label)
-        else:
-            self.desc_label = None
+        # Use the new PageHeader component
+        self.page_header = PageHeader(self.title, self.description)
+        layout.addWidget(self.page_header)
         
         # Create a flexible container widget for the main content
         # Subclasses can add any layout or widgets they want to this container
@@ -87,28 +80,11 @@ class ContentPage(QWidget):
     def set_title(self, title: str):
         """Update the title text."""
         self.title = title
-        if hasattr(self, 'title_label'):
-            self.title_label.setText(title)
+        if hasattr(self, 'page_header'):
+            self.page_header.set_title(title)
             
     def set_description(self, description: str):
         """Update the description text."""
         self.description = description
-        layout = self.layout()
-        if not layout or not isinstance(layout, QVBoxLayout):
-            return
-            
-        if description:
-            # Create description label if it doesn't exist
-            if not self.desc_label:
-                self.desc_label = CaptionLabel(description)
-                self.desc_label.setObjectName("description_label")
-                # Insert after title, before content
-                layout.insertWidget(1, self.desc_label)
-            else:
-                self.desc_label.setText(description)
-        else:
-            # Remove description label if it exists
-            if self.desc_label:
-                layout.removeWidget(self.desc_label)
-                self.desc_label.setParent(None)
-                self.desc_label = None
+        if hasattr(self, 'page_header'):
+            self.page_header.set_description(description)
