@@ -38,21 +38,26 @@ class MainWindow(FluentWindow):
         
         self.init_window()
 
-        # Layout Restructuring
-        original_stack = self.stackedWidget
-        parent_widget = original_stack.parent()
-        if isinstance(parent_widget, QWidget):
-            parent_layout = parent_widget.layout()
-            if parent_layout:
-                self.header = HeaderWidget(self)
-                new_content_container = QWidget()
-                new_content_container.setStyleSheet("border-radius: 0px !important;")
-                container_layout = QVBoxLayout(new_content_container)
-                container_layout.setContentsMargins(0, 0, 0, 0)
-                container_layout.setSpacing(0)
-                container_layout.addWidget(self.header)
-                parent_layout.replaceWidget(original_stack, new_content_container)
-                container_layout.addWidget(original_stack)
+        # Layout Restructuring - Simplified to avoid layout deletion issues
+        try:
+            original_stack = self.stackedWidget
+            parent_widget = original_stack.parent()
+            if isinstance(parent_widget, QWidget):
+                parent_layout = parent_widget.layout()
+                if parent_layout:
+                    self.header = HeaderWidget(self)
+                    new_content_container = QWidget()
+                    new_content_container.setStyleSheet("border-radius: 0px !important;")
+                    container_layout = QVBoxLayout(new_content_container)
+                    container_layout.setContentsMargins(0, 0, 0, 0)
+                    container_layout.setSpacing(0)
+                    container_layout.addWidget(self.header)
+                    parent_layout.replaceWidget(original_stack, new_content_container)
+                    container_layout.addWidget(original_stack)
+        except Exception as e:
+            print(f"Layout restructuring failed: {e}")
+            # Fallback: just create the header without restructuring
+            self.header = HeaderWidget(self)
         
         self._create_and_add_pages()
         self._connect_signals()
@@ -75,7 +80,6 @@ class MainWindow(FluentWindow):
         # Settings category pages
         self.appearance_settings_page = AppearanceSettingsPage(self.config_manager, self)
         self.appearance_settings_page.setObjectName('settings_appearance')
-        # ... (rest of the page creations are the same)
         self.logging_settings_page = LoggingSettingsPage(self.config_manager, self)
         self.logging_settings_page.setObjectName('settings_logging')
         self.connection_settings_page = ConnectionSettingsPage(self.config_manager, self)
@@ -107,7 +111,7 @@ class MainWindow(FluentWindow):
         for page in [self.appearance_settings_page, self.logging_settings_page, self.connection_settings_page,
                      self.database_settings_page, self.frida_settings_page, self.advanced_settings_page]:
             self.stackedWidget.addWidget(page)
-
+        
     def _connect_signals(self):
         """Connects all application signals."""
         self.stackedWidget.currentChanged.connect(self.on_current_interface_changed)
@@ -131,7 +135,6 @@ class MainWindow(FluentWindow):
         self.resize(1200, 800)
         self.setWindowTitle('TowerIQ')
 
-    # ... (All other methods like on_current_interface_changed, closeEvent, etc., remain unchanged) ...
     def on_current_interface_changed(self, index: int):
         widget = self.stackedWidget.widget(index)
         if not widget or not hasattr(self, 'header'):

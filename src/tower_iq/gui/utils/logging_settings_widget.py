@@ -7,16 +7,16 @@ in a user-friendly way with category-based controls.
 
 from PyQt6.QtWidgets import (
     QVBoxLayout, QHBoxLayout, QGroupBox, QLabel, QCheckBox, 
-    QComboBox, QSpinBox, QPushButton, QTextEdit, QFrame
+    QComboBox, QSpinBox, QPushButton, QTextEdit, QFrame, QWidget
 )
 from PyQt6.QtCore import pyqtSignal
 from qfluentwidgets import SwitchButton, ComboBox, SpinBox, PushButton
 
-from .utils_gui import ThemeAwareWidget, get_title_font, get_text_color
+from .utils_gui import get_title_font, get_text_color
 from ...core.logging_config import get_all_available_categories, LOG_SOURCE_CATEGORIES
 
 
-class LoggingSettingsWidget(ThemeAwareWidget):
+class LoggingSettingsWidget(QWidget):
     """
     Widget for configuring logging settings with category-based controls.
     """

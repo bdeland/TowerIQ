@@ -63,6 +63,30 @@ TitleLabel {{
 }}
 """
 
+# Styles for the reusable ContentPage component
+CONTENT_PAGE_QSS = """
+QWidget#content_page {{
+    background-color: transparent;
+    border: none;
+}}
+QWidget#content_page BodyLabel#title_label {{
+    background-color: transparent;
+    font-size: 28px;
+    font-weight: 600;
+    padding-top: 4px;
+    padding-bottom: 4px;
+    margin-bottom: 8px;
+}}
+QWidget#content_page CaptionLabel#description_label {{
+    background-color: transparent;
+    margin-bottom: 16px;
+}}
+QWidget#content_page QWidget#content_widget {{
+    background-color: transparent;
+    border: none;
+}}
+"""
+
 # --- Theme Color Definitions ---
 # This dictionary structure is correct.
 THEME_COLORS = {
@@ -97,5 +121,6 @@ def get_themed_stylesheet() -> str:
     return (
         SETTINGS_CATEGORY_CARD_QSS.format(**theme_palette) +
         SETTINGS_ITEM_CARD_QSS.format(**theme_palette) +
-        SETTINGS_CATEGORY_PAGE_QSS.format(**theme_palette)
+        SETTINGS_CATEGORY_PAGE_QSS.format(**theme_palette) +
+        CONTENT_PAGE_QSS.format(**theme_palette)
     )

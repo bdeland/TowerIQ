@@ -6,10 +6,8 @@ from qfluentwidgets.common.style_sheet import StyleSheetManager
 
 # Import stylesheets from the stylesheets package
 from ..stylesheets import (
-    SETTINGS_PAGE_LIGHT_QSS,
-    SETTINGS_PAGE_DARK_QSS,
-    SETTINGS_CONTENT_WIDGET_LIGHT_QSS,
-    SETTINGS_CONTENT_WIDGET_DARK_QSS,
+    get_themed_stylesheet,
+    THEME_COLORS,
     LIGHT_THEME_COLORS,
     DARK_THEME_COLORS
 )
@@ -53,40 +51,4 @@ def apply_custom_style_sheet(widget: QWidget, light_qss: str, dark_qss: str):
     else:
         widget.setStyleSheet(light_qss)
 
-class ThemeAwareWidget(QWidget):
-    """
-    A base QWidget that automatically connects to the theme change signal
-    and calls an update method.
-    
-    Subclasses MUST implement the `update_theme_styles` method.
-    """
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        # Store custom style sheets for theme changes
-        self._light_qss = None
-        self._dark_qss = None
-        # Automatically connect to the theme change signal
-        qconfig.themeChanged.connect(self.update_theme_styles)
 
-    def update_theme_styles(self):
-        """
-        This method is called automatically when the theme changes.
-        Subclasses must implement this method to update their specific styles.
-        """
-        raise NotImplementedError("Subclasses must implement 'update_theme_styles'")
-        
-    def apply_fluent_style(self, style_sheet: FluentStyleSheet):
-        """Apply a Fluent style sheet to this widget."""
-        apply_fluent_style_sheet(self, style_sheet)
-        
-    def apply_custom_style(self, light_qss: str, dark_qss: str):
-        """Apply custom style sheet to this widget."""
-        # Store the style sheets for theme changes
-        self._light_qss = light_qss
-        self._dark_qss = dark_qss
-        apply_custom_style_sheet(self, light_qss, dark_qss)
-        
-    def _reapply_custom_style(self):
-        """Reapply custom style sheets when theme changes."""
-        if self._light_qss and self._dark_qss:
-            apply_custom_style_sheet(self, self._light_qss, self._dark_qss)

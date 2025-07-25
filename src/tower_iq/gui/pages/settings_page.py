@@ -9,10 +9,8 @@ from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import QVBoxLayout, QHBoxLayout, QLabel, QWidget, QGridLayout, QStackedWidget, QGroupBox
 from PyQt6.QtGui import QFont
 from qfluentwidgets import FluentIcon
-
-from ..utils.utils_gui import get_title_font, get_text_color
 from ..utils.settings_category_card import SettingsCategoryCard
-
+from ..utils.content_page import ContentPage
 
 class SettingsPage(QWidget):
     """
@@ -31,12 +29,6 @@ class SettingsPage(QWidget):
     def __init__(self, config_manager=None, parent=None):
         super().__init__(parent)
         self.config_manager = config_manager
-        
-        # Debug: Check config_manager type
-        if config_manager is not None:
-            print(f"SettingsPage: config_manager type: {type(config_manager)}")
-            print(f"SettingsPage: config_manager value: {config_manager}")
-        
         self.setup_ui()
         self.update_theme_styles()
         
@@ -44,7 +36,7 @@ class SettingsPage(QWidget):
         """Set up the settings page's user interface."""
         layout = QVBoxLayout(self)
         layout.setContentsMargins(24, 24, 24, 24)
-        layout.setSpacing(20)
+        layout.setSpacing(0)
         
         # Stacked widget to switch between main view and category pages
         self.stacked_widget = QStackedWidget()
@@ -56,30 +48,19 @@ class SettingsPage(QWidget):
         
     def create_main_view(self) -> QWidget:
         """Create the main settings view with category cards."""
-        widget = QWidget()
-        layout = QVBoxLayout(widget)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(24)
+        # Use the new ContentPage component
+        content_page = ContentPage(
+            title="Settings",
+            description="Customize TowerIQ to your preferences"
+        )
         
-        # Title
-        self.title_label = QLabel("Settings")
-        self.title_label.setFont(get_title_font())
-        self.title_label.setStyleSheet(f"color: {get_text_color()};")
-        layout.addWidget(self.title_label)
-        
-        # Description
-        self.desc_label = QLabel("Customize TowerIQ to your preferences")
-        desc_font = QFont()
-        desc_font.setPointSize(12)
-        self.desc_label.setFont(desc_font)
-        self.desc_label.setStyleSheet(f"color: {get_text_color()}; opacity: 0.7;")
-        layout.addWidget(self.desc_label)
-        
-        # Cards grid
+        # Create the cards grid and add it to the content container
         cards_widget = self.create_cards_grid()
-        layout.addWidget(cards_widget, 1)  # Stretch to fill available space
+        content_container = content_page.get_content_container()
+        layout = QVBoxLayout(content_container)
+        layout.addWidget(cards_widget)
         
-        return widget
+        return content_page
         
     def create_cards_grid(self) -> QWidget:
         """Create the grid of settings category cards."""
@@ -168,13 +149,7 @@ class SettingsPage(QWidget):
         
     def update_theme_styles(self):
         """Update theme-dependent styles."""
-        text_color = get_text_color()
-        
-        # Update title and description colors
-        if hasattr(self, 'title_label'):
-            self.title_label.setStyleSheet(f"color: {text_color};")
-        
-        if hasattr(self, 'desc_label'):
-            self.desc_label.setStyleSheet(f"color: {text_color}; opacity: 0.7;") 
+        # ContentPage handles its own theme styling
+        pass 
 
     

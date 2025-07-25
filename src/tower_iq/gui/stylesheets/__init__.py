@@ -5,55 +5,31 @@ This package contains all the stylesheet definitions for the TowerIQ GUI compone
 Each stylesheet is organized by component and theme (light/dark).
 """
 
-from .settings_pages import (
-    SETTINGS_PAGE_LIGHT_QSS,
-    SETTINGS_PAGE_DARK_QSS,
-    SETTINGS_CONTENT_WIDGET_LIGHT_QSS,
-    SETTINGS_CONTENT_WIDGET_DARK_QSS
+from .stylesheets import (
+    get_themed_stylesheet,
+    THEME_COLORS,
+    SETTINGS_CATEGORY_CARD_QSS,
+    SETTINGS_ITEM_CARD_QSS,
+    SETTINGS_CATEGORY_PAGE_QSS,
+    CONTENT_PAGE_QSS
 )
 
-from .settings_cards import (
-    SETTINGS_CARD_LIGHT_QSS,
-    SETTINGS_CARD_DARK_QSS
-)
-
-from .header import (
-    HEADER_WIDGET_LIGHT_QSS,
-    HEADER_WIDGET_DARK_QSS
-)
-
-from .common import (
-    LIGHT_THEME_COLORS,
-    DARK_THEME_COLORS,
-    COMMON_LABEL_LIGHT_QSS,
-    COMMON_LABEL_DARK_QSS,
-    COMMON_WIDGET_LIGHT_QSS,
-    COMMON_WIDGET_DARK_QSS
-)
-
-from .stylesheets import get_themed_stylesheet
+# Extract theme colors for convenience
+LIGHT_THEME_COLORS = THEME_COLORS['light']
+DARK_THEME_COLORS = THEME_COLORS['dark']
 
 __all__ = [
-    # Settings pages
-    'SETTINGS_PAGE_LIGHT_QSS',
-    'SETTINGS_PAGE_DARK_QSS', 
-    'SETTINGS_CONTENT_WIDGET_LIGHT_QSS',
-    'SETTINGS_CONTENT_WIDGET_DARK_QSS',
+    # Main function
+    'get_themed_stylesheet',
     
-    # Settings cards
-    'SETTINGS_CARD_LIGHT_QSS',
-    'SETTINGS_CARD_DARK_QSS',
-    
-    # Header
-    'HEADER_WIDGET_LIGHT_QSS',
-    'HEADER_WIDGET_DARK_QSS',
-    
-    # Common
+    # Theme colors
+    'THEME_COLORS',
     'LIGHT_THEME_COLORS',
     'DARK_THEME_COLORS',
-    'COMMON_LABEL_LIGHT_QSS',
-    'COMMON_LABEL_DARK_QSS',
-    'COMMON_WIDGET_LIGHT_QSS',
-    'COMMON_WIDGET_DARK_QSS',
-    'get_themed_stylesheet'
+    
+    # Individual stylesheets
+    'SETTINGS_CATEGORY_CARD_QSS',
+    'SETTINGS_ITEM_CARD_QSS',
+    'SETTINGS_CATEGORY_PAGE_QSS',
+    'CONTENT_PAGE_QSS'
 ] 

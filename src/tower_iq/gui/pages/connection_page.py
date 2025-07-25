@@ -6,7 +6,8 @@ process selection, and hook activation in the TowerIQ application.
 """
 
 import structlog
-from ..utils.utils_gui import ThemeAwareWidget, get_text_color, get_title_font
+
+from ..utils.content_page import ContentPage
 from PyQt6.QtWidgets import (
     QHBoxLayout, QVBoxLayout, QLabel, QStackedWidget, QWidget,
     QGroupBox, QTextEdit, QFrame, QHeaderView, QTableWidgetItem
@@ -51,7 +52,7 @@ class CustomTableItemDelegate(TableItemDelegate):
             option.palette.setColor(QPalette.ColorRole.Text, color)
             option.palette.setColor(QPalette.ColorRole.HighlightedText, color)
 
-class ConnectionPanel(ThemeAwareWidget):
+class ConnectionPanel(QWidget):
     # --- Signals for upward communication ---
     scan_devices_requested = pyqtSignal()
     connect_device_requested = pyqtSignal(str)
@@ -671,7 +672,7 @@ class ConnectionPanel(ThemeAwareWidget):
         """Public method to trigger a device scan (emits scan_devices_requested)."""
         self.scan_devices_requested.emit()
 
-class SettingsAndLogsPanel(ThemeAwareWidget):
+class SettingsAndLogsPanel(QWidget):
     def __init__(self, config_manager, log_signal=None, parent=None):
         super().__init__(parent)
         self.config_manager = config_manager
@@ -723,12 +724,10 @@ class SettingsAndLogsPanel(ThemeAwareWidget):
             pass  # InfoBar creation might fail in some contexts
 
     def update_theme_styles(self):
-        color = get_text_color()
-        self.auto_connect_switch.setStyleSheet(f"color: {color};")
-        self.log_viewer.setStyleSheet(f"color: {color}; background: transparent;")
+        # Theme-aware widgets handle their own styling
         self.setStyleSheet(f"background: transparent;")
 
-class ConnectionPage(ThemeAwareWidget):
+class ConnectionPage(QWidget):
     def __init__(self, session_manager, config_manager, log_signal=None, parent=None):
         super().__init__(parent)
         self.session_manager = session_manager

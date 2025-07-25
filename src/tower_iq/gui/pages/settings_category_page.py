@@ -8,40 +8,34 @@ color and font updates.
 """
 
 from PyQt6.QtCore import Qt
-from PyQt6.QtWidgets import QWidget, QVBoxLayout, QScrollArea, QFrame
+from PyQt6.QtWidgets import QWidget, QVBoxLayout, QScrollArea
 from qfluentwidgets import (FluentIcon, ComboBox, SwitchButton, LineEdit, SpinBox,
                             Theme, setTheme, qconfig, TitleLabel, BodyLabel)
 
 from ..utils.settings_item_card import SettingsItemCard
+from ..utils.content_page import ContentPage
 
 
-class SettingsCategoryPage(QWidget):
+class SettingsCategoryPage(ContentPage):
     """
     Base class for settings category pages.
 
     Features:
-    - Standard header with a theme-aware TitleLabel.
-    - Scrollable content area for holding setting cards.
-    - Styling is handled globally via the main application stylesheet.
+    - Inherits from ContentPage for consistent title + description + content layout
+    - Scrollable content area for holding setting cards
+    - Styling is handled globally via the main application stylesheet
     """
     
     def __init__(self, category_title: str, config_manager=None, parent: QWidget | None = None):
-        super().__init__(parent)
+        super().__init__(title=category_title, description="", parent=parent)
         self.category_title = category_title
         self.config_manager = config_manager
         
-        self.setup_ui()
+        # Create scrollable content area
+        self._create_scrollable_content()
         
-    def setup_ui(self):
-        """Set up the category page's user interface."""
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(10, 0, 10, 25)
-        layout.setSpacing(25)
-        
-        # Header: Use a theme-aware TitleLabel for automatic styling
-        self.title_label = TitleLabel(self.category_title, self)
-        layout.addWidget(self.title_label)
-        
+    def _create_scrollable_content(self):
+        """Create a scrollable content area for settings cards."""
         # Content section (scrollable)
         scroll_area = QScrollArea(self)
         scroll_area.setWidgetResizable(True)
@@ -51,16 +45,19 @@ class SettingsCategoryPage(QWidget):
 
         self.content_widget = QWidget()
         self.content_widget.setObjectName("content_widget")
-        self.content_widget.setStyleSheet("border: 0px transparent;")
-        self.content_widget.setStyleSheet("background-color: transparent;")
+        self.content_widget.setStyleSheet("border: 0px transparent; background-color: transparent;")
         self.content_layout = QVBoxLayout(self.content_widget)
         self.content_layout.setContentsMargins(0, 0, 0, 0)
         self.content_layout.setSpacing(10)
         self.content_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
         
         scroll_area.setWidget(self.content_widget)
-        layout.addWidget(scroll_area, 1)
-
+        
+        # Add the scroll area to the content container from the base class
+        content_container = self.get_content_container()
+        layout = QVBoxLayout(content_container)
+        layout.addWidget(scroll_area)
+        
 
 class AppearanceSettingsPage(SettingsCategoryPage):
     """Appearance & Theme settings page."""

@@ -1,10 +1,9 @@
 from PyQt6.QtCore import Qt
-from PyQt6.QtWidgets import QFrame, QHBoxLayout, QVBoxLayout
+from PyQt6.QtWidgets import QFrame, QHBoxLayout, QVBoxLayout, QWidget
 from qfluentwidgets import BreadcrumbBar, SearchLineEdit, isDarkTheme
-from .utils_gui import ThemeAwareWidget, get_border_color
-from ..stylesheets import HEADER_WIDGET_LIGHT_QSS, HEADER_WIDGET_DARK_QSS
+from .utils_gui import get_border_color
 
-class HeaderWidget(ThemeAwareWidget):
+class HeaderWidget(QWidget):
     """A widget for the header of the main window, containing breadcrumbs and a search bar."""
 
     def __init__(self, parent=None):
@@ -39,8 +38,6 @@ class HeaderWidget(ThemeAwareWidget):
         self.update_theme_styles()  # Set initial style
 
     def update_theme_styles(self):
-        # Apply stylesheet based on theme
-        if isDarkTheme():
-            self.setStyleSheet(HEADER_WIDGET_DARK_QSS)
-        else:
-            self.setStyleSheet(HEADER_WIDGET_LIGHT_QSS)
+        # Header styles are now handled by QFluentWidgets automatically
+        # No custom stylesheet needed
+        pass

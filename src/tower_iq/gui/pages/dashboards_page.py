@@ -1,34 +1,36 @@
-from PyQt6.QtWidgets import QVBoxLayout, QLabel
-from ..utils.utils_gui import ThemeAwareWidget, get_title_font, get_text_color
+from PyQt6.QtWidgets import QVBoxLayout, QLabel, QWidget
+from ..utils.content_page import ContentPage
 from PyQt6.QtCore import pyqtSlot
 
-class DashboardsPage(ThemeAwareWidget):
-    def __init__(self, session_manager, config_manager, parent=None):
-        super().__init__(parent)
+class DashboardsPage(ContentPage):
+    def __init__(self, session_manager, config_manager, parent: QWidget | None = None):
+        super().__init__(
+            title="Dashboards",
+            description="Monitor game metrics and performance data",
+            parent=parent
+        )
         self.session_manager = session_manager
         self.config_manager = config_manager
-        self._layout = QVBoxLayout(self)
-        self.status_label = QLabel(self)
-        self.round_label = QLabel(self)
-        self.label = QLabel("Dashboards Page", self)
-        self._layout.addWidget(self.label)
-        self._layout.addWidget(self.status_label)
-        self._layout.addWidget(self.round_label)
-        self._layout.addStretch()
-        self.update_theme_styles()  # Set initial style
+        
+        # Create status labels
+        self.status_label = QLabel("⚫ Disconnected")
+        self.round_label = QLabel("No Active Round")
+        
+        # Get the content container from the base class
+        content_container = self.get_content_container()
+        layout = QVBoxLayout(content_container)
 
+        # Add widgets directly to the content layout
+        layout.addWidget(self.status_label)
+        layout.addWidget(self.round_label)
+        layout.addStretch(1)
+        
         # Connect signals for reactive updates
         self.session_manager.connection_state_changed.connect(self.on_connection_state_changed)
         self.session_manager.round_status_changed.connect(self.on_round_status_changed)
         # Set initial state
         self.on_connection_state_changed(self.session_manager.is_hook_active)
         self.on_round_status_changed(self.session_manager.is_round_active)
-
-    def update_theme_styles(self):
-        self.label.setFont(get_title_font())
-        self.label.setStyleSheet(f"color: {get_text_color()};")
-        self.status_label.setStyleSheet(f"color: {get_text_color()};")
-        self.round_label.setStyleSheet(f"color: {get_text_color()};")
 
     @pyqtSlot(bool)
     def on_connection_state_changed(self, is_active):

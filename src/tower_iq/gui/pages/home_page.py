@@ -6,22 +6,21 @@ This module provides the main home page widget for the application.
 
 from PyQt6.QtWidgets import QWidget, QVBoxLayout
 from qfluentwidgets import TitleLabel
+from ..utils.content_page import ContentPage
 
-class HomePage(QWidget):
+class HomePage(ContentPage):
     """
     The main landing page of the application.
 
     Its style is managed globally by the application's main stylesheet.
     """
     def __init__(self, parent: QWidget | None = None):
-        super().__init__(parent)
-
-        # --- UI Setup ---
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(36, 28, 36, 36)
-
-        # Use a theme-aware TitleLabel, which is automatically styled
-        title = TitleLabel("Home Page", self)
-
-        layout.addWidget(title)
-        layout.addStretch()
+        super().__init__(
+            title="Welcome to TowerIQ",
+            description="Advanced mobile game analysis platform for analyzing and monitoring mobile games using Frida instrumentation",
+            parent=parent
+        )
+        # Get the content container from the base class and add a stretch
+        content_container = self.get_content_container()
+        layout = QVBoxLayout(content_container)
+        layout.addStretch(1)
