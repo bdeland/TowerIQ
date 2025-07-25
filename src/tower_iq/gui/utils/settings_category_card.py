@@ -33,8 +33,8 @@ class SettingsCategoryCard(CardWidget):
         
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         
-    def mousePressEvent(self, event):
-        """Handle mouse press events to emit the clicked signal."""
+    def mouseReleaseEvent(self, event):
+        """Handle mouse release events to emit the clicked signal with category."""
         if event.button() == Qt.MouseButton.LeftButton:
             self.clicked.emit(self.category)
-        super().mousePressEvent(event)
+        # Don't call super().mouseReleaseEvent(event) to avoid emitting the base class clicked signal
