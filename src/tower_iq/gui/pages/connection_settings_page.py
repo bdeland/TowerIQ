@@ -8,8 +8,8 @@ from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import QWidget, QVBoxLayout, QScrollArea
 from qfluentwidgets import FluentIcon, PushButton
 
-from ..utils.settings_item_card import SettingsItemCard
-from ..utils.expandable_settings_card import ExpandableSettingsCard, SubsettingItem
+from ..utils.expandable_settings_card import ExpandableCardGroup, SubsettingItem
+from ..utils.utils_gui import rotate_icon
 
 
 class ConnectionSettingsPage(QWidget):
@@ -51,11 +51,13 @@ class ConnectionSettingsPage(QWidget):
         
     def setup_content(self, content_layout: QVBoxLayout):
         """Set up the connection settings content."""
-        # Create the expandable auto-connect card
-        self.auto_connect_card = ExpandableSettingsCard(
+        # Create the expandable auto-connect card group
+        self.auto_connect_card = ExpandableCardGroup(
             title="Auto-Connect",
             content="Automatically connect to an Android emulator and process on startup",
-            icon=FluentIcon.CONNECT
+            header_icon=FluentIcon.CONNECT,
+            expand_icon=FluentIcon.ARROW_DOWN,
+            collapse_icon=rotate_icon(FluentIcon.ARROW_DOWN,16,16,180),
         )
         
         # Set current value from config
@@ -66,26 +68,22 @@ class ConnectionSettingsPage(QWidget):
         # Connect toggle signal
         self.auto_connect_card.toggle_changed.connect(self.on_auto_connect_changed)
         
-        # Create Device subsetting
+        # Create Device subsetting card
         self.device_select_button = PushButton("Select", self)
         self.device_select_button.clicked.connect(self.on_device_select_clicked)
         
-        self.device_subsetting = SubsettingItem(
-            label="Device",
-            control_widget=self.device_select_button
-        )
-        self.auto_connect_card.add_subsetting(self.device_subsetting)
+        self.device_card = SubsettingItem("Device", self.device_select_button)
         
-        # Create Process subsetting
+        # Create Process subsetting card
         self.process_select_button = PushButton("Select", self)
         self.process_select_button.clicked.connect(self.on_process_select_clicked)
         self.process_select_button.setEnabled(False)  # Initially disabled
         
-        self.process_subsetting = SubsettingItem(
-            label="Process",
-            control_widget=self.process_select_button
-        )
-        self.auto_connect_card.add_subsetting(self.process_subsetting)
+        self.process_card = SubsettingItem("Process", self.process_select_button)
+        
+        # Add the subsetting cards to the expandable group
+        self.auto_connect_card.add_card(self.device_card)
+        self.auto_connect_card.add_card(self.process_card)
         
         # Load saved device and process selections
         self.load_saved_selections()

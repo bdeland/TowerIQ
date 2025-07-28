@@ -90,38 +90,20 @@ SettingsItemCard CaptionLabel {{
 }}
 """
 
-# Styles for the expandable settings card
-EXPANDABLE_SETTINGS_CARD_QSS = """
-ExpandableSettingsCard {{
-    background-color: {sub_card_bg};
-    border: 1px solid {sub_card_border};
+# Styles for the expandable card group (simplified)
+EXPANDABLE_CARD_GROUP_QSS = """
+#HeaderCard {{
     border-radius: 8px;
 }}
-ExpandableSettingsCard BodyLabel {{
-    background-color: transparent;
-    font-size: 14px;
-    font-weight: 500;
-}}
-ExpandableSettingsCard CaptionLabel {{
-    background-color: transparent;
-    font-size: 12px;
-}}
-QWidget#expandable_content_frame {{
-    background-color: transparent;
-    border: none;
-}}
-"""
 
-# Styles for subsetting items
-SUBSETTING_ITEM_QSS = """
-SubsettingItem {{
+#HeaderCard BodyLabel {{
     background-color: transparent;
     border: none;
 }}
-SubsettingItem BodyLabel#subsetting_label {{
+
+#HeaderCard CaptionLabel {{
     background-color: transparent;
-    font-size: 13px;
-    font-weight: 400;
+    border: none;
 }}
 """
 
@@ -218,8 +200,7 @@ def get_themed_stylesheet() -> str:
     return (
         SETTINGS_CATEGORY_CARD_QSS.format(**theme_palette) +
         SETTINGS_ITEM_CARD_QSS.format(**theme_palette) +
-        EXPANDABLE_SETTINGS_CARD_QSS.format(**theme_palette) +
-        SUBSETTING_ITEM_QSS.format(**theme_palette) +
+        EXPANDABLE_CARD_GROUP_QSS.format(**theme_palette) +
         SETTINGS_CATEGORY_PAGE_QSS.format(**theme_palette) +
         PAGE_HEADER_QSS.format(**theme_palette) +
         CONTENT_PAGE_QSS.format(**theme_palette) +
