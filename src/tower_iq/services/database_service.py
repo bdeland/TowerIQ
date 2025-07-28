@@ -7,6 +7,7 @@ used by the embedded application architecture.
 
 import json
 import sqlite3
+import os
 from typing import Any, Optional, Dict, List, cast
 from pathlib import Path
 from datetime import datetime
@@ -59,6 +60,7 @@ class DatabaseService:
             logger: Logger instance for this service
             db_path: Optional override for the database file path
         """
+        self.config = config  # Store reference to config manager
         self.logger = logger.bind(source="DatabaseService")
         if db_path:
             self.db_path = db_path
@@ -212,23 +214,28 @@ class DatabaseService:
                     key, value = row
                     # Try to determine the type
                     value_type = 'string'
-                    try:
-                        # Try to parse as JSON
-                        json.loads(value)
-                        value_type = 'json'
-                    except (ValueError, json.JSONDecodeError):
+                    
+                    # First check for boolean values
+                    if isinstance(value, str) and value.lower() in ('true', 'false', '1', '0'):
+                        value_type = 'bool'
+                    else:
                         try:
-                            # Try to parse as int
-                            int(value)
-                            value_type = 'int'
-                        except ValueError:
+                            # Try to parse as JSON
+                            json.loads(value)
+                            value_type = 'json'
+                        except (ValueError, json.JSONDecodeError):
                             try:
-                                # Try to parse as float
-                                float(value)
-                                value_type = 'float'
+                                # Try to parse as int
+                                int(value)
+                                value_type = 'int'
                             except ValueError:
-                                # Default to string
-                                value_type = 'string'
+                                try:
+                                    # Try to parse as float
+                                    float(value)
+                                    value_type = 'float'
+                                except ValueError:
+                                    # Default to string
+                                    value_type = 'string'
                     
                     # Determine category
                     category = 'general'
@@ -784,3 +791,369 @@ class DatabaseService:
             cursor = self.sqlite_conn.execute("SELECT key, value FROM settings")
             rows = cursor.fetchall()
             return [{'key': row[0], 'value': row[1]} for row in rows]
+
+    @db_operation(default_return_value={})
+    def get_database_statistics(self) -> dict:
+        """
+        Collects comprehensive database statistics including file metrics and table row counts.
+        Returns a dictionary with database and file information.
+        """
+        stats = {
+            'file_path': self.db_path,
+            'file_size': os.path.getsize(self.db_path) if os.path.exists(self.db_path) else 0,
+            'wal_file_size': os.path.getsize(f"{self.db_path}-wal") if os.path.exists(f"{self.db_path}-wal") else 0,
+            'created_date': datetime.fromtimestamp(os.path.getctime(self.db_path)).isoformat() if os.path.exists(self.db_path) else None,
+            'modified_date': datetime.fromtimestamp(os.path.getmtime(self.db_path)).isoformat() if os.path.exists(self.db_path) else None,
+            'sqlite_version': sqlite3.sqlite_version,
+            'schema_version': self.get_setting('db_version'),
+            'last_backup_date': self.get_setting('last_backup_timestamp'),
+            'connection_status': 'Connected' if self.sqlite_conn else 'Disconnected',
+            'total_rows': 0,  # To be calculated below
+            'table_rows': {
+                'runs': 0,
+                'metrics': 0,
+                'events': 0,
+                'logs': 0,
+            }
+        }
+
+        # Query row counts for each table
+        if self.sqlite_conn:
+            cursor = self.sqlite_conn.cursor()
+            total_rows = 0
+            for table in stats['table_rows']:
+                try:
+                    cursor.execute(f"SELECT COUNT(*) FROM {table}")
+                    count = cursor.fetchone()[0]
+                    stats['table_rows'][table] = count
+                    total_rows += count
+                except sqlite3.OperationalError:
+                    # Table might not exist, which is fine
+                    stats['table_rows'][table] = 'N/A'
+
+            stats['total_rows'] = total_rows
+        
+        return stats
+
+    @db_operation(default_return_value=[])
+    def validate_database(self, perform_fixes: bool = False) -> List[Dict[str, Any]]:
+        """
+        Validates the database integrity and optionally performs fixes.
+        
+        Args:
+            perform_fixes: If True, attempts to fix issues found
+            
+        Returns:
+            List of validation results with status and description
+        """
+        results = []
+        
+        if not self.sqlite_conn:
+            results.append({
+                'status': 'error',
+                'message': 'Database connection not available'
+            })
+            return results
+        
+        try:
+            # Check database integrity
+            cursor = self.sqlite_conn.cursor()
+            cursor.execute("PRAGMA integrity_check;")
+            integrity_result = cursor.fetchone()[0]
+            
+            if integrity_result == "ok":
+                results.append({
+                    'status': 'success',
+                    'message': 'Database integrity check passed'
+                })
+            else:
+                results.append({
+                    'status': 'error',
+                    'message': f'Database integrity check failed: {integrity_result}'
+                })
+                
+                if perform_fixes:
+                    # Try to recover from integrity issues
+                    try:
+                        cursor.execute("VACUUM;")
+                        results.append({
+                            'status': 'info',
+                            'message': 'Attempted database recovery with VACUUM'
+                        })
+                    except Exception as e:
+                        results.append({
+                            'status': 'error',
+                            'message': f'Failed to recover database: {str(e)}'
+                        })
+            
+            # Check for orphaned records
+            orphaned_metrics = cursor.execute(
+                "SELECT COUNT(*) FROM metrics WHERE run_id NOT IN (SELECT run_id FROM runs)"
+            ).fetchone()[0]
+            
+            if orphaned_metrics > 0:
+                results.append({
+                    'status': 'warning',
+                    'message': f'Found {orphaned_metrics} orphaned metric records'
+                })
+                
+                if perform_fixes:
+                    try:
+                        cursor.execute("DELETE FROM metrics WHERE run_id NOT IN (SELECT run_id FROM runs)")
+                        results.append({
+                            'status': 'info',
+                            'message': f'Removed {orphaned_metrics} orphaned metric records'
+                        })
+                    except Exception as e:
+                        results.append({
+                            'status': 'error',
+                            'message': f'Failed to remove orphaned records: {str(e)}'
+                        })
+            
+            # Check WAL file size
+            wal_path = f"{self.db_path}-wal"
+            if os.path.exists(wal_path):
+                wal_size = os.path.getsize(wal_path)
+                if wal_size > 10 * 1024 * 1024:  # 10MB
+                    results.append({
+                        'status': 'warning',
+                        'message': f'WAL file is large ({wal_size / 1024 / 1024:.1f}MB)'
+                    })
+                    
+                    if perform_fixes:
+                        try:
+                            cursor.execute("PRAGMA wal_checkpoint(TRUNCATE);")
+                            results.append({
+                                'status': 'info',
+                                'message': 'Truncated WAL file'
+                            })
+                        except Exception as e:
+                            results.append({
+                                'status': 'error',
+                                'message': f'Failed to truncate WAL: {str(e)}'
+                            })
+            
+            # Check for missing indexes
+            cursor.execute("PRAGMA index_list(metrics);")
+            indexes = [row[1] for row in cursor.fetchall()]
+            
+            if 'idx_metrics_run_id' not in indexes:
+                results.append({
+                    'status': 'warning',
+                    'message': 'Missing index on metrics.run_id'
+                })
+                
+                if perform_fixes:
+                    try:
+                        cursor.execute("CREATE INDEX IF NOT EXISTS idx_metrics_run_id ON metrics(run_id);")
+                        results.append({
+                            'status': 'info',
+                            'message': 'Created missing index on metrics.run_id'
+                        })
+                    except Exception as e:
+                        results.append({
+                            'status': 'error',
+                            'message': f'Failed to create index: {str(e)}'
+                        })
+            
+            # Check for settings with incorrect value types
+            # Use ConfigurationManager's detection if available
+            if hasattr(self, 'config') and self.config:
+                value_type_issues = self.config.get_value_type_issues()
+                if value_type_issues:
+                    results.append({
+                        'status': 'warning',
+                        'message': f'Found {len(value_type_issues)} settings with incorrect value types'
+                    })
+                    
+                    if perform_fixes:
+                        self.config.fix_incorrect_value_types()
+                        results.append({
+                            'status': 'info',
+                            'message': f'Fixed {len(value_type_issues)} settings with incorrect value types'
+                        })
+            else:
+                # Fallback to direct database check if no config manager
+                settings_with_incorrect_types = self._check_settings_value_types()
+                if settings_with_incorrect_types:
+                    results.append({
+                        'status': 'warning',
+                        'message': f'Found {len(settings_with_incorrect_types)} settings with incorrect value types'
+                    })
+                    
+                    if perform_fixes:
+                        fixed_count = self._fix_settings_value_types(settings_with_incorrect_types)
+                        results.append({
+                            'status': 'info',
+                            'message': f'Fixed {fixed_count} settings with incorrect value types'
+                        })
+            
+        except Exception as e:
+            results.append({
+                'status': 'error',
+                'message': f'Database validation failed: {str(e)}'
+            })
+        
+        return results
+
+    @db_operation(default_return_value=False)
+    def backup_database(self, backup_path: Optional[str] = None) -> bool:
+        """
+        Creates a backup of the database.
+        
+        Args:
+            backup_path: Optional path for the backup file. If None, uses default location.
+            
+        Returns:
+            True if backup was successful, False otherwise
+        """
+        if not self.sqlite_conn:
+            return False
+        
+        try:
+            if backup_path is None:
+                # Create backup in data/backups directory
+                backup_dir = Path(self.db_path).parent / "backups"
+                backup_dir.mkdir(exist_ok=True)
+                
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                backup_path = str(backup_dir / f"toweriq_backup_{timestamp}.sqlite")
+            
+            # Create backup using SQLite backup API
+            backup_conn = sqlite3.connect(backup_path)
+            self.sqlite_conn.backup(backup_conn)
+            backup_conn.close()
+            
+            # Update last backup timestamp
+            self.set_setting('last_backup_timestamp', datetime.now().isoformat())
+            
+            self.logger.info("Database backup created successfully", backup_path=str(backup_path))
+            return True
+            
+        except Exception as e:
+            self.logger.error("Database backup failed", error=str(e))
+            return False
+
+    def _check_settings_value_types(self) -> List[Dict[str, Any]]:
+        """
+        Check for settings that have incorrect value types in the database.
+        
+        Returns:
+            List of settings with incorrect value types
+        """
+        incorrect_settings = []
+        
+        if not self.sqlite_conn:
+            return incorrect_settings
+        
+        try:
+            # Get all settings from database
+            settings_list = self.get_all_settings()
+            if not settings_list:
+                return incorrect_settings
+            
+            for setting in settings_list:
+                key = setting['key']
+                value = setting['value']
+                value_type = setting.get('value_type', 'string')
+                
+                # Check if this is a boolean value stored with wrong type
+                if isinstance(value, str) and value.lower() in ('true', 'false', '1', '0'):
+                    if value_type != 'bool':
+                        incorrect_settings.append({
+                            'key': key,
+                            'value': value,
+                            'current_type': value_type,
+                            'correct_type': 'bool'
+                        })
+                
+                # Check for other type mismatches
+                elif value_type == 'int':
+                    try:
+                        int(value)
+                    except (ValueError, TypeError):
+                        incorrect_settings.append({
+                            'key': key,
+                            'value': value,
+                            'current_type': value_type,
+                            'correct_type': 'string'
+                        })
+                
+                elif value_type == 'float':
+                    try:
+                        float(value)
+                    except (ValueError, TypeError):
+                        incorrect_settings.append({
+                            'key': key,
+                            'value': value,
+                            'current_type': value_type,
+                            'correct_type': 'string'
+                        })
+                
+                elif value_type == 'json':
+                    try:
+                        json.loads(value)
+                    except (ValueError, json.JSONDecodeError):
+                        incorrect_settings.append({
+                            'key': key,
+                            'value': value,
+                            'current_type': value_type,
+                            'correct_type': 'string'
+                        })
+        
+        except Exception as e:
+            self.logger.error("Error checking settings value types", error=str(e))
+        
+        return incorrect_settings
+
+    def _fix_settings_value_types(self, incorrect_settings: List[Dict[str, Any]]) -> int:
+        """
+        Fix settings that have incorrect value types in the database.
+        
+        Args:
+            incorrect_settings: List of settings with incorrect value types
+            
+        Returns:
+            Number of settings that were fixed
+        """
+        fixed_count = 0
+        
+        if not self.sqlite_conn:
+            return fixed_count
+        
+        try:
+            for setting in incorrect_settings:
+                key = setting['key']
+                value = setting['value']
+                correct_type = setting['correct_type']
+                
+                # Convert value to correct type
+                if correct_type == 'bool':
+                    corrected_value = value.lower() in ('true', '1')
+                elif correct_type == 'int':
+                    corrected_value = int(value)
+                elif correct_type == 'float':
+                    corrected_value = float(value)
+                elif correct_type == 'string':
+                    corrected_value = str(value)
+                else:
+                    corrected_value = value
+                
+                # Update the setting with correct type
+                self.set_setting_with_metadata(
+                    key=key,
+                    value=str(corrected_value),
+                    value_type=correct_type,
+                    description=setting.get('description', f"Fixed value type for {key}")
+                )
+                
+                self.logger.info("Fixed setting value type", 
+                               key=key, 
+                               old_type=setting['current_type'], 
+                               new_type=correct_type)
+                fixed_count += 1
+        
+        except Exception as e:
+            self.logger.error("Error fixing settings value types", error=str(e))
+        
+        return fixed_count

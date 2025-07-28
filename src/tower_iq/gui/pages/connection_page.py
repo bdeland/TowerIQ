@@ -8,6 +8,7 @@ process selection, and hook activation in the TowerIQ application.
 import structlog
 
 from ..utils.content_page import ContentPage
+from ...core.session import ConnectionState, ConnectionSubState
 from PyQt6.QtWidgets import (
     QHBoxLayout, QVBoxLayout, QLabel, QStackedWidget, QWidget,
     QGroupBox, QTextEdit, QFrame, QHeaderView, QTableWidgetItem
@@ -38,7 +39,7 @@ class CustomTableItemDelegate(TableItemDelegate):
                     parent = parent_fn()
         except Exception:
             parent = None
-        if parent is not None and hasattr(parent, 'objectName') and parent.objectName() == "device_table" and index.column() == 3:
+        if parent is not None and hasattr(parent, 'objectName') and parent.objectName() == "device_table" and index.column() == 4:
             status = index.data()
             color_map = {
                 "Online": ("#2ecc71", "#27ae60"),
@@ -52,7 +53,7 @@ class CustomTableItemDelegate(TableItemDelegate):
             option.palette.setColor(QPalette.ColorRole.Text, color)
             option.palette.setColor(QPalette.ColorRole.HighlightedText, color)
 
-class ConnectionPanel(QWidget):
+class ConnectionPage(QWidget):
     # --- Signals for upward communication ---
     scan_devices_requested = pyqtSignal()
     connect_device_requested = pyqtSignal(str)
@@ -61,42 +62,49 @@ class ConnectionPanel(QWidget):
     activate_hook_requested = pyqtSignal()
     back_to_stage_requested = pyqtSignal(int)
     
-    def __init__(self, session_manager, parent=None):
+    def __init__(self, session_manager, config_manager, log_signal=None, parent=None):
         super().__init__(parent)
         self.session_manager = session_manager
-        self.logger = structlog.get_logger().bind(source="ConnectionPanel")
+        self.config_manager = config_manager
+        self.log_signal = log_signal
+        self.logger = structlog.get_logger().bind(source="ConnectionPage")
+        
+        # Main layout
         layout = QVBoxLayout(self)
-        self.stacked = QStackedWidget(self)
-
-        # --- Stage Creation ---
-        self.stage0_device_discovery = self._create_device_discovery_stage()
-        self.stage1_process_selection = self._create_process_selection_stage()
-        self.stage2_activation = self._create_activation_stage()
-        self.stage3_hook_active = self._create_hook_active_stage()
-
-        # --- Add Widgets to Stack ---
-        self.stacked.addWidget(self.stage0_device_discovery)   # Index 0
-        self.stacked.addWidget(self.stage1_process_selection) # Index 1
-        self.stacked.addWidget(self.stage2_activation)      # Index 2
-        self.stacked.addWidget(self.stage3_hook_active)       # Index 3
-        layout.addWidget(self.stacked)
-
-        self.update_theme_styles()
-
-        # --- Connect to SessionManager signals for reactive updates ---
-        # REFACTOR: Standardized signal and slot names for clarity
+        layout.setSpacing(20)
+        
+        # Create the four sections
+        self.status_section = self._create_status_section()
+        self.device_section = self._create_device_section()
+        self.process_section = self._create_process_section()
+        self.activation_section = self._create_activation_section()
+        
+        # Add sections to layout
+        layout.addWidget(self.status_section)
+        layout.addWidget(self.device_section)
+        layout.addWidget(self.process_section)
+        layout.addWidget(self.activation_section)
+        
+        # Connect to SessionManager signals for reactive updates
         self.session_manager.available_emulators_changed.connect(self.update_device_table)
         self.session_manager.available_processes_changed.connect(self.update_process_table)
-        self.session_manager.connection_state_changed.connect(self._on_hook_state_changed)
-        self.session_manager.emulator_connection_state_changed.connect(self._on_emulator_connection_state_changed)
+        
+        # Connect to new state machine signals
+        self.session_manager.connection_main_state_changed.connect(self._on_connection_state_changed)
+        self.session_manager.connection_sub_state_changed.connect(self._on_connection_sub_state_changed)
         self.session_manager.hook_activation_stage_changed.connect(self.update_activation_view)
         self.session_manager.hook_activation_message_changed.connect(self.update_activation_view)
         
         # Initial state update
         self.update_device_table(self.session_manager.available_emulators)
+        self.update_theme_styles()
+        
+        # Trigger initial device scan if no devices are available
+        if not self.session_manager.available_emulators:
+            self.scan_devices_requested.emit()
 
     def _create_standard_table(self, headers: list[str]) -> TableWidget:
-        """REFACTOR: Factory method to create a consistently styled table."""
+        """Factory method to create a consistently styled table."""
         table = TableWidget(self)
         table.setColumnCount(len(headers))
         table.setHorizontalHeaderLabels(headers)
@@ -117,22 +125,33 @@ class ConnectionPanel(QWidget):
             
         return table
 
-    def _create_device_discovery_stage(self) -> QWidget:
-        """REFACTOR: Create the device discovery stage using the standardized layout."""
-        widget = QWidget()
-        layout = QVBoxLayout(widget)
-
-        # Top Bar: Refresh button, right-aligned
-        top_bar_layout = QHBoxLayout()
-        top_bar_layout.addStretch(1)
-        self.refresh_button = PushButton(FluentIcon.SYNC, "Refresh Device List")
-        self.refresh_button.clicked.connect(self.scan_devices_requested)
-        top_bar_layout.addWidget(self.refresh_button)
-        layout.addLayout(top_bar_layout)
+    def _create_status_section(self) -> QGroupBox:
+        """Create the status section showing connection state."""
+        status_group = QGroupBox("Status")
+        layout = QVBoxLayout(status_group)
         
-        # Device Table: Created with the factory method - Enhanced with emulator column
+        # Status indicator
+        self.status_indicator = BodyLabel("Not Connected")
+        self.status_indicator.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.status_indicator.setStyleSheet("font-size: 16px; font-weight: bold; padding: 10px;")
+        layout.addWidget(self.status_indicator)
+        
+        # Connection details
+        self.connection_details = BodyLabel("No device connected")
+        self.connection_details.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.connection_details.setStyleSheet("color: gray; padding: 5px;")
+        layout.addWidget(self.connection_details)
+        
+        return status_group
+
+    def _create_device_section(self) -> QGroupBox:
+        """Create the device section with device table and controls."""
+        device_group = QGroupBox("Device")
+        layout = QVBoxLayout(device_group)
+
+        # Device Table
         self.device_table = self._create_standard_table(["Serial", "Model", "Android", "Emulator", "Status"])
-        self.device_table.setObjectName("device_table") # For the delegate
+        self.device_table.setObjectName("device_table")
         self.device_table.setItemDelegate(CustomTableItemDelegate(self.device_table))
         
         header = self.device_table.horizontalHeader()
@@ -144,10 +163,15 @@ class ConnectionPanel(QWidget):
             header.setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)  # Status
         layout.addWidget(self.device_table)
 
-        # Bottom Bar: Connect button, right-aligned
+        # Bottom Bar: Refresh and Connect buttons, right-aligned
         bottom_bar_layout = QHBoxLayout()
         bottom_bar_layout.addStretch(1)
+        self.refresh_button = PushButton(FluentIcon.SYNC, "Refresh")
+        self.refresh_button.clicked.connect(self.scan_devices_requested)
+        bottom_bar_layout.addWidget(self.refresh_button)
+        
         self.connect_button = PushButton(FluentIcon.LINK, "Connect")
+        # Button starts disabled until device is selected
         self.connect_button.setEnabled(False)
         self.connect_button.clicked.connect(self._on_connect_clicked)
         bottom_bar_layout.addWidget(self.connect_button)
@@ -155,22 +179,14 @@ class ConnectionPanel(QWidget):
         
         self.device_table.itemSelectionChanged.connect(self._on_device_selection_changed)
         
-        return widget
+        return device_group
 
-    def _create_process_selection_stage(self) -> QWidget:
-        """REFACTOR: Create the process selection stage using the standardized layout."""
-        widget = QWidget()
-        layout = QVBoxLayout(widget)
+    def _create_process_section(self) -> QGroupBox:
+        """Create the process section with process table and controls."""
+        process_group = QGroupBox("Process")
+        layout = QVBoxLayout(process_group)
 
-        # Top Bar: Refresh button, right-aligned
-        top_bar_layout = QHBoxLayout()
-        top_bar_layout.addStretch(1)
-        self.refresh_processes_button = PushButton(FluentIcon.SYNC, "Refresh Processes")
-        self.refresh_processes_button.clicked.connect(self.refresh_processes_requested)
-        top_bar_layout.addWidget(self.refresh_processes_button)
-        layout.addLayout(top_bar_layout)
-
-        # Process Table: Created with the factory method
+        # Process Table
         self.process_table = self._create_standard_table(["App Name", "Package", "Version", "PID", "Status"])
         self.process_table.itemSelectionChanged.connect(self._on_process_selection_changed)
         
@@ -183,44 +199,52 @@ class ConnectionPanel(QWidget):
             header.setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)
         layout.addWidget(self.process_table)
 
-        # Bottom Bar: Activate Hook button, right-aligned
+        # Bottom Bar: Refresh and Activate buttons, right-aligned
         bottom_bar_layout = QHBoxLayout()
         bottom_bar_layout.addStretch(1)
+        self.refresh_processes_button = PushButton(FluentIcon.SYNC, "Refresh")
+        self.refresh_processes_button.clicked.connect(self.refresh_processes_requested)
+        # Button starts disabled until device is connected
+        self.refresh_processes_button.setEnabled(False)
+        bottom_bar_layout.addWidget(self.refresh_processes_button)
+        
         self.activate_hook_button = PushButton(FluentIcon.PLAY_SOLID, "Activate Hook")
+        # Button starts disabled until process is selected
         self.activate_hook_button.setEnabled(False)
         self.activate_hook_button.clicked.connect(self.activate_hook_requested)
         bottom_bar_layout.addWidget(self.activate_hook_button)
         layout.addLayout(bottom_bar_layout)
         
-        return widget
+        return process_group
 
-    def _create_activation_stage(self) -> QWidget:
-        """Create the enhanced hook activation stage widget with detailed multi-stage progress."""
-        widget = QWidget()
-        layout = QVBoxLayout(widget)
+    def _create_activation_section(self) -> QGroupBox:
+        """Create the activation section with progress indicators."""
+        activation_group = QGroupBox("Activation")
+        layout = QVBoxLayout(activation_group)
         layout.setAlignment(Qt.AlignmentFlag.AlignTop)
-        layout.setSpacing(20)
+        layout.setSpacing(12)
 
         # Title section
         title_layout = QVBoxLayout()
         title_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
         
-        self.activation_title = BodyLabel("Establishing Connection...")
+        self.activation_title = BodyLabel("Ready to Connect")
         self.activation_title.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.activation_title.setStyleSheet("font-size: 16px; font-weight: bold; margin-bottom: 10px;")
         title_layout.addWidget(self.activation_title)
         
-        self.activation_subtitle = BodyLabel("Please wait while we set up the connection")
+        self.activation_subtitle = BodyLabel("Select a device and process to begin")
         self.activation_subtitle.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.activation_subtitle.setStyleSheet("color: gray; margin-bottom: 20px;")
         title_layout.addWidget(self.activation_subtitle)
         
         layout.addLayout(title_layout)
 
-        # Progress steps section
-        steps_container = QGroupBox("Connection Progress")
-        steps_layout = QVBoxLayout(steps_container)
+        # Progress steps section - Hidden but logic kept for error reporting
+        self.steps_container = QWidget()
+        steps_layout = QVBoxLayout(self.steps_container)
         steps_layout.setSpacing(12)
+        self.steps_container.setVisible(False)  # Hide the steps but keep the logic
 
         # Define all connection stages with detailed descriptions
         self.activation_steps = {}
@@ -259,7 +283,7 @@ class ConnectionPanel(QWidget):
             step_widget = self._create_progress_step(step_name, step_info["title"], step_info["description"])
             steps_layout.addWidget(step_widget)
             
-        layout.addWidget(steps_container)
+        layout.addWidget(self.steps_container)
 
         # Action buttons section
         button_layout = QHBoxLayout()
@@ -267,7 +291,8 @@ class ConnectionPanel(QWidget):
         button_layout.setSpacing(10)
         
         self.cancel_button = PushButton("Cancel")
-        self.cancel_button.clicked.connect(lambda: self.back_to_stage_requested.emit(1))
+        self.cancel_button.clicked.connect(self._on_cancel_clicked)
+        self.cancel_button.setVisible(False)  # Hidden by default
         button_layout.addWidget(self.cancel_button)
         
         self.retry_button = PushButton("Retry")
@@ -276,9 +301,8 @@ class ConnectionPanel(QWidget):
         button_layout.addWidget(self.retry_button)
         
         layout.addLayout(button_layout)
-        layout.addStretch()
 
-        return widget
+        return activation_group
 
     def _create_progress_step(self, step_name: str, title: str, description: str) -> QWidget:
         """Create a single progress step widget."""
@@ -334,46 +358,63 @@ class ConnectionPanel(QWidget):
 
         return step_widget
 
-    def _create_hook_active_stage(self) -> QWidget:
-        """(Unchanged) Create the hook active stage widget."""
-        widget = QWidget()
-        layout = QVBoxLayout(widget)
-        layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        layout.setSpacing(20)
-
-        card = QGroupBox("Hook Active", self)
-        card_layout = QVBoxLayout(card)
-
-        title_layout = QHBoxLayout()
-        icon_label = QLabel("✅")
-        icon_label.setStyleSheet("font-size: 24px;")
-        title_label = BodyLabel("Connection Established")
-        title_layout.addWidget(icon_label)
-        title_layout.addWidget(title_label)
-        card_layout.addLayout(title_layout)
-
-        self.active_device_label = BodyLabel("Device: N/A")
-        self.active_process_label = BodyLabel("Process: N/A")
-        card_layout.addWidget(self.active_device_label)
-        card_layout.addWidget(self.active_process_label)
-
-        self.disconnect_button = PushButton(FluentIcon.CANCEL, "Disconnect")
-        self.disconnect_button.clicked.connect(lambda: self.back_to_stage_requested.emit(0))
-        card_layout.addWidget(self.disconnect_button, 0, Qt.AlignmentFlag.AlignCenter)
-
-        layout.addWidget(card)
-        return widget
-
     # --- Reactive Slots for State Changes ---
-    def _on_emulator_connection_state_changed(self, is_connected: bool):
-        """Reacts to SessionManager's emulator connection state."""
-        self.set_stage(1 if is_connected else 0)
-            
-    def _on_hook_state_changed(self, is_active: bool):
-        """Reacts to SessionManager's hook activation state."""
-        if is_active:
-            self.set_stage(3)
-            self.update_hook_active_view()
+    def _on_connection_state_changed(self, state):
+        """Reacts to SessionManager's main connection state."""
+        self._update_section_visibility()
+        self._update_status_section()
+        self.logger.info("Connection main state changed", state=state.value)
+
+    def _on_connection_sub_state_changed(self, sub_state):
+        """Reacts to SessionManager's sub-state."""
+        if sub_state:
+            self.logger.info("Connection sub state changed", sub_state=sub_state.value)
+        else:
+            self.logger.info("Connection sub state cleared")
+
+    def _update_section_visibility(self):
+        """Update which sections are visible based on connection state."""
+        # Use session_manager.connection_main_state to determine visibility
+        connection_state = self.session_manager.connection_main_state
+        
+        # Show/hide process section based on device connection
+        self.process_section.setVisible(connection_state == ConnectionState.CONNECTED)
+        
+        # Show/hide activation section based on hook state
+        self.activation_section.setVisible(connection_state == ConnectionState.ACTIVE)
+
+    def _update_status_section(self):
+        """Update the status section based on current connection state."""
+        # Use session_manager.connection_main_state to determine status text
+        connection_state = self.session_manager.connection_main_state
+        
+        if connection_state == ConnectionState.ACTIVE:
+            self.status_indicator.setText("✅ Connected")
+            self.status_indicator.setStyleSheet("font-size: 16px; font-weight: bold; padding: 10px; color: #2ecc71;")
+            device_info = self.session_manager.connected_emulator_serial or "N/A"
+            process_info = self.session_manager.selected_target_package or "N/A"
+            self.connection_details.setText(f"Device: {device_info} | Process: {process_info}")
+        elif connection_state == ConnectionState.CONNECTED:
+            self.status_indicator.setText("🔗 Device Connected")
+            self.status_indicator.setStyleSheet("font-size: 16px; font-weight: bold; padding: 10px; color: #3498db;")
+            device_info = self.session_manager.connected_emulator_serial or "N/A"
+            self.connection_details.setText(f"Device: {device_info} | Select a process to continue")
+        elif connection_state == ConnectionState.CONNECTING:
+            self.status_indicator.setText("🔄 Connecting...")
+            self.status_indicator.setStyleSheet("font-size: 16px; font-weight: bold; padding: 10px; color: #f39c12;")
+            self.connection_details.setText("Establishing connection...")
+        elif connection_state == ConnectionState.ERROR:
+            self.status_indicator.setText("❌ Connection Error")
+            self.status_indicator.setStyleSheet("font-size: 16px; font-weight: bold; padding: 10px; color: #e74c3c;")
+            error_info = self.session_manager.get_last_error_info()
+            if error_info:
+                self.connection_details.setText(f"Error: {error_info.user_message}")
+            else:
+                self.connection_details.setText("An error occurred during connection")
+        else:
+            self.status_indicator.setText("❌ Not Connected")
+            self.status_indicator.setStyleSheet("font-size: 16px; font-weight: bold; padding: 10px; color: #e74c3c;")
+            self.connection_details.setText("No device connected")
 
     # --- UI Update Methods ---
     def update_device_table(self, emulators: list):
@@ -511,7 +552,7 @@ class ConnectionPanel(QWidget):
         self.process_table.resizeColumnsToContents()
     
     def update_activation_view(self):
-        """Updates the activation stage UI based on session state with detailed multi-stage progress."""
+        """Updates the activation section UI based on session state with detailed multi-stage progress."""
         stage = self.session_manager.hook_activation_stage
         message = self.session_manager.hook_activation_message
         
@@ -611,15 +652,16 @@ class ConnectionPanel(QWidget):
         # Update button states
         if stage == "failed":
             self.cancel_button.setText("Go Back")
+            self.cancel_button.setVisible(True)
             self.retry_button.setVisible(True)
+        elif stage in ["success", "completed"]:
+            self.cancel_button.setText("Disconnect")
+            self.cancel_button.setVisible(True)
+            self.retry_button.setVisible(False)
         else:
             self.cancel_button.setText("Cancel")
+            self.cancel_button.setVisible(True)
             self.retry_button.setVisible(False)
-
-    def update_hook_active_view(self):
-        """Updates the hook active stage UI with session data."""
-        self.active_device_label.setText(f"Device: {self.session_manager.connected_emulator_serial or 'N/A'}")
-        self.active_process_label.setText(f"Process: {self.session_manager.selected_target_package or 'N/A'}")
 
     # --- UI Action Handlers ---
     def _on_connect_clicked(self):
@@ -642,107 +684,23 @@ class ConnectionPanel(QWidget):
             if item is not None and hasattr(item, 'data'):
                 process_data = item.data(Qt.ItemDataRole.UserRole)
                 self.select_process_requested.emit(process_data)
-            
-    def set_stage(self, index: int):
-        """Public method to allow the parent (MainWindow) to control the visible stage."""
-        if 0 <= index < self.stacked.count():
-            self.stacked.setCurrentIndex(index)
+
+    def _on_cancel_clicked(self):
+        """Handle cancel button clicks based on current state."""
+        # Use session_manager.connection_main_state to determine action
+        connection_state = self.session_manager.connection_main_state
+        
+        if connection_state == ConnectionState.ACTIVE:
+            # If hook is active, disconnect
+            self.back_to_stage_requested.emit(0)
+        else:
+            # If in activation process, go back to process selection
+            self.back_to_stage_requested.emit(1)
 
     def update_theme_styles(self):
-        # This method can be simplified or expanded as needed
-        pass
-
-    def stop_scanning(self):
-        # TODO: Implement scanning animation stop logic
-        pass
-
-    def show_error(self, msg: str):
-        # TODO: Implement error display logic (e.g., show a message box or set a label)
-        self.logger.error("Connection panel error", message=msg)
-
-    def show_success(self, msg: str):
-        # TODO: Implement success display logic (e.g., show a message box or set a label)
-        self.logger.info("Connection panel success", message=msg)
-
-    def update_state(self, session):
-        # TODO: Implement state update logic for the panel
-        pass
+        """Update theme styles for all sections."""
+        self.setStyleSheet("background: transparent;")
 
     def trigger_device_scan(self):
-        """Public method to trigger a device scan (emits scan_devices_requested)."""
+        """Public method to trigger a device scan."""
         self.scan_devices_requested.emit()
-
-class SettingsAndLogsPanel(QWidget):
-    def __init__(self, config_manager, log_signal=None, parent=None):
-        super().__init__(parent)
-        self.config_manager = config_manager
-        layout = QVBoxLayout()
-
-        # Auto-Connect Settings Card
-        settings_group = QGroupBox("Auto-Connect Settings")
-        settings_layout = QVBoxLayout()
-        self.auto_connect_switch = SwitchButton("Auto-connect on Startup")
-        auto_connect = self.config_manager.get('gui.auto_connect_emulator', False)
-        # Ensure the value is a boolean
-        if isinstance(auto_connect, str):
-            auto_connect = auto_connect.lower() in ('true', '1', 'yes', 'on')
-        self.auto_connect_switch.setChecked(bool(auto_connect))
-        self.auto_connect_switch.checkedChanged.connect(self.on_auto_connect_toggled)
-        settings_layout.addWidget(self.auto_connect_switch)
-        
-        # Clear saved connection button
-        self.clear_saved_button = PushButton("Clear Saved Connection")
-        self.clear_saved_button.clicked.connect(self.on_clear_saved_connection)
-        settings_layout.addWidget(self.clear_saved_button)
-        
-        settings_group.setLayout(settings_layout)
-        layout.addWidget(settings_group)
-
-        # Live Log Viewer
-        log_group = QGroupBox("Live Connection Log")
-        log_layout = QVBoxLayout()
-        self.log_viewer = QTextEdit()
-        self.log_viewer.setReadOnly(True)
-        self.log_viewer.setFrameShape(QFrame.Shape.StyledPanel)
-        log_layout.addWidget(self.log_viewer)
-        log_group.setLayout(log_layout)
-        layout.addWidget(log_group)
-
-        layout.addStretch()
-        self.setLayout(layout)
-        self.update_theme_styles()
-
-    def on_auto_connect_toggled(self, checked):
-        self.config_manager.set('gui.auto_connect_emulator', checked)
-
-    def on_clear_saved_connection(self):
-        self.config_manager.set('connection.last_device_serial', '')
-        self.config_manager.set('connection.last_package_name', '')
-        try:
-            InfoBar.success("Cleared", "Saved connection settings have been cleared.", duration=3000, parent=self)
-        except Exception:
-            pass  # InfoBar creation might fail in some contexts
-
-    def update_theme_styles(self):
-        # Theme-aware widgets handle their own styling
-        self.setStyleSheet(f"background: transparent;")
-
-class ConnectionPage(QWidget):
-    def __init__(self, session_manager, config_manager, log_signal=None, parent=None):
-        super().__init__(parent)
-        self.session_manager = session_manager
-        self.config_manager = config_manager
-        self.log_signal = log_signal
-
-        layout = QHBoxLayout()
-        self.connection_panel = ConnectionPanel(session_manager)
-        self.settings_logs_panel = SettingsAndLogsPanel(config_manager, log_signal)
-        layout.addWidget(self.connection_panel, 7)
-        layout.addWidget(self.settings_logs_panel, 3)
-        self.setLayout(layout)
-        self.update_theme_styles()
-
-    def update_theme_styles(self):
-        self.setStyleSheet(f"background: transparent;")
-        self.connection_panel.update_theme_styles()
-        self.settings_logs_panel.update_theme_styles()

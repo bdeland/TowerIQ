@@ -92,6 +92,21 @@ class MainController(QObject):
         self._test_mode_generate = False
         self._test_mode_task = None
     
+    async def get_database_stats(self) -> dict:
+        """Fetches database statistics in a non-blocking way."""
+        self.logger.info("Fetching database statistics for UI.")
+        return await asyncio.to_thread(self.db_service.get_database_statistics)
+    
+    async def validate_database_health(self, perform_fixes: bool = False) -> list:
+        """Runs the database health check in a non-blocking way."""
+        self.logger.info("Running database health check", perform_fixes=perform_fixes)
+        return await asyncio.to_thread(self.db_service.validate_database, perform_fixes)
+    
+    async def backup_database(self, backup_path: Optional[str] = None) -> bool:
+        """Creates a database backup in a non-blocking way."""
+        self.logger.info("Creating database backup", backup_path=backup_path)
+        return await asyncio.to_thread(self.db_service.backup_database, backup_path)
+    
     def _emit_signal_safely(self, signal, *args) -> None:
         """
         Emit a Qt signal in a thread-safe manner.
@@ -149,17 +164,34 @@ class MainController(QObject):
             # Don't use fallback during shutdown to prevent more threading issues
     
     def set_dashboard(self, dashboard) -> None:
-        """Set the dashboard reference for connection panel updates."""
+        """Set the dashboard reference for connection page updates."""
         self.dashboard = dashboard
         
-        # Connect the connection panel signals
-        if hasattr(dashboard, 'connection_panel'):
-            dashboard.connection_panel.scan_devices_requested.connect(self.on_scan_devices_requested)
-            # dashboard.connection_panel.connect_device_requested.connect(self.on_connect_device_requested)  # REMOVED: MainWindow now handles this
-            dashboard.connection_panel.refresh_processes_requested.connect(self.on_refresh_processes_requested)
-            dashboard.connection_panel.select_process_requested.connect(self.on_select_process_requested)
-            dashboard.connection_panel.activate_hook_requested.connect(self.on_activate_hook_requested)
-            dashboard.connection_panel.back_to_stage_requested.connect(self.on_back_to_stage_requested)
+        # Connect the connection page signals
+        # Handle both cases: dashboard object with connection_page attribute, or connection_page directly
+        connection_page = None
+        if hasattr(dashboard, 'connection_page'):
+            connection_page = dashboard.connection_page
+            self.logger.debug("Found connection_page as attribute of dashboard")
+        elif hasattr(dashboard, 'scan_devices_requested'):
+            # dashboard is actually the connection_page
+            connection_page = dashboard
+            self.logger.debug("Dashboard is actually the connection_page")
+        else:
+            self.logger.warning("Could not find connection_page in dashboard object", 
+                               dashboard_type=type(dashboard).__name__,
+                               dashboard_attrs=dir(dashboard))
+        
+        if connection_page:
+            connection_page.scan_devices_requested.connect(self.on_scan_devices_requested)
+            # connection_page.connect_device_requested.connect(self.on_connect_device_requested)  # REMOVED: MainWindow now handles this
+            connection_page.refresh_processes_requested.connect(self.on_refresh_processes_requested)
+            connection_page.select_process_requested.connect(self.on_select_process_requested)
+            connection_page.activate_hook_requested.connect(self.on_activate_hook_requested)
+            connection_page.back_to_stage_requested.connect(self.on_back_to_stage_requested)
+            self.logger.info("Successfully connected all connection page signals")
+        else:
+            self.logger.error("Failed to connect connection page signals - no connection_page found")
         # Note: connect_device_requested is now routed through MainWindow for navigation control
 
     async def run(self) -> None:
@@ -214,7 +246,6 @@ class MainController(QObject):
                 self._emit_signal_safely(self.connection_state_changed, False)
                 if self.dashboard:
                     self.dashboard.set_connection_active(False)
-                    self.dashboard.connection_panel.update_state(self.session)
         else:
             # Automatic connection disabled, always show manual connection panel
             # First deactivate hook if active (this stops the listener)
@@ -224,7 +255,6 @@ class MainController(QObject):
             self._emit_signal_safely(self.connection_state_changed, False)
             if self.dashboard:
                 self.dashboard.set_connection_active(False)
-                self.dashboard.connection_panel.update_state(self.session)
         
         # Start main monitoring tasks with proper exception handling
         try:
@@ -313,28 +343,22 @@ class MainController(QObject):
     @pyqtSlot()
     def on_scan_devices_requested(self) -> None:
         """Handle scan devices request from connection panel."""
+        self.logger.info("Scan devices requested from UI")
         self._create_async_task(self._handle_scan_devices())
     
     async def _handle_scan_devices(self) -> None:
         """Handle the actual device scanning."""
         try:
+            self.logger.info("Starting device scan...")
             devices = await self.emulator_service.find_connected_devices()
+            self.logger.info("Device scan completed", device_count=len(devices))
             self.session.available_emulators = devices
             
-            # Immediately stop scanning animation and update UI
-            if self.dashboard and hasattr(self.dashboard, 'connection_panel'):
-                self.dashboard.connection_panel.stop_scanning()  # Stop animation immediately
-                self.dashboard.connection_panel.update_state(self.session)
+            # The new connection page handles state updates automatically via signals
                 
         except Exception as e:
             self.logger.error("Error scanning devices", error=str(e))
-            if self.dashboard and hasattr(self.dashboard, 'connection_panel'):
-                if "timed out" in str(e).lower() or "timeout" in str(e).lower():
-                    self.dashboard.connection_panel.show_error(
-                        "Device scan timed out. ADB may be unresponsive. Try again or restart ADB."
-                    )
-                else:
-                    self.dashboard.connection_panel.show_error(f"Failed to scan devices: {str(e)}")
+            # Error handling is now done via signals in the new connection page
 
     @pyqtSlot(str)
     def on_connect_device_requested(self, device_id: str) -> None:
@@ -360,8 +384,7 @@ class MainController(QObject):
                 
         except Exception as e:
             self.logger.error("Error connecting to device", device_id=device_id, error=str(e))
-            if self.dashboard and hasattr(self.dashboard, 'connection_panel'):
-                self.dashboard.connection_panel.show_error(f"Failed to connect to device: {str(e)}")
+            # Error handling is now done via signals in the new connection page
 
     @pyqtSlot()
     def on_refresh_processes_requested(self) -> None:
@@ -379,13 +402,11 @@ class MainController(QObject):
             )
             self.session.available_processes = processes
             
-            if self.dashboard and hasattr(self.dashboard, 'connection_panel'):
-                self.dashboard.connection_panel.update_state(self.session)
+            # The new connection page handles state updates automatically via signals
                 
         except Exception as e:
             self.logger.error("Error refreshing processes", error=str(e))
-            if self.dashboard and hasattr(self.dashboard, 'connection_panel'):
-                self.dashboard.connection_panel.show_error(f"Failed to refresh processes: {str(e)}")
+            # Error handling is now done via signals in the new connection page
 
     @pyqtSlot(dict)
     def on_select_process_requested(self, process_info: dict) -> None:
@@ -423,13 +444,11 @@ class MainController(QObject):
                 self.session.is_hook_compatible = False
                 self.logger.warning("Invalid package or version selected")
             
-            if self.dashboard and hasattr(self.dashboard, 'connection_panel'):
-                self.dashboard.connection_panel.update_state(self.session)
+            # The new connection page handles state updates automatically via signals
                 
         except Exception as e:
             self.logger.error("Error selecting process", error=str(e))
-            if self.dashboard and hasattr(self.dashboard, 'connection_panel'):
-                self.dashboard.connection_panel.show_error(f"Failed to select process: {str(e)}")
+            # Error handling is now done via signals in the new connection page
 
     @pyqtSlot()
     def on_activate_hook_requested(self) -> None:
@@ -509,9 +528,7 @@ class MainController(QObject):
                 self.frida_service.reset_shutdown_state()
                 # Reset all connection state
                 self.session.reset_connection_state()
-                # Update UI to show device selection stage
-                if self.dashboard and hasattr(self.dashboard, 'connection_panel'):
-                    self.dashboard.connection_panel.set_stage(0)
+                # The new connection page handles stage updates automatically via signals
                     
             elif target_stage == 1:
                 # Going back to stage 1 (process selection), keep device connection
@@ -535,9 +552,7 @@ class MainController(QObject):
                 # Refresh process list
                 if self.session.connected_emulator_serial:
                     await self._handle_refresh_processes()
-                # Update UI to show process selection stage
-                if self.dashboard and hasattr(self.dashboard, 'connection_panel'):
-                    self.dashboard.connection_panel.set_stage(1)
+                # The new connection page handles stage updates automatically via signals
                     
             elif target_stage == 2:
                 # Going back to stage 2 (activation), keep device and process selection
@@ -552,17 +567,13 @@ class MainController(QObject):
                     self.logger.warning("Error during Frida detach", error=str(e))
                 # Reset Frida service shutdown state for future connections
                 self.frida_service.reset_shutdown_state()
-                # Update UI to show activation stage
-                if self.dashboard and hasattr(self.dashboard, 'connection_panel'):
-                    self.dashboard.connection_panel.set_stage(2)
+                # The new connection page handles stage updates automatically via signals
             
-            if self.dashboard and hasattr(self.dashboard, 'connection_panel'):
-                self.dashboard.connection_panel.update_state(self.session)
+            # The new connection page handles state updates automatically via signals
                 
         except Exception as e:
             self.logger.error("Error handling back to stage", error=str(e))
-            if self.dashboard and hasattr(self.dashboard, 'connection_panel'):
-                self.dashboard.connection_panel.show_error(f"Failed to go back: {str(e)}")
+            # Error handling is now done via signals in the new connection page
 
     async def shutdown(self, force_exit_timeout: float = 3.0) -> None:
         """

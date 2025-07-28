@@ -31,6 +31,65 @@ system_defaults:
       system: false
     asyncio:
       debug_enabled: false
+#TODO: add these configs to the advanced settings page
   gui:
     auto_connect_emulator: false
-    theme: "auto" 
+    theme: "auto"
+    appearance:
+      theme_color: "Default color"
+      interface_zoom: "Use system setting"
+      theme_colors: ["Default color", "Blue", "Green", "Purple", "Pink"]
+      zoom_levels: ["Use system setting", "100%", "125%", "150%"]
+  connection:
+    retry_config:
+      network:
+        max_retries: 3
+        base_delay: 2.0
+        max_delay: 30.0
+        jitter: true
+      timeout:
+        max_retries: 2
+        base_delay: 5.0
+        max_delay: 15.0
+        jitter: false
+      resource:
+        max_retries: 1
+        base_delay: 0.0
+        max_delay: 0.0
+        jitter: false
+      permission:
+        max_retries: 0
+        base_delay: 0.0
+        max_delay: 0.0
+        jitter: false
+      compatibility:
+        max_retries: 0
+        base_delay: 0.0
+        max_delay: 0.0
+        jitter: false
+      unknown:
+        max_retries: 1
+        base_delay: 3.0
+        max_delay: 10.0
+        jitter: true
+  emulator:
+    cache_timeout_seconds: 300
+    timeouts:
+      device_discovery: 3.0
+      adb_command: 10.0
+      adb_connect: 2.0
+      adb_devices: 5.0
+      process_communication: 5.0
+      frida_connection: 3.0
+      frida_injection: 2.0
+      kill_process: 3.0
+  frida:
+    timeouts:
+      queue_get: 2.0
+      detach: 3.0
+      force_cleanup: 1.0
+      server_kill: 1.5
+      server_wait: 1.0
+      server_responsive: 15
+      server_shell: 5.0
+      server_start: 3.0 

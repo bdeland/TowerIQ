@@ -115,7 +115,8 @@ class FridaService:
         
         try:
             # Use asyncio.wait_for with a shorter timeout to check shutdown flag more frequently
-            message = await asyncio.wait_for(queue.get(), timeout=2.0)
+            queue_timeout = self.config.get('frida.timeouts.queue_get', 2.0) if hasattr(self, 'config') else 2.0
+            message = await asyncio.wait_for(queue.get(), timeout=queue_timeout)
             
             # Check for poison pill (shutdown signal)
             if isinstance(message, dict) and message.get('type') == '_shutdown_signal':
@@ -169,14 +170,18 @@ class FridaService:
             self.logger.error("Error attaching to process", pid=pid, error=str(e))
             return False
     
-    async def detach(self, timeout: float = 3.0, force_cleanup: bool = False) -> None:
+    async def detach(self, timeout: Optional[float] = None, force_cleanup: bool = False) -> None:
         """
         Detach from the current process and clean up resources with improved timeout handling.
         
         Args:
-            timeout: Maximum time to wait for graceful cleanup (default: 3.0 seconds)
+            timeout: Maximum time to wait for graceful cleanup (default: from config or 3.0 seconds)
             force_cleanup: If True, skip graceful cleanup and force immediate cleanup
         """
+        # Use config timeout if not provided
+        if timeout is None:
+            timeout = self.config.get('frida.timeouts.detach', 3.0) if hasattr(self, 'config') else 3.0
+        
         self.logger.info("Detaching from process", timeout=timeout, force_cleanup=force_cleanup)
         
         # Set shutdown flag to prevent new message processing

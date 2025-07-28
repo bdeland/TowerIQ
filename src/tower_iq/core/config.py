@@ -8,7 +8,7 @@ source of truth for all application configuration settings.
 import structlog
 import yaml
 import json
-from typing import Any, Optional, Dict, Union
+from typing import Any, Optional, Dict, Union, List
 from pathlib import Path
 from datetime import datetime
 from PyQt6.QtCore import QObject, pyqtSignal
@@ -53,43 +53,57 @@ class ConfigurationManager(QObject):
         return str(project_root.resolve())
 
     def link_database_service(self, db_service: 'DatabaseService'):
-        """Links the DatabaseService and loads all user settings from the DB."""
+        """Links the DatabaseService and initializes the complete configuration."""
         self._db_service = db_service
-        self._load_all_user_settings()
-        # Initialize defaults after loading existing settings
-        self._initialize_default_settings()
+        # Load and merge all settings (user settings override defaults)
+        self._load_and_merge_settings()
 
-    def _initialize_default_settings(self):
-        """Initialize database with default settings if they don't exist."""
+    def _load_and_merge_settings(self):
+        """Load user settings from database and check for issues."""
         if not self._db_service:
             return
             
-        system_defaults = self._file_config.get('system_defaults', {})
+        self.logger.info("Loading configuration settings")
         
-        # Flatten the nested defaults structure
-        default_settings = self._flatten_dict(system_defaults)
-        
-        self.logger.info("Initializing default settings", count=len(default_settings), defaults=list(default_settings.keys()))
-        self.logger.debug("Existing user settings", user_settings=list(self._user_settings.keys()))
-        self.logger.debug("Database service path", db_path=self._db_service.db_path if self._db_service else "None")
-        
-        for key, value in default_settings.items():
-            # Only set if the setting doesn't already exist in the database
-            if key not in self._user_settings:
-                self.logger.debug("Setting default", key=key, value=value)
-                self.set(key, value, description=f"Default setting for {key}")
-            else:
-                self.logger.debug("Skipping existing setting", key=key)
-        
-        self.logger.info("Default settings initialization completed", total_settings=len(self._user_settings))
-        
-        # Debug: Check what's actually in the database
-        if self._db_service:
-            db_settings = self._db_service.get_all_settings()
-            self.logger.debug("Settings in database after initialization", count=len(db_settings), keys=[s.get('key') for s in db_settings])
-        
-        # Reload settings from database to update the cache
+        # Step 1: Load user settings from database (only once)
         self._load_all_user_settings()
+        
+        # Step 2: Check for settings with incorrect value types (but don't fix them)
+        self._check_incorrect_value_types()
+        
+        # Log the summary
+        user_settings_count = len(self._user_settings)
+        self.logger.info("Configuration loading complete", user_settings=user_settings_count)
+
+
+
+    def _count_total_settings(self, system_defaults: dict, nested_dict_settings: set) -> int:
+        """Count the total number of settings from the system defaults."""
+        total_count = 0
+        
+        for section_name, section_value in system_defaults.items():
+            if isinstance(section_value, dict):
+                # Handle nested sections
+                for subsection_name, subsection_value in section_value.items():
+                    if isinstance(subsection_value, dict):
+                        # This is a nested dictionary
+                        full_key = f"{section_name}.{subsection_name}"
+                        
+                        # Check if this should be stored as a nested dict
+                        if full_key in nested_dict_settings:
+                            total_count += 1  # Count as one setting
+                        else:
+                            # Count flattened keys
+                            flattened = self._flatten_dict(subsection_value, full_key)
+                            total_count += len(flattened)
+                    else:
+                        # This is a simple key-value pair
+                        total_count += 1
+            else:
+                # This is a simple top-level setting
+                total_count += 1
+        
+        return total_count
 
     def _flatten_dict(self, d: dict, parent_key: str = '', sep: str = '.') -> dict:
         """Flatten a nested dictionary using dot notation."""
@@ -136,13 +150,24 @@ class ConfigurationManager(QObject):
                 # Fallback to string value
                 self._user_settings[key] = value
         
-        self.logger.info("Loaded user settings from DB", count=len(self._user_settings))
+        # Calculate total settings count for logging
+        system_defaults = self._file_config.get('system_defaults', {})
+        nested_dict_settings = {'logging.categories'}
+        total_settings_count = self._count_total_settings(system_defaults, nested_dict_settings)
+        
+        # Log the summary
+        user_settings_count = len(self._user_settings)
+        self.logger.info("Loaded user settings from DB", loaded=user_settings_count, total=total_settings_count)
 
     def _deserialize_value(self, value: str, value_type: str) -> Any:
         """Deserialize a value based on its type."""
         if value_type == 'string':
             return value
         elif value_type == 'int':
+            # Handle case where boolean strings were incorrectly stored as int type
+            if isinstance(value, str) and value.lower() in ('true', 'false', '1', '0'):
+                # This is actually a boolean value stored with wrong type
+                return value.lower() in ('true', '1')
             return int(value)
         elif value_type == 'float':
             return float(value)
@@ -317,4 +342,81 @@ class ConfigurationManager(QObject):
             description = setting_metadata.get('description')
             is_sensitive = setting_metadata.get('is_sensitive', False)
             
-            self.set(key, value, description, is_sensitive) 
+            self.set(key, value, description, is_sensitive)
+
+    def _check_incorrect_value_types(self):
+        """Check for settings that have incorrect value types in the database."""
+        if not self._db_service:
+            return
+            
+        self.logger.info("Checking for settings with incorrect value types")
+        
+        # Get all settings from database
+        settings_list = self._db_service.get_all_settings()
+        if not settings_list:
+            return
+            
+        # Store issues for later display in notifications
+        self._value_type_issues = []
+        
+        for setting in settings_list:
+            key = setting['key']
+            value = setting['value']
+            value_type = setting.get('value_type', 'string')
+            
+            # Check if this is a boolean value stored with wrong type
+            if isinstance(value, str) and value.lower() in ('true', 'false', '1', '0'):
+                if value_type != 'bool':
+                    self.logger.info("Found incorrect value type", key=key, old_type=value_type, new_type='bool')
+                    self._value_type_issues.append({
+                        'key': key,
+                        'value': value,
+                        'current_type': value_type,
+                        'correct_type': 'bool',
+                        'description': f"Setting '{key}' has value '{value}' but is stored as type '{value_type}' instead of 'bool'"
+                    })
+        
+        if self._value_type_issues:
+            self.logger.info("Found settings with incorrect value types", count=len(self._value_type_issues))
+        else:
+            self.logger.info("No settings with incorrect value types found")
+
+    def get_value_type_issues(self) -> List[Dict[str, Any]]:
+        """Get list of settings with incorrect value types."""
+        return getattr(self, '_value_type_issues', [])
+
+    def fix_incorrect_value_types(self):
+        """Fix settings that have incorrect value types in the database."""
+        if not self._db_service:
+            return
+            
+        issues = self.get_value_type_issues()
+        if not issues:
+            self.logger.info("No value type issues to fix")
+            return
+            
+        self.logger.info("Fixing settings with incorrect value types")
+        
+        fixed_count = 0
+        for issue in issues:
+            key = issue['key']
+            value = issue['value']
+            correct_type = issue['correct_type']
+            
+            # Convert value to correct type
+            if correct_type == 'bool':
+                corrected_value = value.lower() in ('true', '1')
+            else:
+                corrected_value = value
+            
+            # Re-save the setting with correct type
+            self.set(key, corrected_value, 
+                    description=f"Fixed value type for {key}")
+            fixed_count += 1
+        
+        if fixed_count > 0:
+            self.logger.info("Fixed settings with incorrect value types", count=fixed_count)
+            # Clear the issues list since they're now fixed
+            self._value_type_issues = []
+            # Reload settings to update the cache
+            self._load_all_user_settings() 

@@ -147,6 +147,18 @@ def main() -> None:
             # Set up proper cleanup on app quit
             app.aboutToQuit.connect(lambda: asyncio.create_task(controller.shutdown()) if loop.is_running() else None)
             
+            # Start the controller's main run method as a background task after GUI is initialized
+            controller_task = None
+            
+            def start_controller():
+                nonlocal controller_task
+                controller_task = asyncio.create_task(controller.run())
+                logger.info("Controller task started successfully")
+            
+            # Use QTimer to start the controller task after the GUI is fully initialized
+            from PyQt6.QtCore import QTimer
+            QTimer.singleShot(100, start_controller)
+            
             with loop:
                 loop.run_forever()
         except Exception as e:

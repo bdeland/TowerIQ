@@ -70,7 +70,8 @@ class EmulatorService:
         # Performance optimization: caching
         self._device_properties_cache: Dict[str, Dict[str, str]] = {}
         self._app_metadata_cache: Dict[str, Dict[str, Any]] = {}
-        self._cache_timeout = 300  # 5 minutes cache timeout
+        # Load cache timeout from config
+        self._cache_timeout = config.get('emulator.cache_timeout_seconds', 300)  # 5 minutes cache timeout
         self._cache_timestamps: Dict[str, float] = {}
 
     async def find_and_connect_device(self, device_id: Optional[str] = None) -> Optional[str]:
@@ -88,9 +89,10 @@ class EmulatorService:
 
         try:
             # Add timeout for the entire device discovery process
+            device_discovery_timeout = self.config.get('emulator.timeouts.device_discovery', 3.0)
             devices = await asyncio.wait_for(
                 self._get_connected_devices(),
-                timeout=3.0
+                timeout=device_discovery_timeout
             )
 
             if not devices:
@@ -127,7 +129,7 @@ class EmulatorService:
                 return None
 
         except asyncio.TimeoutError:
-            self.logger.warning("Device discovery timed out.")
+            self.logger.warning("Device discovery timed out.", timeout=device_discovery_timeout)
             return None
         except Exception as e:
             self.logger.error("Error during device discovery", error=str(e))

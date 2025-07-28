@@ -95,7 +95,9 @@ class LoggingSettingsWidget(QWidget):
         self.size_label.setStyleSheet(f"color: {get_text_color()};")
         self.max_size_spin = SpinBox()
         self.max_size_spin.setRange(1, 1000)
-        self.max_size_spin.setValue(50)
+        # Load default value from config
+        default_max_size = self.config_manager.get('logging.file.max_size_mb', 50) if self.config_manager else 50
+        self.max_size_spin.setValue(default_max_size)
         self.max_size_spin.valueChanged.connect(self.on_max_size_changed)
         
         size_layout.addWidget(self.size_label)
@@ -150,16 +152,24 @@ class LoggingSettingsWidget(QWidget):
         max_size = self.config_manager.get('logging.file.max_size_mb', 50)
         self.max_size_spin.setValue(max_size)
         
-        # Load categories
+        # Load categories - block signals during initialization to prevent multiple saves
         categories_config = self.config_manager.get('logging.categories', {})
         if not categories_config:
             # Fallback to old sources list - convert to categories
             sources = set(self.config_manager.get('logging.sources', []))
             categories_config = self._sources_to_categories(sources)
         
+        # Block signals during category switch initialization
+        for switch in self.category_switches.values():
+            switch.blockSignals(True)
+        
         for category, switch in self.category_switches.items():
             enabled = categories_config.get(category, True)  # Default to True
             switch.setChecked(enabled)
+        
+        # Unblock signals after all switches are set
+        for switch in self.category_switches.values():
+            switch.blockSignals(False)
     
     def _sources_to_categories(self, sources: set) -> dict:
         """Convert old sources list to new categories configuration."""

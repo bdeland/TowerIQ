@@ -16,10 +16,6 @@ from .pages.home_page import HomePage
 from .pages.dashboards_page import DashboardsPage
 from .pages.settings_page import SettingsPage
 from .pages.connection_page import ConnectionPage
-from .pages.settings_category_page import (
-    AppearanceSettingsPage, LoggingSettingsPage, ConnectionSettingsPage,
-    DatabaseSettingsPage, FridaSettingsPage, AdvancedSettingsPage
-)
 
 
 class MainWindow(FluentWindow):
@@ -70,35 +66,18 @@ class MainWindow(FluentWindow):
         """Initializes and adds all pages to the main window."""
         self.home_page = HomePage(self)
         self.home_page.setObjectName('home')
-        self.dashboards_page = DashboardsPage(self.session_manager, self.config_manager, self)
+        self.dashboards_page = DashboardsPage(self)
         self.dashboards_page.setObjectName('dashboards')
-        self.settings_page = SettingsPage(self.config_manager, self)
+        self.settings_page = SettingsPage(self.config_manager, self.controller, self)
         self.settings_page.setObjectName('settings')
         self.connection_page = ConnectionPage(self.session_manager, self.config_manager)
         self.connection_page.setObjectName('connection')
-
-        # Settings category pages
-        self.appearance_settings_page = AppearanceSettingsPage(self.config_manager, self)
-        self.appearance_settings_page.setObjectName('settings_appearance')
-        self.logging_settings_page = LoggingSettingsPage(self.config_manager, self)
-        self.logging_settings_page.setObjectName('settings_logging')
-        self.connection_settings_page = ConnectionSettingsPage(self.config_manager, self)
-        self.connection_settings_page.setObjectName('settings_connection')
-        self.database_settings_page = DatabaseSettingsPage(self.config_manager, self)
-        self.database_settings_page.setObjectName('settings_database')
-        self.frida_settings_page = FridaSettingsPage(self.config_manager, self)
-        self.frida_settings_page.setObjectName('settings_frida')
-        self.advanced_settings_page = AdvancedSettingsPage(self.config_manager, self)
-        self.advanced_settings_page.setObjectName('settings_advanced')
 
         if self.controller:
             self.controller.set_dashboard(self.connection_page)
 
         self._nav_key_to_text = {
-            'home': 'Home', 'dashboards': 'Dashboards', 'connection': 'Connection', 'settings': 'Settings',
-            'settings_appearance': 'Appearance & Theme', 'settings_logging': 'Logging & Diagnostics',
-            'settings_connection': 'Connection Settings', 'settings_database': 'Database & Storage',
-            'settings_frida': 'Frida Configuration', 'settings_advanced': 'Advanced Settings',
+            'home': 'Home', 'dashboards': 'Dashboards', 'connection': 'Connection', 'settings': 'Settings'
         }
 
         # Add main navigation items
@@ -107,17 +86,13 @@ class MainWindow(FluentWindow):
         self.addSubInterface(self.connection_page, FluentIcon.CONNECT, 'Connection', position=NavigationItemPosition.BOTTOM)
         self.addSubInterface(self.settings_page, FluentIcon.SETTING, 'Settings', position=NavigationItemPosition.BOTTOM)
         
-        # Add settings category pages to stacked widget
-        for page in [self.appearance_settings_page, self.logging_settings_page, self.connection_settings_page,
-                     self.database_settings_page, self.frida_settings_page, self.advanced_settings_page]:
-            self.stackedWidget.addWidget(page)
-        
     def _connect_signals(self):
         """Connects all application signals."""
         self.stackedWidget.currentChanged.connect(self.on_current_interface_changed)
         if hasattr(self, 'header'):
             self.header.breadcrumb.currentItemChanged.connect(self.on_breadcrumb_item_changed)
-        self.connection_page.connection_panel.connect_device_requested.connect(self.navigate_to_process_selection)
+        self.connection_page.connect_device_requested.connect(self.navigate_to_process_selection)
+        # Connect settings category navigation for breadcrumb updates
         self.settings_page.category_navigated.connect(self.on_settings_category_navigated)
 
     def apply_global_stylesheet(self):
@@ -145,12 +120,26 @@ class MainWindow(FluentWindow):
 
         self.header.breadcrumb.blockSignals(True)
         
-        if key.startswith('settings_'):
+        # Handle settings page breadcrumb
+        if key == 'settings':
             self.header.breadcrumb.clear()
             self.header.breadcrumb.addItem('home', 'Home')
             self.header.breadcrumb.addItem('settings', 'Settings')
-            self.header.breadcrumb.addItem(key, text)
+            # Add the current pivot item to the breadcrumb
+            current_route_key = self.settings_page.pivot.currentRouteKey()
+            if current_route_key:
+                category_names = {
+                    'appearance': 'Appearance & Theme',
+                    'logging': 'Logging & Diagnostics', 
+                    'connection': 'Connection Settings',
+                    'database': 'Database & Storage',
+                    'frida': 'Frida Configuration',
+                    'advanced': 'Advanced Settings'
+                }
+                category_name = category_names.get(current_route_key, current_route_key.title())
+                self.header.breadcrumb.addItem(current_route_key, category_name)
         else:
+            # Simplified breadcrumb logic for other pages
             self.header.breadcrumb.clear()
             self.header.breadcrumb.addItem('home', 'Home')
             if key != 'home':
@@ -160,55 +149,81 @@ class MainWindow(FluentWindow):
         
         self.header.breadcrumb.blockSignals(False)
 
-        if key == 'connection' and self.connection_page.connection_panel.stacked.currentIndex() == 0:
-            self.connection_page.connection_panel.trigger_device_scan()
+        if key == 'connection':
+            self.connection_page.trigger_device_scan()
 
     def on_breadcrumb_item_changed(self, key: str):
         if key == 'connection':
-            stage = self.connection_page.connection_panel.stacked.currentIndex()
-            if stage in [2, 3]:
-                self.connection_page.connection_panel.set_stage(1)
-                if self.controller: self.controller.on_back_to_stage_requested(1)
-                return
-            elif stage == 1:
-                self.connection_page.connection_panel.set_stage(0)
-                if self.controller: self.controller.on_back_to_stage_requested(0)
-                return
+            # The new connection page handles navigation automatically via signals
+            # No need to manually manage stages
+            return
+        elif key == 'settings':
+            # Navigate to main settings page (first pivot item)
+            if self.stackedWidget.currentWidget() == self.settings_page:
+                # If already on settings page, switch to first pivot item
+                if self.settings_page.pivot.items:
+                    first_key = list(self.settings_page.pivot.items.keys())[0]
+                    self.settings_page.pivot.setCurrentItem(first_key)
+            else:
+                # Navigate to settings page
+                self.stackedWidget.setCurrentWidget(self.settings_page)
+            return
+        elif key in ['appearance', 'logging', 'connection', 'database', 'frida', 'advanced']:
+            # Navigate to specific settings category pivot item
+            if self.stackedWidget.currentWidget() == self.settings_page:
+                # Switch to the specific pivot item
+                self.settings_page.pivot.setCurrentItem(key)
+            else:
+                # Navigate to settings page first, then to the category
+                self.stackedWidget.setCurrentWidget(self.settings_page)
+                # Use a timer to switch to the category after navigation
+                QTimer.singleShot(100, lambda: self._switch_to_settings_category(key))
+            return
         
+        # Default navigation for other pages
         for i in range(self.stackedWidget.count()):
             widget = self.stackedWidget.widget(i)
             if widget and widget.objectName() == key and self.stackedWidget.currentWidget() is not widget:
                 self.stackedWidget.setCurrentWidget(widget)
                 break
+                
+    def _switch_to_settings_category(self, category: str):
+        """Helper method to switch to a specific settings category pivot item."""
+        self.settings_page.pivot.setCurrentItem(category)
 
     def _update_connection_breadcrumbs(self):
-        stage = self.connection_page.connection_panel.stacked.currentIndex()
-        self.header.breadcrumb.clear()
-        self.header.breadcrumb.addItem('home', 'Home')
-        self.header.breadcrumb.addItem('connection', 'Connection')
-        if stage >= 1: self.header.breadcrumb.addItem('process', 'Select Process')
-        if stage >= 2: self.header.breadcrumb.addItem('activation', 'Activate Hook')
-        if stage >= 3: self.header.breadcrumb.addItem('active', 'Hook Active')
+        # The new connection page handles breadcrumb updates automatically
+        # No need to manually manage breadcrumbs
+        pass
 
     def navigate_to_process_selection(self, device_serial: str):
-        self.header.breadcrumb.blockSignals(True)
-        self._update_connection_breadcrumbs()
-        self.header.breadcrumb.blockSignals(False)
+        # The new connection page handles navigation automatically via signals
         if self.controller:
             self.controller.on_connect_device_requested(device_serial)
-        self.connection_page.connection_panel.set_stage(1)
         
     def on_settings_category_navigated(self, category: str):
-        category_pages = {
-            'appearance': self.appearance_settings_page,
-            'logging': self.logging_settings_page,
-            'connection': self.connection_settings_page,
-            'database': self.database_settings_page,
-            'frida': self.frida_settings_page,
-            'advanced': self.advanced_settings_page
+        """Handle settings category navigation for breadcrumb updates only."""
+        if not hasattr(self, 'header'):
+            return
+            
+        # Update breadcrumb to show current settings category
+        category_names = {
+            'appearance': 'Appearance & Theme',
+            'logging': 'Logging & Diagnostics', 
+            'connection': 'Connection Settings',
+            'database': 'Database & Storage',
+            'frida': 'Frida Configuration',
+            'advanced': 'Advanced Settings'
         }
-        if category in category_pages:
-            self.stackedWidget.setCurrentWidget(category_pages[category])
+        
+        category_name = category_names.get(category, category.title())
+        
+        self.header.breadcrumb.blockSignals(True)
+        self.header.breadcrumb.clear()
+        self.header.breadcrumb.addItem('home', 'Home')
+        self.header.breadcrumb.addItem('settings', 'Settings')
+        self.header.breadcrumb.addItem(category, category_name)
+        self.header.breadcrumb.blockSignals(False)
 
     def closeEvent(self, event: QCloseEvent):
         if self.controller:

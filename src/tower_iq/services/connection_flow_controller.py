@@ -87,6 +87,7 @@ class ConnectionFlowController(QObject):
                  stage_manager: Optional[ConnectionStageManager] = None,
                  emulator_service: Optional[EmulatorService] = None,
                  frida_service: Optional[FridaService] = None,
+                 config_manager: Optional[Any] = None,
                  logger_instance: Any = None):
         """
         Initialize the connection flow controller.
@@ -97,6 +98,7 @@ class ConnectionFlowController(QObject):
             stage_manager: Connection stage manager (optional)
             emulator_service: Emulator service (optional)
             frida_service: Frida service (optional)
+            config_manager: Configuration manager (optional)
             logger_instance: Logger instance (optional)
         """
         super().__init__()
@@ -106,6 +108,7 @@ class ConnectionFlowController(QObject):
         self.stage_manager = stage_manager
         self.emulator_service = emulator_service
         self.frida_service = frida_service
+        self.config_manager = config_manager
         self._logger = logger_instance or logger.bind(component="ConnectionFlowController")
         
         # Flow state tracking
@@ -130,50 +133,101 @@ class ConnectionFlowController(QObject):
     
     def _initialize_retry_config(self) -> Dict[ErrorType, Dict[str, Any]]:
         """Initialize retry configuration for different error types."""
-        return {
-            ErrorType.NETWORK: {
-                "max_retries": 3,
-                "strategy": RetryStrategy.EXPONENTIAL_BACKOFF,
-                "base_delay": 2.0,
-                "max_delay": 30.0,
-                "jitter": True
-            },
-            ErrorType.TIMEOUT: {
-                "max_retries": 2,
-                "strategy": RetryStrategy.LINEAR_BACKOFF,
-                "base_delay": 5.0,
-                "max_delay": 15.0,
-                "jitter": False
-            },
-            ErrorType.RESOURCE: {
-                "max_retries": 1,
-                "strategy": RetryStrategy.IMMEDIATE,
-                "base_delay": 0.0,
-                "max_delay": 0.0,
-                "jitter": False
-            },
-            ErrorType.PERMISSION: {
-                "max_retries": 0,
-                "strategy": RetryStrategy.NO_RETRY,
-                "base_delay": 0.0,
-                "max_delay": 0.0,
-                "jitter": False
-            },
-            ErrorType.COMPATIBILITY: {
-                "max_retries": 0,
-                "strategy": RetryStrategy.NO_RETRY,
-                "base_delay": 0.0,
-                "max_delay": 0.0,
-                "jitter": False
-            },
-            ErrorType.UNKNOWN: {
-                "max_retries": 1,
-                "strategy": RetryStrategy.LINEAR_BACKOFF,
-                "base_delay": 3.0,
-                "max_delay": 10.0,
-                "jitter": True
+        # Get retry config from configuration manager if available
+        config = getattr(self, 'config_manager', None)
+        
+        if config:
+            retry_config = config.get('connection.retry_config', {})
+            return {
+                ErrorType.NETWORK: {
+                    "max_retries": retry_config.get('network', {}).get('max_retries', 3),
+                    "strategy": RetryStrategy.EXPONENTIAL_BACKOFF,
+                    "base_delay": retry_config.get('network', {}).get('base_delay', 2.0),
+                    "max_delay": retry_config.get('network', {}).get('max_delay', 30.0),
+                    "jitter": retry_config.get('network', {}).get('jitter', True)
+                },
+                ErrorType.TIMEOUT: {
+                    "max_retries": retry_config.get('timeout', {}).get('max_retries', 2),
+                    "strategy": RetryStrategy.LINEAR_BACKOFF,
+                    "base_delay": retry_config.get('timeout', {}).get('base_delay', 5.0),
+                    "max_delay": retry_config.get('timeout', {}).get('max_delay', 15.0),
+                    "jitter": retry_config.get('timeout', {}).get('jitter', False)
+                },
+                ErrorType.RESOURCE: {
+                    "max_retries": retry_config.get('resource', {}).get('max_retries', 1),
+                    "strategy": RetryStrategy.IMMEDIATE,
+                    "base_delay": retry_config.get('resource', {}).get('base_delay', 0.0),
+                    "max_delay": retry_config.get('resource', {}).get('max_delay', 0.0),
+                    "jitter": retry_config.get('resource', {}).get('jitter', False)
+                },
+                ErrorType.PERMISSION: {
+                    "max_retries": retry_config.get('permission', {}).get('max_retries', 0),
+                    "strategy": RetryStrategy.NO_RETRY,
+                    "base_delay": retry_config.get('permission', {}).get('base_delay', 0.0),
+                    "max_delay": retry_config.get('permission', {}).get('max_delay', 0.0),
+                    "jitter": retry_config.get('permission', {}).get('jitter', False)
+                },
+                ErrorType.COMPATIBILITY: {
+                    "max_retries": retry_config.get('compatibility', {}).get('max_retries', 0),
+                    "strategy": RetryStrategy.NO_RETRY,
+                    "base_delay": retry_config.get('compatibility', {}).get('base_delay', 0.0),
+                    "max_delay": retry_config.get('compatibility', {}).get('max_delay', 0.0),
+                    "jitter": retry_config.get('compatibility', {}).get('jitter', False)
+                },
+                ErrorType.UNKNOWN: {
+                    "max_retries": retry_config.get('unknown', {}).get('max_retries', 1),
+                    "strategy": RetryStrategy.LINEAR_BACKOFF,
+                    "base_delay": retry_config.get('unknown', {}).get('base_delay', 3.0),
+                    "max_delay": retry_config.get('unknown', {}).get('max_delay', 10.0),
+                    "jitter": retry_config.get('unknown', {}).get('jitter', True)
+                }
             }
-        }
+        else:
+            # Fallback to hardcoded defaults
+            return {
+                ErrorType.NETWORK: {
+                    "max_retries": 3,
+                    "strategy": RetryStrategy.EXPONENTIAL_BACKOFF,
+                    "base_delay": 2.0,
+                    "max_delay": 30.0,
+                    "jitter": True
+                },
+                ErrorType.TIMEOUT: {
+                    "max_retries": 2,
+                    "strategy": RetryStrategy.LINEAR_BACKOFF,
+                    "base_delay": 5.0,
+                    "max_delay": 15.0,
+                    "jitter": False
+                },
+                ErrorType.RESOURCE: {
+                    "max_retries": 1,
+                    "strategy": RetryStrategy.IMMEDIATE,
+                    "base_delay": 0.0,
+                    "max_delay": 0.0,
+                    "jitter": False
+                },
+                ErrorType.PERMISSION: {
+                    "max_retries": 0,
+                    "strategy": RetryStrategy.NO_RETRY,
+                    "base_delay": 0.0,
+                    "max_delay": 0.0,
+                    "jitter": False
+                },
+                ErrorType.COMPATIBILITY: {
+                    "max_retries": 0,
+                    "strategy": RetryStrategy.NO_RETRY,
+                    "base_delay": 0.0,
+                    "max_delay": 0.0,
+                    "jitter": False
+                },
+                ErrorType.UNKNOWN: {
+                    "max_retries": 1,
+                    "strategy": RetryStrategy.LINEAR_BACKOFF,
+                    "base_delay": 3.0,
+                    "max_delay": 10.0,
+                    "jitter": True
+                }
+            }
     
     def _initialize_error_categorization(self) -> Dict[str, ErrorType]:
         """Initialize error categorization patterns."""

@@ -12,7 +12,8 @@ from .stylesheets import (
     SETTINGS_ITEM_CARD_QSS,
     SETTINGS_CATEGORY_PAGE_QSS,
     CONTENT_PAGE_QSS,
-    PAGE_HEADER_QSS
+    PAGE_HEADER_QSS,
+    PIVOT_QSS
 )
 
 # Extract theme colors for convenience
@@ -33,5 +34,6 @@ __all__ = [
     'SETTINGS_ITEM_CARD_QSS',
     'SETTINGS_CATEGORY_PAGE_QSS',
     'CONTENT_PAGE_QSS',
-    'PAGE_HEADER_QSS'
+    'PAGE_HEADER_QSS',
+    'PIVOT_QSS'
 ] 
