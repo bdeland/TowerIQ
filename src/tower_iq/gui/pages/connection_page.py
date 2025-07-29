@@ -15,7 +15,7 @@ from PyQt6.QtWidgets import (
 )
 from qfluentwidgets import (SwitchButton, FluentIcon, PushButton, TableWidget, TableItemDelegate, isDarkTheme,
                             ProgressRing, BodyLabel, InfoBar, InfoBarPosition)
-from PyQt6.QtCore import pyqtSignal, Qt
+from PyQt6.QtCore import pyqtSignal, Qt, QTimer
 from PyQt6.QtGui import QPalette, QColor
 
 class CustomTableItemDelegate(TableItemDelegate):
@@ -69,6 +69,18 @@ class ConnectionPage(QWidget):
         self.log_signal = log_signal
         self.logger = structlog.get_logger().bind(source="ConnectionPage")
         
+        # Debouncing for device scan requests to prevent qasync timer conflicts
+        self._scan_debounce_timer = QTimer()
+        self._scan_debounce_timer.setSingleShot(True)
+        self._scan_debounce_timer.timeout.connect(self._emit_scan_request)
+        self._scan_pending = False
+        
+        # Debouncing for process refresh requests
+        self._refresh_debounce_timer = QTimer()
+        self._refresh_debounce_timer.setSingleShot(True)
+        self._refresh_debounce_timer.timeout.connect(self._emit_refresh_request)
+        self._refresh_pending = False
+        
         # Main layout
         layout = QVBoxLayout(self)
         layout.setSpacing(20)
@@ -101,7 +113,7 @@ class ConnectionPage(QWidget):
         
         # Trigger initial device scan if no devices are available
         if not self.session_manager.available_emulators:
-            self.scan_devices_requested.emit()
+            self._request_device_scan()
 
     def _create_standard_table(self, headers: list[str]) -> TableWidget:
         """Factory method to create a consistently styled table."""
@@ -167,7 +179,7 @@ class ConnectionPage(QWidget):
         bottom_bar_layout = QHBoxLayout()
         bottom_bar_layout.addStretch(1)
         self.refresh_button = PushButton(FluentIcon.SYNC, "Refresh")
-        self.refresh_button.clicked.connect(self.scan_devices_requested)
+        self.refresh_button.clicked.connect(self._request_device_scan)
         bottom_bar_layout.addWidget(self.refresh_button)
         
         self.connect_button = PushButton(FluentIcon.LINK, "Connect")
@@ -203,7 +215,7 @@ class ConnectionPage(QWidget):
         bottom_bar_layout = QHBoxLayout()
         bottom_bar_layout.addStretch(1)
         self.refresh_processes_button = PushButton(FluentIcon.SYNC, "Refresh")
-        self.refresh_processes_button.clicked.connect(self.refresh_processes_requested)
+        self.refresh_processes_button.clicked.connect(self._request_process_refresh)
         # Button starts disabled until device is connected
         self.refresh_processes_button.setEnabled(False)
         bottom_bar_layout.addWidget(self.refresh_processes_button)
@@ -703,4 +715,36 @@ class ConnectionPage(QWidget):
 
     def trigger_device_scan(self):
         """Public method to trigger a device scan."""
+        self._request_device_scan()
+        
+    def _request_device_scan(self):
+        """Debounced device scan request to prevent rapid-fire signals that cause qasync timer conflicts."""
+        if self._scan_pending:
+            return  # Already have a scan request pending
+            
+        self._scan_pending = True
+        self.logger.debug("Device scan requested - debouncing")
+        # Use 100ms debounce to prevent rapid-fire requests
+        self._scan_debounce_timer.start(100)
+        
+    def _emit_scan_request(self):
+        """Emit the actual scan request signal after debounce timeout."""
+        self._scan_pending = False
+        self.logger.debug("Emitting device scan signal")
         self.scan_devices_requested.emit()
+        
+    def _request_process_refresh(self):
+        """Debounced process refresh request to prevent rapid-fire signals."""
+        if self._refresh_pending:
+            return  # Already have a refresh request pending
+            
+        self._refresh_pending = True
+        self.logger.debug("Process refresh requested - debouncing")
+        # Use 100ms debounce to prevent rapid-fire requests
+        self._refresh_debounce_timer.start(100)
+        
+    def _emit_refresh_request(self):
+        """Emit the actual refresh request signal after debounce timeout."""
+        self._refresh_pending = False
+        self.logger.debug("Emitting process refresh signal")
+        self.refresh_processes_requested.emit()
