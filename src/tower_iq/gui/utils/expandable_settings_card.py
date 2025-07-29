@@ -5,8 +5,8 @@ This module provides an expandable settings card widget that mimics the Windows 
 ExpandGroupSettingCard functionality with a toggle switch, dropdown arrow, and subsettings.
 """
 
-from PyQt6.QtCore import Qt, pyqtSignal
-from PyQt6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QFrame
+from PyQt6.QtCore import Qt, pyqtSignal, QPropertyAnimation, QEasingCurve, QParallelAnimationGroup
+from PyQt6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QFrame, QGraphicsOpacityEffect
 from qfluentwidgets import (
     SimpleCardWidget, FluentIcon, IconWidget, SwitchButton, 
     BodyLabel, CaptionLabel, TransparentPushButton
@@ -39,8 +39,16 @@ class ExpandableSettingsCard(SimpleCardWidget):
         self.icon_source = icon
         self.is_expanded = False
         
+        # Animation properties
+        self.animation_duration = 300  # milliseconds
+        self.collapsed_height = 0
+        self.expanded_height = 0
+        
         # Build the UI
         self._setup_ui()
+        
+        # Setup animations after UI is built
+        self._setup_animations()
         
     def _setup_ui(self):
         """Set up the card's user interface."""
@@ -123,33 +131,111 @@ class ExpandableSettingsCard(SimpleCardWidget):
         # Add header to main layout
         self.main_layout.addWidget(header_widget)
         
-        # 5. Content area for subsettings (initially hidden)
+        # 5. Content area for subsettings (initially collapsed)
         self.content_frame = QFrame(self)
-        self.content_frame.setVisible(False)
         self.content_frame.setObjectName("expandable_content_frame")
         if borders: self.content_frame.setStyleSheet("border: 2px solid magenta; background-color: rgba(255,0,255,0.1);")
+        
+        # Set up opacity effect for smooth fade animation
+        self.opacity_effect = QGraphicsOpacityEffect()
+        self.content_frame.setGraphicsEffect(self.opacity_effect)
         
         self.content_layout = QVBoxLayout(self.content_frame)
         self.content_layout.setContentsMargins(37, 12, 0, 0)  # Indent to align with text
         self.content_layout.setSpacing(8)
         
+        # Initially set to collapsed state
+        self.content_frame.setMaximumHeight(0)
+        self.opacity_effect.setOpacity(0.0)
+        
         # Add content frame to main layout
         self.main_layout.addWidget(self.content_frame)
         
-    def _toggle_expansion(self):
-        """Toggle the expansion state of the card."""
-        self.is_expanded = not self.is_expanded
-        self.content_frame.setVisible(self.is_expanded)
+    def _setup_animations(self):
+        """Set up the animations for smooth expand/collapse transitions."""
+        # Height animation for the content frame
+        self.height_animation = QPropertyAnimation(self.content_frame, b"maximumHeight")
+        self.height_animation.setDuration(self.animation_duration)
+        self.height_animation.setEasingCurve(QEasingCurve.Type.OutCubic)
         
-        # Update arrow icon
+        # Opacity animation for smooth fade in/out
+        self.opacity_animation = QPropertyAnimation(self.opacity_effect, b"opacity")
+        self.opacity_animation.setDuration(self.animation_duration)
+        self.opacity_animation.setEasingCurve(QEasingCurve.Type.OutCubic)
+        
+        # Create parallel animation group to run both animations together
+        self.animation_group = QParallelAnimationGroup()
+        self.animation_group.addAnimation(self.height_animation)
+        self.animation_group.addAnimation(self.opacity_animation)
+        
+    def _calculate_content_height(self):
+        """Calculate the natural height of the content frame when expanded."""
+        # Temporarily show the content to measure its size
+        old_height = self.content_frame.maximumHeight()
+        old_opacity = self.opacity_effect.opacity()
+        
+        self.content_frame.setMaximumHeight(16777215)  # Remove height constraint
+        self.opacity_effect.setOpacity(1.0)
+        
+        # Get the size hint which represents the natural size
+        self.content_frame.updateGeometry()
+        height = self.content_frame.sizeHint().height()
+        
+        # Restore previous state
+        self.content_frame.setMaximumHeight(old_height)
+        self.opacity_effect.setOpacity(old_opacity)
+        
+        return max(height, 50)  # Minimum height for better UX
+        
+    def _toggle_expansion(self):
+        """Toggle the expansion state of the card with smooth animation."""
+        self.is_expanded = not self.is_expanded
+        
+        # Stop any currently running animation
+        if self.animation_group.state() == QPropertyAnimation.State.Running:
+            self.animation_group.stop()
+        
         if self.is_expanded:
+            # Expanding: animate from 0 to natural height
+            target_height = self._calculate_content_height()
+            
+            self.height_animation.setStartValue(0)
+            self.height_animation.setEndValue(target_height)
+            
+            self.opacity_animation.setStartValue(0.0)
+            self.opacity_animation.setEndValue(1.0)
+            
+            # Update arrow icon to down
             self.expand_button.setIcon(FluentIcon.DOWN)
+            
         else:
+            # Collapsing: animate from current height to 0
+            current_height = self.content_frame.height()
+            
+            self.height_animation.setStartValue(current_height)
+            self.height_animation.setEndValue(0)
+            
+            self.opacity_animation.setStartValue(1.0)
+            self.opacity_animation.setEndValue(0.0)
+            
+            # Update arrow icon to right
             self.expand_button.setIcon(FluentIcon.CHEVRON_RIGHT)
+        
+        # Start the animation
+        self.animation_group.start()
             
     def add_subsetting(self, widget: QWidget):
         """Add a subsetting widget to the expandable content area."""
         self.content_layout.addWidget(widget)
+        
+        # If currently expanded, we may need to update the height
+        if self.is_expanded:
+            # Recalculate and update the height smoothly
+            new_height = self._calculate_content_height()
+            self.height_animation.setStartValue(self.content_frame.height())
+            self.height_animation.setEndValue(new_height)
+            self.height_animation.setDuration(200)  # Shorter duration for content updates
+            self.height_animation.start()
         
     def set_toggle_state(self, checked: bool):
         """Set the state of the main toggle switch."""
@@ -163,6 +249,12 @@ class ExpandableSettingsCard(SimpleCardWidget):
         """Set the expansion state of the card."""
         if expanded != self.is_expanded:
             self._toggle_expansion()
+            
+    def set_animation_duration(self, duration_ms: int):
+        """Set the animation duration in milliseconds."""
+        self.animation_duration = duration_ms
+        self.height_animation.setDuration(duration_ms)
+        self.opacity_animation.setDuration(duration_ms)
 
 
 class SubsettingItem(QWidget):
