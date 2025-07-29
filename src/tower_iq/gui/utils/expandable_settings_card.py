@@ -238,8 +238,10 @@ class ExpandableCardGroup(QWidget):
         
     def set_expanded(self, expanded: bool):
         """Set the expansion state of the card group."""
-        if expanded != self.content_container.isVisible():
-            self._toggle_expansion()
+        # Directly set the visibility state instead of toggling
+        self.content_container.setVisible(expanded)
+        self.spacer.setVisible(expanded)
+        self.header_card.set_expanded(expanded)
 
 
 class SubsettingItem(SimpleCardWidget):
@@ -295,6 +297,6 @@ class SubsettingItem(SimpleCardWidget):
             widget.setParent(self)
             layout.addWidget(widget)
 
-
+#TODO: Remove this alias
 # Backward compatibility alias
 ExpandableSettingsCard = ExpandableCardGroup 

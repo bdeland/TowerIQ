@@ -7,6 +7,7 @@ process selection, and hook activation in the TowerIQ application.
 
 import structlog
 
+from ..utils.expandable_settings_card import ExpandableCardGroup
 from ..utils.content_page import ContentPage
 from ...core.session import ConnectionState, ConnectionSubState
 from PyQt6.QtWidgets import (
@@ -14,12 +15,13 @@ from PyQt6.QtWidgets import (
     QGroupBox, QTextEdit, QFrame, QHeaderView, QTableWidgetItem
 )
 from qfluentwidgets import (SwitchButton, FluentIcon, PushButton, TableWidget, TableItemDelegate, isDarkTheme,
-                            ProgressRing, BodyLabel, InfoBar, InfoBarPosition)
+                            ProgressRing, BodyLabel, InfoBar, InfoBarPosition, CardWidget, SimpleCardWidget)
 from PyQt6.QtCore import pyqtSignal, Qt
 from PyQt6.QtGui import QPalette, QColor
 
+# NOTE: CustomTableItemDelegate remains unchanged as it's already well-designed.
 class CustomTableItemDelegate(TableItemDelegate):
-    """Custom table item delegate for the device table status column."""
+    # ... (no changes needed here) ...
     def initStyleOption(self, option, index):
         super().initStyleOption(option, index)
         # Only apply to device_table's status column
@@ -53,8 +55,9 @@ class CustomTableItemDelegate(TableItemDelegate):
             option.palette.setColor(QPalette.ColorRole.Text, color)
             option.palette.setColor(QPalette.ColorRole.HighlightedText, color)
 
+
 class ConnectionPage(QWidget):
-    # --- Signals for upward communication ---
+    # --- Signals remain the same ---
     scan_devices_requested = pyqtSignal()
     connect_device_requested = pyqtSignal(str)
     refresh_processes_requested = pyqtSignal()
@@ -69,42 +72,44 @@ class ConnectionPage(QWidget):
         self.log_signal = log_signal
         self.logger = structlog.get_logger().bind(source="ConnectionPage")
         
+        # Flag to track if device card has been expanded
+        self._device_card_expanded = False
+        
         # Main layout
         layout = QVBoxLayout(self)
-        layout.setSpacing(20)
+        layout.setSpacing(10) # Reduced spacing for a tighter card look
         
-        # Create the four sections
-        self.status_section = self._create_status_section()
-        self.device_section = self._create_device_section()
-        self.process_section = self._create_process_section()
+        # --- REFACTORED: Create sections using new card components ---
+        self.status_section = self._create_status_section() # Status section remains a GroupBox
+        self.device_card = self._create_device_card()
+        self.process_card = self._create_process_card()
         self.activation_section = self._create_activation_section()
         
         # Add sections to layout
         layout.addWidget(self.status_section)
-        layout.addWidget(self.device_section)
-        layout.addWidget(self.process_section)
+        layout.addWidget(self.device_card)
+        layout.addWidget(self.process_card)
         layout.addWidget(self.activation_section)
+        layout.addStretch(1) # Push all content to the top
         
-        # Connect to SessionManager signals for reactive updates
+        # --- Connect signals (unchanged) ---
         self.session_manager.available_emulators_changed.connect(self.update_device_table)
         self.session_manager.available_processes_changed.connect(self.update_process_table)
-        
-        # Connect to new state machine signals
         self.session_manager.connection_main_state_changed.connect(self._on_connection_state_changed)
         self.session_manager.connection_sub_state_changed.connect(self._on_connection_sub_state_changed)
         self.session_manager.hook_activation_stage_changed.connect(self.update_activation_view)
         self.session_manager.hook_activation_message_changed.connect(self.update_activation_view)
         
-        # Initial state update
+        # --- Initial state update ---
+        self._on_connection_state_changed(self.session_manager.connection_main_state)
         self.update_device_table(self.session_manager.available_emulators)
-        self.update_theme_styles()
         
-        # Trigger initial device scan if no devices are available
-        if not self.session_manager.available_emulators:
-            self.scan_devices_requested.emit()
+        # Note: Device scan will be triggered by on_page_shown() when page is navigated to
+        # No need to scan during initialization as the page might not be visible yet
 
     def _create_standard_table(self, headers: list[str]) -> TableWidget:
-        """Factory method to create a consistently styled table."""
+        # This factory method is still useful and remains unchanged.
+        # ... (no changes needed here) ...
         table = TableWidget(self)
         table.setColumnCount(len(headers))
         table.setHorizontalHeaderLabels(headers)
@@ -125,8 +130,10 @@ class ConnectionPage(QWidget):
             
         return table
 
+
     def _create_status_section(self) -> QGroupBox:
-        """Create the status section showing connection state."""
+        # This section remains a simple QGroupBox as requested.
+        # ... (no changes needed here) ...
         status_group = QGroupBox("Status")
         layout = QVBoxLayout(status_group)
         
@@ -144,52 +151,75 @@ class ConnectionPage(QWidget):
         
         return status_group
 
-    def _create_device_section(self) -> QGroupBox:
-        """Create the device section with device table and controls."""
-        device_group = QGroupBox("Device")
-        layout = QVBoxLayout(device_group)
 
-        # Device Table
+    def _create_device_card(self) -> ExpandableCardGroup:
+        """Create the device section as an expandable card."""
+        device_card_group = ExpandableCardGroup(
+            title="Device",
+            content="Select a device to begin",
+            #TODO: add a better device icon
+            header_icon=FluentIcon.DEVELOPER_TOOLS
+        )
+        # Hide the toggle switch as it's not needed for this card
+        device_card_group.header_card.toggle_switch.setVisible(False)
+
+        # Create a content card to hold the table and buttons
+        content_card = SimpleCardWidget()
+        content_layout = QVBoxLayout(content_card)
+        content_layout.setContentsMargins(10, 10, 10, 10)
+        content_layout.setSpacing(10)
+
+        # Create the device table (logic moved from old _create_device_section)
         self.device_table = self._create_standard_table(["Serial", "Model", "Android", "Emulator", "Status"])
-        self.device_table.setObjectName("device_table")
+        self.device_table.setObjectName("device_table") # Keep object name for the delegate
         self.device_table.setItemDelegate(CustomTableItemDelegate(self.device_table))
-        
         header = self.device_table.horizontalHeader()
         if header is not None:
-            header.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)  # Serial
-            header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)           # Model
-            header.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)  # Android
-            header.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)  # Emulator
-            header.setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)  # Status
-        layout.addWidget(self.device_table)
+            header.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
+            header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+            header.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
+            header.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
+            header.setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)
+        content_layout.addWidget(self.device_table)
 
-        # Bottom Bar: Refresh and Connect buttons, right-aligned
+        # Create the bottom button bar
         bottom_bar_layout = QHBoxLayout()
         bottom_bar_layout.addStretch(1)
         self.refresh_button = PushButton(FluentIcon.SYNC, "Refresh")
-        self.refresh_button.clicked.connect(self.scan_devices_requested)
+        self.refresh_button.clicked.connect(self.trigger_device_scan)
         bottom_bar_layout.addWidget(self.refresh_button)
         
         self.connect_button = PushButton(FluentIcon.LINK, "Connect")
-        # Button starts disabled until device is selected
         self.connect_button.setEnabled(False)
         self.connect_button.clicked.connect(self._on_connect_clicked)
         bottom_bar_layout.addWidget(self.connect_button)
-        layout.addLayout(bottom_bar_layout)
+        content_layout.addLayout(bottom_bar_layout)
         
         self.device_table.itemSelectionChanged.connect(self._on_device_selection_changed)
         
-        return device_group
+        # Add the single content card to the expandable group
+        device_card_group.add_card(content_card)
+        return device_card_group
 
-    def _create_process_section(self) -> QGroupBox:
-        """Create the process section with process table and controls."""
-        process_group = QGroupBox("Process")
-        layout = QVBoxLayout(process_group)
+    def _create_process_card(self) -> ExpandableCardGroup:
+        """Create the process section as an expandable card."""
+        process_card_group = ExpandableCardGroup(
+            title="Process",
+            content="Connect to a device to see available processes",
+            header_icon=FluentIcon.APPLICATION
+        )
+        # Hide the toggle switch
+        process_card_group.header_card.toggle_switch.setVisible(False)
 
-        # Process Table
+        # Create a content card for the table and buttons
+        content_card = SimpleCardWidget()
+        content_layout = QVBoxLayout(content_card)
+        content_layout.setContentsMargins(10, 10, 10, 10)
+        content_layout.setSpacing(10)
+
+        # Create the process table
         self.process_table = self._create_standard_table(["App Name", "Package", "Version", "PID", "Status"])
         self.process_table.itemSelectionChanged.connect(self._on_process_selection_changed)
-        
         header = self.process_table.horizontalHeader()
         if header is not None:
             header.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
@@ -197,28 +227,29 @@ class ConnectionPage(QWidget):
             header.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
             header.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
             header.setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)
-        layout.addWidget(self.process_table)
+        content_layout.addWidget(self.process_table)
 
-        # Bottom Bar: Refresh and Activate buttons, right-aligned
+        # Create the bottom button bar
         bottom_bar_layout = QHBoxLayout()
         bottom_bar_layout.addStretch(1)
         self.refresh_processes_button = PushButton(FluentIcon.SYNC, "Refresh")
         self.refresh_processes_button.clicked.connect(self.refresh_processes_requested)
-        # Button starts disabled until device is connected
-        self.refresh_processes_button.setEnabled(False)
+        self.refresh_processes_button.setEnabled(False) # Enabled when device is connected
         bottom_bar_layout.addWidget(self.refresh_processes_button)
         
         self.activate_hook_button = PushButton(FluentIcon.PLAY_SOLID, "Activate Hook")
-        # Button starts disabled until process is selected
-        self.activate_hook_button.setEnabled(False)
+        self.activate_hook_button.setEnabled(False) # Enabled when process is selected
         self.activate_hook_button.clicked.connect(self.activate_hook_requested)
         bottom_bar_layout.addWidget(self.activate_hook_button)
-        layout.addLayout(bottom_bar_layout)
+        content_layout.addLayout(bottom_bar_layout)
         
-        return process_group
+        # Add the content card to the expandable group
+        process_card_group.add_card(content_card)
+        return process_card_group
 
     def _create_activation_section(self) -> QGroupBox:
-        """Create the activation section with progress indicators."""
+        # This section remains unchanged as requested.
+        # ... (no changes needed here) ...
         activation_group = QGroupBox("Activation")
         layout = QVBoxLayout(activation_group)
         layout.setAlignment(Qt.AlignmentFlag.AlignTop)
@@ -304,8 +335,10 @@ class ConnectionPage(QWidget):
 
         return activation_group
 
+
     def _create_progress_step(self, step_name: str, title: str, description: str) -> QWidget:
-        """Create a single progress step widget."""
+        # This function remains unchanged.
+        # ... (no changes needed here) ...
         step_widget = QWidget()
         step_layout = QHBoxLayout(step_widget)
         step_layout.setContentsMargins(10, 8, 10, 8)
@@ -358,67 +391,83 @@ class ConnectionPage(QWidget):
 
         return step_widget
 
+
     # --- Reactive Slots for State Changes ---
     def _on_connection_state_changed(self, state):
         """Reacts to SessionManager's main connection state."""
-        self._update_section_visibility()
-        self._update_status_section()
+        self._update_ui_for_state(state)
         self.logger.info("Connection main state changed", state=state.value)
 
     def _on_connection_sub_state_changed(self, sub_state):
         """Reacts to SessionManager's sub-state."""
+        # ... (no changes needed here) ...
         if sub_state:
             self.logger.info("Connection sub state changed", sub_state=sub_state.value)
         else:
             self.logger.info("Connection sub state cleared")
 
-    def _update_section_visibility(self):
-        """Update which sections are visible based on connection state."""
-        # Use session_manager.connection_main_state to determine visibility
-        connection_state = self.session_manager.connection_main_state
-        
-        # Show/hide process section based on device connection
-        self.process_section.setVisible(connection_state == ConnectionState.CONNECTED)
-        
-        # Show/hide activation section based on hook state
-        self.activation_section.setVisible(connection_state == ConnectionState.ACTIVE)
 
-    def _update_status_section(self):
-        """Update the status section based on current connection state."""
-        # Use session_manager.connection_main_state to determine status text
-        connection_state = self.session_manager.connection_main_state
+    def _update_ui_for_state(self, state: ConnectionState):
+        """Centralized method to update all UI components based on the main state."""
+        # Update section visibility and enabled status
+        is_connected = state == ConnectionState.CONNECTED
+        is_active = state == ConnectionState.ACTIVE
         
-        if connection_state == ConnectionState.ACTIVE:
-            self.status_indicator.setText("✅ Connected")
+        self.process_card.setEnabled(is_connected or is_active)
+        self.refresh_processes_button.setEnabled(is_connected or is_active)
+        self.activation_section.setVisible(is_active)
+        
+        # Update header card descriptions
+        if is_active or is_connected:
+            serial = self.session_manager.connected_emulator_serial
+            self.device_card.header_card.content_label.setText(f"Connected: {serial}")
+        else:
+            self.device_card.header_card.content_label.setText("Select a device to begin")
+
+        if is_active:
+            process_name = self.session_manager.selected_target_app_name or "N/A"
+            self.process_card.header_card.content_label.setText(f"Hooked: {process_name}")
+        else:
+            self.process_card.header_card.content_label.setText("Select a process to hook")
+            
+        # Update the top-level status indicator
+        self._update_status_section(state)
+
+    def _update_status_section(self, state: ConnectionState):
+        """Update the top status section based on current connection state."""
+        # This method is now only responsible for the top status box
+        if state == ConnectionState.ACTIVE:
+            self.status_indicator.setText("✅ Connected & Active")
             self.status_indicator.setStyleSheet("font-size: 16px; font-weight: bold; padding: 10px; color: #2ecc71;")
             device_info = self.session_manager.connected_emulator_serial or "N/A"
-            process_info = self.session_manager.selected_target_package or "N/A"
+            process_info = self.session_manager.selected_target_app_name or "N/A"
             self.connection_details.setText(f"Device: {device_info} | Process: {process_info}")
-        elif connection_state == ConnectionState.CONNECTED:
+        elif state == ConnectionState.CONNECTED:
             self.status_indicator.setText("🔗 Device Connected")
             self.status_indicator.setStyleSheet("font-size: 16px; font-weight: bold; padding: 10px; color: #3498db;")
             device_info = self.session_manager.connected_emulator_serial or "N/A"
             self.connection_details.setText(f"Device: {device_info} | Select a process to continue")
-        elif connection_state == ConnectionState.CONNECTING:
+        elif state == ConnectionState.CONNECTING:
             self.status_indicator.setText("🔄 Connecting...")
             self.status_indicator.setStyleSheet("font-size: 16px; font-weight: bold; padding: 10px; color: #f39c12;")
             self.connection_details.setText("Establishing connection...")
-        elif connection_state == ConnectionState.ERROR:
+        elif state == ConnectionState.ERROR:
             self.status_indicator.setText("❌ Connection Error")
             self.status_indicator.setStyleSheet("font-size: 16px; font-weight: bold; padding: 10px; color: #e74c3c;")
             error_info = self.session_manager.get_last_error_info()
-            if error_info:
-                self.connection_details.setText(f"Error: {error_info.user_message}")
-            else:
-                self.connection_details.setText("An error occurred during connection")
-        else:
+            self.connection_details.setText(f"Error: {error_info.user_message}" if error_info else "An error occurred.")
+        else: # DISCONNECTED
             self.status_indicator.setText("❌ Not Connected")
             self.status_indicator.setStyleSheet("font-size: 16px; font-weight: bold; padding: 10px; color: #e74c3c;")
             self.connection_details.setText("No device connected")
 
-    # --- UI Update Methods ---
+    # --- UI Update and Action Handler methods remain largely the same ---
+    # ... (update_device_table, _detect_emulator_type, update_process_table, etc. have no changes) ...
+    # ... (_on_connect_clicked, _on_device_selection_changed, etc. have no changes) ...
     def update_device_table(self, emulators: list):
         """Populates the device table with enhanced device data."""
+        self.logger.info("Received device table update signal", device_count=len(emulators))
+        
         self.device_table.setRowCount(len(emulators))
         for row, emulator in enumerate(emulators):
             # Format Android version display
@@ -459,6 +508,7 @@ class ConnectionPage(QWidget):
             self.device_table.setItem(row, 4, items[4])
         
         self.device_table.resizeRowsToContents()
+        self.logger.info("Device table updated successfully", rows=len(emulators))
 
     def _detect_emulator_type(self, emulator: dict) -> str:
         """
@@ -703,4 +753,25 @@ class ConnectionPage(QWidget):
 
     def trigger_device_scan(self):
         """Public method to trigger a device scan."""
+        self.logger.info("Manual device scan triggered by user (refresh button)")
         self.scan_devices_requested.emit()
+        self.logger.info("Device scan signal emitted to main window")
+
+    def showEvent(self, event):
+        """Override showEvent to expand device card when page is shown."""
+        super().showEvent(event)
+        
+        # Expand device card if not already expanded
+        if not self._device_card_expanded and hasattr(self, 'device_card') and self.device_card:
+            self.device_card.set_expanded(True)
+            self._device_card_expanded = True
+            self.logger.info("Device card expanded in showEvent")
+
+    def on_page_shown(self):
+        """Called when the connection page is navigated to."""
+        # Trigger device scan only if no devices are currently available
+        # This prevents duplicate scans when navigating to the page
+        if not self.session_manager.available_emulators:
+            self.scan_devices_requested.emit()
+        
+        self.logger.info("Connection page shown - scan triggered if needed")

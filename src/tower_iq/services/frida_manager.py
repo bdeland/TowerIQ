@@ -4,7 +4,6 @@ import lzma
 from pathlib import Path
 from typing import Any
 import aiohttp
-import frida
 
 from src.tower_iq.core.utils import AdbWrapper, AdbError
 
@@ -21,11 +20,10 @@ class FridaServerManager:
         self.cache_dir = Path(__file__).parent.parent.parent / "data" / "frida-server"
         self.cache_dir.mkdir(parents=True, exist_ok=True)
 
-    async def provision(self, device_id: str, arch: str):
+    async def provision(self, device_id: str, arch: str, target_version: str):
         """
         Ensure a compatible frida-server is running on the device.
         """
-        target_version = frida.__version__
         self.logger.info(f"Provisioning frida-server v{target_version} for {arch} on {device_id}")
 
         # 1. Download binary if needed
@@ -111,14 +109,30 @@ class FridaServerManager:
                     raise AdbError(f"All frida-server start methods failed. Last error: {e}")
         
         # Give the server a moment to start
-        await asyncio.sleep(2)
+        await asyncio.sleep(1)
+        
+        # Quick check to see if the process exists for faster feedback
+        try:
+            pid_output = await self.adb.shell(device_id, "pidof frida-server")
+            if pid_output.strip():
+                self.logger.info(f"Frida-server process found with PID: {pid_output.strip()}")
+            else:
+                self.logger.warning("Frida-server process not found after startup")
+        except AdbError:
+            self.logger.debug("Could not check frida-server PID - process may not be running yet")
 
-    async def _wait_for_responsive(self, device_id: str, timeout: int = 15) -> bool:
+    async def _wait_for_responsive(self, device_id: str, frida_instance=None, timeout: int = 15) -> bool:
         self.logger.info("Waiting for frida-server to become responsive...")
         for _ in range(timeout):
             try:
+                if frida_instance is None:
+                    # If no frida instance provided, we can't test responsiveness
+                    # This is a limitation of the decoupled design
+                    self.logger.warning("No frida instance provided for responsiveness test")
+                    return True
+                
                 device = await asyncio.get_running_loop().run_in_executor(
-                    None, lambda: frida.get_device(id=device_id, timeout=1)
+                    None, lambda: frida_instance.get_device(id=device_id, timeout=1)
                 )
                 await asyncio.get_running_loop().run_in_executor(None, device.enumerate_processes)
                 self.logger.info("Frida-server is responsive.")

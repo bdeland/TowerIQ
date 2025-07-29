@@ -38,6 +38,7 @@ ipykernel = "^6.29.5"
 
 [tool.poetry.scripts]
 tower-iq = "tower_iq.main_app_entry:main"
+tower-iq-qasync = "tower_iq.main_app_entry_qasync_backup:main"
 
 [tool.pyside6]
 [tool.pyside6-project]

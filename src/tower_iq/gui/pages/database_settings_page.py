@@ -81,13 +81,12 @@ class DatabaseSettingsPage(QWidget):
         self._info_loaded = False
         
     def showEvent(self, event):
-        """Override showEvent to load database info when page is first shown."""
+        """Override showEvent to load database info when page is shown."""
         super().showEvent(event)
         if not self._info_loaded:
             self._info_loaded = True
-            # Use QTimer to schedule the async call after the event loop is ready
-            from PyQt6.QtCore import QTimer
-            QTimer.singleShot(0, lambda: asyncio.create_task(self._refresh_database_info()) if asyncio.get_event_loop().is_running() else None)
+            # Create async task directly without using QTimer.singleShot
+            asyncio.create_task(self._refresh_database_info())
         
     def _on_choose_folder(self):
         """Handle choose folder button click."""

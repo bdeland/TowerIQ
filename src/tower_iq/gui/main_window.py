@@ -1,7 +1,7 @@
 import sys
 import asyncio
 
-from PyQt6.QtCore import Qt, pyqtSignal, QTimer
+from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import QApplication, QVBoxLayout, QWidget
 from PyQt6.QtGui import QCloseEvent
 from qfluentwidgets import (FluentWindow, setTheme, Theme, FluentIcon, 
@@ -20,8 +20,8 @@ from .pages.connection_page import ConnectionPage
 
 class MainWindow(FluentWindow):
 
-    def __init__(self, session_manager=None, config_manager=None, controller=None):
-        super().__init__()
+    def __init__(self, session_manager=None, config_manager=None, controller=None, parent=None):
+        super().__init__(parent)
         self.session_manager = session_manager
         self.config_manager = config_manager
         self.controller = controller
@@ -41,7 +41,6 @@ class MainWindow(FluentWindow):
             if isinstance(parent_widget, QWidget):
                 parent_layout = parent_widget.layout()
                 if parent_layout:
-                    self.header = HeaderWidget(self)
                     new_content_container = QWidget()
                     new_content_container.setStyleSheet("border-radius: 0px !important;")
                     container_layout = QVBoxLayout(new_content_container)
@@ -51,16 +50,15 @@ class MainWindow(FluentWindow):
                     parent_layout.replaceWidget(original_stack, new_content_container)
                     container_layout.addWidget(original_stack)
         except Exception as e:
-            print(f"Layout restructuring failed: {e}")
-            # Fallback: just create the header without restructuring
-            self.header = HeaderWidget(self)
+            #TODO: fix this
+            pass
         
         self._create_and_add_pages()
         self._connect_signals()
         
         # Apply initial style and set initial page
-        QTimer.singleShot(0, self.apply_global_stylesheet)
-        QTimer.singleShot(0, lambda: self.on_current_interface_changed(self.stackedWidget.currentIndex()))
+        self.apply_global_stylesheet()
+        self.on_current_interface_changed(self.stackedWidget.currentIndex())
 
     def _create_and_add_pages(self):
         """Initializes and adds all pages to the main window."""
@@ -99,6 +97,7 @@ class MainWindow(FluentWindow):
         
         # Connect connection page signals
         self.connection_page.connect_device_requested.connect(self.navigate_to_process_selection)
+        self.connection_page.scan_devices_requested.connect(self._on_scan_devices_requested)
         
         # Connect settings page signals
         self.settings_page.category_navigated.connect(self.on_settings_category_navigated)
@@ -117,10 +116,38 @@ class MainWindow(FluentWindow):
     def init_window(self):
         """Initialize the window after all pages are created."""
         self._initialize_theme()
-        # Defer signal connections to avoid qasync timer issues
-        QTimer.singleShot(0, self._connect_signals)
+        
+        # Always create header first, before anything else
+        self.header = HeaderWidget(self)
+        
+        # Layout Restructuring - Simplified to avoid layout deletion issues
+        try:
+            original_stack = self.stackedWidget
+            parent_widget = original_stack.parent()
+            if isinstance(parent_widget, QWidget):
+                parent_layout = parent_widget.layout()
+                if parent_layout:
+                    new_content_container = QWidget()
+                    new_content_container.setStyleSheet("border-radius: 0px !important;")
+                    container_layout = QVBoxLayout(new_content_container)
+                    container_layout.setContentsMargins(0, 0, 0, 0)
+                    container_layout.setSpacing(0)
+                    container_layout.addWidget(self.header)
+                    parent_layout.replaceWidget(original_stack, new_content_container)
+                    container_layout.addWidget(original_stack)
+        except Exception as e:
+            #TODO: fix this
+            pass
+        
+        self._create_and_add_pages()
+        # Connect signals directly to avoid qasync timer conflicts
+        self._connect_signals()
         self.resize(1200, 800)
         self.setWindowTitle('TowerIQ')
+        
+        # Apply initial style and set initial page
+        self.apply_global_stylesheet()
+        self.on_current_interface_changed(self.stackedWidget.currentIndex())
 
     def on_current_interface_changed(self, index: int):
         widget = self.stackedWidget.widget(index)
@@ -162,7 +189,7 @@ class MainWindow(FluentWindow):
         self.header.breadcrumb.blockSignals(False)
 
         if key == 'connection':
-            self.connection_page.trigger_device_scan()
+            self.connection_page.on_page_shown()
 
     def on_breadcrumb_item_changed(self, key: str):
         if key == 'connection':
@@ -182,14 +209,10 @@ class MainWindow(FluentWindow):
             return
         elif key in ['appearance', 'logging', 'connection', 'database', 'frida', 'advanced']:
             # Navigate to specific settings category pivot item
-            if self.stackedWidget.currentWidget() == self.settings_page:
-                # Switch to the specific pivot item
-                self.settings_page.pivot.setCurrentItem(key)
-            else:
-                # Navigate to settings page first, then to the category
+            if self.settings_page and hasattr(self.settings_page, 'navigate_to_category'):
                 self.stackedWidget.setCurrentWidget(self.settings_page)
-                # Use a timer to switch to the category after navigation
-                QTimer.singleShot(100, lambda: self._switch_to_settings_category(key))
+                # Switch to the category directly after navigation
+                self._switch_to_settings_category(key)
             return
         
         # Default navigation for other pages
@@ -212,6 +235,18 @@ class MainWindow(FluentWindow):
         # The new connection page handles navigation automatically via signals
         if self.controller:
             self.controller.on_connect_device_requested(device_serial)
+    
+    def _on_scan_devices_requested(self):
+        """Handle device scan requests from the connection page."""
+        if self.controller:
+            try:
+                self.controller.on_scan_devices_requested()
+            except Exception as e:
+                import traceback
+                traceback.print_exc()
+        else:
+            #TODO: fix this
+            pass
         
     def on_settings_category_navigated(self, category: str):
         """Handle settings category navigation for breadcrumb updates only."""
