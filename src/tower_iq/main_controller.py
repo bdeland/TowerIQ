@@ -164,35 +164,9 @@ class MainController(QObject):
             # Don't use fallback during shutdown to prevent more threading issues
     
     def set_dashboard(self, dashboard) -> None:
-        """Set the dashboard reference for connection page updates."""
-        self.dashboard = dashboard
-        
-        # Connect the connection page signals
-        # Handle both cases: dashboard object with connection_page attribute, or connection_page directly
-        connection_page = None
-        if hasattr(dashboard, 'connection_page'):
-            connection_page = dashboard.connection_page
-            self.logger.debug("Found connection_page as attribute of dashboard")
-        elif hasattr(dashboard, 'scan_devices_requested'):
-            # dashboard is actually the connection_page
-            connection_page = dashboard
-            self.logger.debug("Dashboard is actually the connection_page")
-        else:
-            self.logger.warning("Could not find connection_page in dashboard object", 
-                               dashboard_type=type(dashboard).__name__,
-                               dashboard_attrs=dir(dashboard))
-        
-        if connection_page:
-            connection_page.scan_devices_requested.connect(self.on_scan_devices_requested)
-            # connection_page.connect_device_requested.connect(self.on_connect_device_requested)  # REMOVED: MainWindow now handles this
-            connection_page.refresh_processes_requested.connect(self.on_refresh_processes_requested)
-            connection_page.select_process_requested.connect(self.on_select_process_requested)
-            connection_page.activate_hook_requested.connect(self.on_activate_hook_requested)
-            connection_page.back_to_stage_requested.connect(self.on_back_to_stage_requested)
-            self.logger.info("Successfully connected all connection page signals")
-        else:
-            self.logger.error("Failed to connect connection page signals - no connection_page found")
-        # Note: connect_device_requested is now routed through MainWindow for navigation control
+        """Set the dashboard reference (no longer needed - kept for compatibility)."""
+        # Dashboard functionality removed - no signal connections needed
+        pass
 
     async def run(self) -> None:
         """
@@ -235,8 +209,6 @@ class MainController(QObject):
             if connection_successful:
                 # Emit signal to dashboard to go into "active" mode
                 self._emit_signal_safely(self.connection_state_changed, True)
-                if self.dashboard:
-                    self.dashboard.set_connection_active(True)
             else:
                 # Reset connection state and show manual connection panel
                 # First deactivate hook if active (this stops the listener)
@@ -244,8 +216,6 @@ class MainController(QObject):
                     self.set_hook_active(False)
                 self.session.reset_connection_state()
                 self._emit_signal_safely(self.connection_state_changed, False)
-                if self.dashboard:
-                    self.dashboard.set_connection_active(False)
         else:
             # Automatic connection disabled, always show manual connection panel
             # First deactivate hook if active (this stops the listener)
@@ -253,8 +223,6 @@ class MainController(QObject):
                 self.set_hook_active(False)
             self.session.reset_connection_state()
             self._emit_signal_safely(self.connection_state_changed, False)
-            if self.dashboard:
-                self.dashboard.set_connection_active(False)
         
         # Start main monitoring tasks with proper exception handling
         try:
@@ -320,9 +288,8 @@ class MainController(QObject):
                 self.logger.warning("Auto-connect failed: Hook not compatible.")
                 return False
             
-            # The UI will reactively move to the activation stage
-            await self._handle_activate_hook()
-            return self.session.is_hook_active
+            # Auto-connect successful - hook is compatible
+            return True
 
         except Exception as e:
             self.logger.error("Auto-connect process failed with an exception", error=str(e))
@@ -340,240 +307,7 @@ class MainController(QObject):
             loop = QEventLoop(app)
         return loop.create_task(coro)
 
-    @pyqtSlot()
-    def on_scan_devices_requested(self) -> None:
-        """Handle scan devices request from connection panel."""
-        self.logger.info("Scan devices requested from UI")
-        self._create_async_task(self._handle_scan_devices())
-    
-    async def _handle_scan_devices(self) -> None:
-        """Handle the actual device scanning."""
-        try:
-            self.logger.info("Starting device scan...")
-            devices = await self.emulator_service.find_connected_devices()
-            self.logger.info("Device scan completed", device_count=len(devices))
-            self.session.available_emulators = devices
-            
-            # The new connection page handles state updates automatically via signals
-                
-        except Exception as e:
-            self.logger.error("Error scanning devices", error=str(e))
-            # Error handling is now done via signals in the new connection page
-
-    @pyqtSlot(str)
-    def on_connect_device_requested(self, device_id: str) -> None:
-        """Handle device connection request from UI."""
-        self.logger.debug("Device connection requested", device_id=device_id)
-        self._create_async_task(self._handle_connect_device(device_id))
-    
-    async def _handle_connect_device(self, device_id: str) -> None:
-        """Handle device connection logic."""
-        try:
-            self.logger.debug("Handling device connection", device_id=device_id)
-            self.session.connected_emulator_serial = device_id
-            self.logger.debug("Set connected emulator serial", device_id=device_id)
-            self.session.is_emulator_connected = True
-            self.logger.debug("Set emulator connected status", connected=True)
-            
-            if self.dashboard and hasattr(self.dashboard, 'connection_panel'):
-                self.dashboard.connection_panel.update_state(self.session)
-            
-            # Trigger process refresh to update UI
-            self.logger.debug("Triggering process refresh")
-            await self._handle_refresh_processes()
-                
-        except Exception as e:
-            self.logger.error("Error connecting to device", device_id=device_id, error=str(e))
-            # Error handling is now done via signals in the new connection page
-
-    @pyqtSlot()
-    def on_refresh_processes_requested(self) -> None:
-        """Handle refresh processes request from connection panel."""
-        self._create_async_task(self._handle_refresh_processes())
-    
-    async def _handle_refresh_processes(self) -> None:
-        """Handle the actual process refresh."""
-        try:
-            if not self.session.connected_emulator_serial:
-                raise ValueError("No device connected")
-            
-            processes = await self.emulator_service.get_installed_third_party_packages(
-                self.session.connected_emulator_serial
-            )
-            self.session.available_processes = processes
-            
-            # The new connection page handles state updates automatically via signals
-                
-        except Exception as e:
-            self.logger.error("Error refreshing processes", error=str(e))
-            # Error handling is now done via signals in the new connection page
-
-    @pyqtSlot(dict)
-    def on_select_process_requested(self, process_info: dict) -> None:
-        """Handle process selection request from connection panel."""
-        self._create_async_task(self._handle_select_process(process_info))
-    
-    async def _handle_select_process(self, process_info: dict) -> None:
-        """Handle the actual process selection."""
-        try:
-            # Update session with selected process info
-            self.session.selected_target_package = process_info.get('package')
-            self.session.selected_target_pid = process_info.get('pid')
-            self.session.selected_target_version = process_info.get('version')
-            
-            # Check hook compatibility
-            package = self.session.selected_target_package
-            version = self.session.selected_target_version
-            
-            if package is not None and version is not None:
-                is_compatible = self.frida_service.check_local_hook_compatibility(
-                    package,
-                    version
-                )
-                self.session.is_hook_compatible = is_compatible
-                
-                # If compatible and we have a device connected, automatically trigger hook activation
-                # This ensures the full connection flow runs after process selection
-                if is_compatible and self.session.connected_emulator_serial:
-                    self.logger.info("Process selected and compatible - automatically activating hook", 
-                                   package=package, version=version)
-                    # Trigger the full connection flow automatically
-                    await self._handle_activate_hook()
-                    return  # Early return since _handle_activate_hook will update UI
-            else:
-                self.session.is_hook_compatible = False
-                self.logger.warning("Invalid package or version selected")
-            
-            # The new connection page handles state updates automatically via signals
-                
-        except Exception as e:
-            self.logger.error("Error selecting process", error=str(e))
-            # Error handling is now done via signals in the new connection page
-
-    @pyqtSlot()
-    def on_activate_hook_requested(self) -> None:
-        """Handle hook activation request from connection panel."""
-        self._create_async_task(self._handle_activate_hook())
-    
-    async def _handle_activate_hook(self) -> None:
-        """Handle the actual hook activation using the enhanced ConnectionStageManager."""
-        device_id = self.session.connected_emulator_serial
-        pid = self.session.selected_target_pid
-        version = self.session.selected_target_version
-        package = self.session.selected_target_package
-        
-        # Guard clause
-        if not device_id or pid is None or not version or not package:
-            self.session.hook_activation_message = "Error: Missing device, PID, version, or package."
-            self.session.hook_activation_stage = "failed"
-            return
-        
-        # Prepare process info for ConnectionStageManager
-        process_info = {
-            'package': package,
-            'version': version,
-            'pid': pid
-        }
-        
-        try:
-            # Reset Frida service shutdown state before attempting new connection
-            self.frida_service.reset_shutdown_state()
-            
-            # Set up Frida service event loop
-            self.frida_service.set_event_loop(asyncio.get_running_loop())
-            
-            # Use ConnectionStageManager for the complete connection flow
-            success = await self.connection_stage_manager.execute_connection_flow(
-                device_id, process_info
-            )
-            
-            if success:
-                # Connection flow completed successfully
-                self.set_hook_active(True)  # This will start the listener
-                
-                # Persist settings for auto-connect
-                self._save_connection_settings_if_enabled()
-                
-                self.logger.info("Hook activation completed successfully")
-            else:
-                # Connection flow failed - error details already set by ConnectionStageManager
-                self.logger.error("Hook activation failed via ConnectionStageManager")
-
-        except Exception as e:
-            self.logger.error("Unexpected error during hook activation", error=str(e))
-            self.session.hook_activation_message = f"Unexpected error: {str(e)}"
-            self.session.hook_activation_stage = "failed"
-
-    @pyqtSlot(int)
-    def on_back_to_stage_requested(self, target_stage: int) -> None:
-        """Handle back to stage request from connection panel."""
-        self._create_async_task(self._handle_back_to_stage(target_stage))
-    
-    async def _handle_back_to_stage(self, target_stage: int) -> None:
-        """Handle the actual back to stage."""
-        try:
-            # Reset session state based on target stage
-            if target_stage == 0:
-                # Going back to stage 0 (device selection) - full disconnect
-                self.logger.info("Disconnecting and returning to device selection")
-                # First deactivate hook if active (this stops the listener)
-                if self.session.is_hook_active:
-                    self.set_hook_active(False)
-                # Detach from Frida
-                try:
-                    await self.frida_service.detach()
-                except Exception as e:
-                    self.logger.warning("Error during Frida detach", error=str(e))
-                # Reset Frida service shutdown state for future connections
-                self.frida_service.reset_shutdown_state()
-                # Reset all connection state
-                self.session.reset_connection_state()
-                # The new connection page handles stage updates automatically via signals
-                    
-            elif target_stage == 1:
-                # Going back to stage 1 (process selection), keep device connection
-                self.logger.info("Returning to process selection")
-                # First deactivate hook if active (this stops the listener)
-                if self.session.is_hook_active:
-                    self.set_hook_active(False)
-                # Detach from Frida but keep device connection
-                try:
-                    await self.frida_service.detach()
-                except Exception as e:
-                    self.logger.warning("Error during Frida detach", error=str(e))
-                # Reset Frida service shutdown state for future connections
-                self.frida_service.reset_shutdown_state()
-                # Reset process-related state but keep device connection
-                self.session.available_processes = []
-                self.session.selected_target_package = None
-                self.session.selected_target_pid = None
-                self.session.selected_target_version = None
-                self.session.is_hook_compatible = False
-                # Refresh process list
-                if self.session.connected_emulator_serial:
-                    await self._handle_refresh_processes()
-                # The new connection page handles stage updates automatically via signals
-                    
-            elif target_stage == 2:
-                # Going back to stage 2 (activation), keep device and process selection
-                self.logger.info("Returning to activation stage")
-                # First deactivate hook if active (this stops the listener)
-                if self.session.is_hook_active:
-                    self.set_hook_active(False)
-                # Detach from Frida
-                try:
-                    await self.frida_service.detach()
-                except Exception as e:
-                    self.logger.warning("Error during Frida detach", error=str(e))
-                # Reset Frida service shutdown state for future connections
-                self.frida_service.reset_shutdown_state()
-                # The new connection page handles stage updates automatically via signals
-            
-            # The new connection page handles state updates automatically via signals
-                
-        except Exception as e:
-            self.logger.error("Error handling back to stage", error=str(e))
-            # Error handling is now done via signals in the new connection page
+    # Note: Dashboard-related slot methods removed - no longer needed
 
     async def shutdown(self, force_exit_timeout: float = 3.0) -> None:
         """

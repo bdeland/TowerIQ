@@ -145,7 +145,7 @@ def main() -> None:
             logger.info("Starting main event loop")
             
             # Set up proper cleanup on app quit
-            app.aboutToQuit.connect(lambda: asyncio.create_task(controller.shutdown()) if loop.is_running() else None)
+            app.aboutToQuit.connect(lambda: None)  # Remove the problematic shutdown task creation
             
             # Start the controller's main run method as a background task after GUI is initialized
             controller_task = None

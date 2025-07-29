@@ -90,23 +90,105 @@ SettingsItemCard CaptionLabel {{
 }}
 """
 
-# Styles for the expandable settings card
-EXPANDABLE_SETTINGS_CARD_QSS = """
-ExpandableSettingsCard {{
-    background-color: {sub_card_bg};
-    border: 1px solid {sub_card_border};
+# Styles for the expandable card group (new compositional approach)
+EXPANDABLE_CARD_GROUP_QSS = """
+#HeaderCard {{
+    /* Standard state: rounded corners */
     border-radius: 8px;
+    background-color: {card_bg};
+    border: 1px solid {card_border};
 }}
-ExpandableSettingsCard BodyLabel {{
+
+#HeaderCard[expanded="true"][hasSubCards="true"] {{
+    /* Expanded state: only top corners rounded */
+    border-bottom-left-radius: 0px;
+    border-bottom-right-radius: 0px;
+}}
+
+#HeaderCard BodyLabel {{
     background-color: transparent;
     font-size: 14px;
     font-weight: 500;
+    border: none;
 }}
-ExpandableSettingsCard CaptionLabel {{
+
+#HeaderCard CaptionLabel {{
     background-color: transparent;
     font-size: 12px;
+    border: none;
 }}
-QWidget#expandable_content_frame {{
+
+/* Sub-card styling - target SubsettingItem class directly */
+#SubCardContainer SubsettingItem {{
+    /* Default styling for all sub-cards */
+    background-color: {sub_card_bg};
+    border: 1px solid {sub_card_border};
+    border-top: none;
+    border-radius: 0px;
+}}
+
+/* Ensure text elements within sub-cards are transparent and have no borders */
+#SubCardContainer SubsettingItem > BodyLabel {{
+    background-color: transparent !important;
+    border: none !important;
+    font-size: 14px;
+    font-weight: 500;
+}}
+
+#SubCardContainer SubsettingItem > PushButton {{
+    background-color: transparent !important;
+    border: none !important;
+    font-size: 14px;
+    font-weight: 500;
+}}
+
+/* Property-based selectors for dynamic corner rounding */
+#SubCardContainer SubsettingItem[position="single"] {{
+    /* A single sub-card: only bottom corners rounded */
+    border-top-left-radius: 0px;
+    border-top-right-radius: 0px;
+    border-bottom-left-radius: 8px;
+    border-bottom-right-radius: 8px;
+    background-color: {sub_card_bg};
+    border: 1px solid {sub_card_border};
+    border-top: none;
+}}
+
+#SubCardContainer SubsettingItem[position="first"] {{
+    /* First of many sub-cards: square top, square bottom */
+    border-top-left-radius: 0px;
+    border-top-right-radius: 0px;
+    border-bottom-left-radius: 0px;
+    border-bottom-right-radius: 0px;
+    background-color: {sub_card_bg};
+    border: 1px solid {sub_card_border};
+    border-top: none;
+}}
+
+#SubCardContainer SubsettingItem[position="middle"] {{
+    /* Middle sub-cards: square top, square bottom */
+    border-top-left-radius: 0px;
+    border-top-right-radius: 0px;
+    border-bottom-left-radius: 0px;
+    border-bottom-right-radius: 0px;
+    background-color: {sub_card_bg};
+    border: 1px solid {sub_card_border};
+    border-top: none;
+}}
+
+#SubCardContainer SubsettingItem[position="last"] {{
+    /* Last sub-card: square top, rounded bottom */
+    border-top-left-radius: 0px;
+    border-top-right-radius: 0px;
+    border-bottom-left-radius: 8px;
+    border-bottom-right-radius: 8px;
+    background-color: {sub_card_bg};
+    border: 1px solid {sub_card_border};
+    border-top: none;
+}}
+
+/* Spacer styling */
+#CardSpacer {{
     background-color: transparent;
     border: none;
 }}
@@ -181,6 +263,7 @@ THEME_COLORS = {
         'pivot_item_selected_hover_bg': '#0056b3',
         'pivot_item_selected_hover_border': '#004085',
         'pivot_item_selected_hover_text': '#ffffff',
+        'divider_color': '#e0e0e0',
     },
     'dark': {
         'card_bg': '#2d2d2d',
@@ -202,6 +285,7 @@ THEME_COLORS = {
         'pivot_item_selected_hover_bg': '#0a58ca',
         'pivot_item_selected_hover_border': '#084298',
         'pivot_item_selected_hover_text': '#ffffff',
+        'divider_color': '#404040',
     }
 }
 
@@ -218,7 +302,7 @@ def get_themed_stylesheet() -> str:
     return (
         SETTINGS_CATEGORY_CARD_QSS.format(**theme_palette) +
         SETTINGS_ITEM_CARD_QSS.format(**theme_palette) +
-        EXPANDABLE_SETTINGS_CARD_QSS.format(**theme_palette) +
+        EXPANDABLE_CARD_GROUP_QSS.format(**theme_palette) +
         SUBSETTING_ITEM_QSS.format(**theme_palette) +
         SETTINGS_CATEGORY_PAGE_QSS.format(**theme_palette) +
         PAGE_HEADER_QSS.format(**theme_palette) +

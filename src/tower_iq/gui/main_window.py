@@ -1,7 +1,7 @@
 import sys
 import asyncio
 
-from PyQt6.QtCore import Qt, QTimer
+from PyQt6.QtCore import Qt, pyqtSignal, QTimer
 from PyQt6.QtWidgets import QApplication, QVBoxLayout, QWidget
 from PyQt6.QtGui import QCloseEvent
 from qfluentwidgets import (FluentWindow, setTheme, Theme, FluentIcon, 
@@ -87,12 +87,20 @@ class MainWindow(FluentWindow):
         self.addSubInterface(self.settings_page, FluentIcon.SETTING, 'Settings', position=NavigationItemPosition.BOTTOM)
         
     def _connect_signals(self):
-        """Connects all application signals."""
+        """Connect all signals after the window is fully initialized."""
+        # Connect theme change signal
+        qconfig.themeChanged.connect(self.apply_global_stylesheet)
+        
+        # Connect navigation signals
         self.stackedWidget.currentChanged.connect(self.on_current_interface_changed)
-        if hasattr(self, 'header'):
-            self.header.breadcrumb.currentItemChanged.connect(self.on_breadcrumb_item_changed)
+        
+        # Connect breadcrumb navigation
+        self.header.breadcrumb.currentItemChanged.connect(self.on_breadcrumb_item_changed)
+        
+        # Connect connection page signals
         self.connection_page.connect_device_requested.connect(self.navigate_to_process_selection)
-        # Connect settings category navigation for breadcrumb updates
+        
+        # Connect settings page signals
         self.settings_page.category_navigated.connect(self.on_settings_category_navigated)
 
     def apply_global_stylesheet(self):
@@ -107,6 +115,10 @@ class MainWindow(FluentWindow):
             setTheme(theme_map.get(saved_theme, Theme.AUTO))
     
     def init_window(self):
+        """Initialize the window after all pages are created."""
+        self._initialize_theme()
+        # Defer signal connections to avoid qasync timer issues
+        QTimer.singleShot(0, self._connect_signals)
         self.resize(1200, 800)
         self.setWindowTitle('TowerIQ')
 
@@ -227,9 +239,20 @@ class MainWindow(FluentWindow):
 
     def closeEvent(self, event: QCloseEvent):
         if self.controller:
-            loop = asyncio.get_event_loop()
-            if loop.is_running():
-                asyncio.create_task(self.controller.shutdown())
+            try:
+                # Use a more robust shutdown approach
+                loop = asyncio.get_event_loop()
+                if loop.is_running():
+                    # Schedule the shutdown task properly
+                    future = asyncio.run_coroutine_threadsafe(
+                        self.controller.shutdown(), 
+                        loop
+                    )
+                    # Don't wait for completion to avoid blocking the UI
+                    future.add_done_callback(lambda f: None)
+            except (RuntimeError, AssertionError):
+                # If there are any issues with the event loop, just accept the close
+                pass
         event.accept()
 
 if __name__ == '__main__':
