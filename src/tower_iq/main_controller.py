@@ -17,7 +17,7 @@ import pstats
 from PyQt6.QtCore import QObject, pyqtSignal, pyqtSlot
 
 from .core.config import ConfigurationManager
-from .core.session import SessionManager
+from .core.session import SessionManager, ConnectionState
 from .services.database_service import DatabaseService
 from .services.emulator_service import EmulatorService, FridaServerSetupError
 from .services.frida_service import FridaService
@@ -297,15 +297,65 @@ class MainController(QObject):
 
     # Connection panel slot implementations
     def _create_async_task(self, coro):
+        """Create an async task using the appropriate event loop."""
         try:
+            # Try to get the currently running loop
             loop = asyncio.get_running_loop()
+            return loop.create_task(coro)
         except RuntimeError:
-            # No running loop, get the main event loop (qasync)
-            from qasync import QEventLoop
-            from PyQt6.QtWidgets import QApplication
-            app = QApplication.instance()
-            loop = QEventLoop(app)
-        return loop.create_task(coro)
+            # No running loop - try to get the event loop set for the current thread
+            try:
+                loop = asyncio.get_event_loop()
+                if loop.is_running():
+                    return loop.create_task(coro)
+                else:
+                    # Loop exists but not running - this shouldn't happen in qasync
+                    self.logger.warning("Event loop exists but not running")
+                    return asyncio.create_task(coro)
+            except RuntimeError:
+                # No event loop set - create task using asyncio's default mechanism
+                self.logger.debug("No event loop found, using asyncio.create_task")
+                return asyncio.create_task(coro)
+
+    def on_connect_device_requested(self, device_serial: str):
+        """Handle device connection request from GUI."""
+        self.logger.info("Device connection requested from GUI", device_serial=device_serial)
+        # Use QTimer.singleShot to avoid blocking the GUI thread
+        from PyQt6.QtCore import QTimer
+        QTimer.singleShot(0, lambda: self._create_async_task(self._handle_connect_device(device_serial)))
+    
+    async def _handle_connect_device(self, device_serial: str):
+        """Handle device connection asynchronously."""
+        try:
+            self.logger.info("Connecting to device", device_serial=device_serial)
+            
+            # Set connection state to connecting
+            self.session.connection_main_state = ConnectionState.CONNECTING
+            
+            # Verify device is still available
+            connected_devices = await self.emulator_service.adb.list_devices()
+            if device_serial not in connected_devices:
+                self.logger.error("Device not found", device_serial=device_serial)
+                self.session.connection_main_state = ConnectionState.ERROR
+                return
+            
+            # Update session state for successful device connection
+            self.session.connected_emulator_serial = device_serial
+            self.session.connection_main_state = ConnectionState.CONNECTED
+            
+            # Fetch available processes for the connected device
+            try:
+                processes = await self.emulator_service.get_installed_third_party_packages(device_serial)
+                self.session.available_processes = processes
+                self.logger.info("Device connected successfully", device_serial=device_serial, process_count=len(processes))
+            except Exception as e:
+                self.logger.warning("Failed to fetch processes after device connection", device_serial=device_serial, error=str(e))
+                # Don't fail the connection just because we couldn't get processes
+                self.session.available_processes = []
+                
+        except Exception as e:
+            self.logger.error("Error during device connection", device_serial=device_serial, error=str(e))
+            self.session.connection_main_state = ConnectionState.ERROR
 
     # Note: Dashboard-related slot methods removed - no longer needed
 
