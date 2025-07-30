@@ -5,14 +5,15 @@ This module provides the main controller that uses QThread instead of asyncio
 to eliminate qasync timer conflicts completely.
 """
 
-import time
 import os
+import time
 from typing import Any, Optional
+from datetime import datetime
 
 from PyQt6.QtCore import QObject, QThread, pyqtSignal, pyqtSlot, QTimer
 
 from .core.config import ConfigurationManager
-from .core.session import SessionManager
+from .core.session import SessionManager, ConnectionState, ConnectionSubState, ErrorInfo, ErrorType
 from .services.database_service import DatabaseService
 from .services.emulator_service import EmulatorService
 from .services.connection_flow_controller import ConnectionFlowController
@@ -34,16 +35,30 @@ class DeviceScanWorker(QObject):
     
     @pyqtSlot()
     def scan_devices(self):
-        """Perform device scan."""
+        """Perform device scan using the new two-phase API."""
         try:
             self.logger.info("DeviceScanWorker: scan_devices slot called")
-            self.logger.info("Starting device scan")
-            # Use sync version for Qt threading
-            devices = self.emulator_service.find_connected_devices_sync()
-            self.logger.info("DeviceScanWorker: About to emit scan_completed signal", device_count=len(devices))
-            self.scan_completed.emit(devices)
-            self.logger.info("Device scan completed", device_count=len(devices))
-            self.logger.info("DeviceScanWorker: scan_completed signal emitted successfully")
+            self.logger.info("Starting device scan with new API")
+            
+            # Use the new list_devices_with_details method
+            # Since this is a Qt thread, we need to run the async method in a new event loop
+            import asyncio
+            import concurrent.futures
+            
+            # Create a new event loop for this thread
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            
+            try:
+                # Run the async method
+                devices = loop.run_until_complete(self.emulator_service.list_devices_with_details())
+                self.logger.info("DeviceScanWorker: About to emit scan_completed signal", device_count=len(devices))
+                self.scan_completed.emit(devices)
+                self.logger.info("Device scan completed", device_count=len(devices))
+                self.logger.info("DeviceScanWorker: scan_completed signal emitted successfully")
+            finally:
+                loop.close()
+                
         except Exception as e:
             self.logger.error("Device scan failed", error=str(e))
             self.logger.info("DeviceScanWorker: About to emit scan_failed signal")
@@ -251,31 +266,141 @@ class MainController(QObject):
     
     @pyqtSlot(str)
     def on_connect_device_requested(self, device_serial: str):
-        """Handle device connection requests from the GUI."""
+        """Handle device connection requests from the GUI using the new two-phase API."""
         self.logger.info("Device connection requested from GUI", device_serial=device_serial)
         
-        # Update session state to reflect connection
-        self.session.connected_emulator_serial = device_serial
-        self.session.is_emulator_connected = True
+        # Set connection state to CONNECTING to trigger infobar
+        self.session.transition_to_state(ConnectionState.CONNECTING, ConnectionSubState.DEVICE_SELECTION)
         
-        # Find the device in available emulators
-        device_found = False
-        for device in self.session.available_emulators:
-            if device.get('serial') == device_serial:
-                device_found = True
-                self.logger.info("Device found in available emulators", device_info=device)
-                break
+        # Use the new two-phase API to connect to the device
+        import asyncio
+        import concurrent.futures
         
-        if device_found:
-            # TODO: Get real processes from the connected device
-            # For now, clear processes until real implementation
-            self.session.available_processes = []
-            self.logger.info("Device connected, processes will be loaded when implemented")
-        else:
-            self.logger.warning("Device not found in available emulators", device_serial=device_serial)
-            self.session.available_processes = []
+        # Create a new event loop for this thread
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
         
-        self.logger.info("Device connection handled", device_serial=device_serial)
+        try:
+            # Connect to the device using the new stateful connection method
+            success = loop.run_until_complete(self.emulator_service.connect_to_device(device_serial))
+            
+            if success:
+                # Update session state to reflect successful connection
+                self.session.connected_emulator_serial = device_serial
+                self.session.is_emulator_connected = True
+                
+                # Find the device in available emulators to get additional info
+                device_found = False
+                for device in self.session.available_emulators:
+                    if device.get('serial') == device_serial:
+                        device_found = True
+                        self.logger.info("Device found in available emulators", device_info=device)
+                        break
+                
+                if device_found:
+                    # TODO: Get real processes from the connected device
+                    # For now, clear processes until real implementation
+                    self.session.available_processes = []
+                    self.logger.info("Device connected successfully, processes will be loaded when implemented")
+                else:
+                    self.logger.warning("Device not found in available emulators", device_serial=device_serial)
+                    self.session.available_processes = []
+                
+                # Transition to CONNECTED state
+                self.session.transition_to_state(ConnectionState.CONNECTED, ConnectionSubState.PROCESS_SELECTION)
+                self.logger.info("Device connection successful", device_serial=device_serial)
+            else:
+                # Connection failed
+                error_info = ErrorInfo(
+                    error_type=ErrorType.NETWORK,
+                    error_code="CONNECT_001",
+                    user_message="Failed to connect to device",
+                    technical_details="EmulatorService.connect_to_device() returned False",
+                    recovery_suggestions=["Check device is reachable", "Try refreshing device list"],
+                    is_recoverable=True,
+                    retry_count=0,
+                    timestamp=datetime.now()
+                )
+                self.session.transition_to_state(ConnectionState.ERROR, error_info=error_info)
+                self.logger.error("Device connection failed", device_serial=device_serial)
+                
+        except Exception as e:
+            self.logger.error("Exception during device connection", device_serial=device_serial, error=str(e))
+            error_info = ErrorInfo(
+                error_type=ErrorType.UNKNOWN,
+                error_code="CONNECT_002",
+                user_message=f"Connection error: {str(e)}",
+                technical_details=str(e),
+                recovery_suggestions=["Check device is reachable", "Try refreshing device list"],
+                is_recoverable=True,
+                retry_count=0,
+                timestamp=datetime.now()
+            )
+            self.session.transition_to_state(ConnectionState.ERROR, error_info=error_info)
+        finally:
+            loop.close()
+
+    @pyqtSlot()
+    def on_disconnect_device_requested(self):
+        """Handle device disconnection requests from the GUI."""
+        self.logger.info("Device disconnection requested from GUI")
+        
+        # Set connection state to DISCONNECTING to trigger infobar
+        self.session.transition_to_state(ConnectionState.DISCONNECTING, ConnectionSubState.DEVICE_SELECTION)
+        
+        # Use the new two-phase API to disconnect from the device
+        import asyncio
+        
+        # Create a new event loop for this thread
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        
+        try:
+            # Disconnect from the device using the new stateful disconnection method
+            success = loop.run_until_complete(self.emulator_service.disconnect_from_device())
+            
+            if success:
+                # Clear session state to reflect successful disconnection
+                self.session.connected_emulator_serial = None
+                self.session.is_emulator_connected = False
+                self.session.available_processes = []
+                self.session.selected_target_package = None
+                self.session.selected_target_pid = None
+                self.session.selected_target_version = None
+                
+                # Transition to DISCONNECTED state
+                self.session.transition_to_state(ConnectionState.DISCONNECTED)
+                self.logger.info("Device disconnection successful")
+            else:
+                # Disconnection failed
+                error_info = ErrorInfo(
+                    error_type=ErrorType.RESOURCE,
+                    error_code="DISCONNECT_001",
+                    user_message="Failed to disconnect from device",
+                    technical_details="EmulatorService.disconnect_from_device() returned False",
+                    recovery_suggestions=["Try refreshing the page", "Restart the application"],
+                    is_recoverable=True,
+                    retry_count=0,
+                    timestamp=datetime.now()
+                )
+                self.session.transition_to_state(ConnectionState.ERROR, error_info=error_info)
+                self.logger.error("Device disconnection failed")
+                
+        except Exception as e:
+            self.logger.error("Exception during device disconnection", error=str(e))
+            error_info = ErrorInfo(
+                error_type=ErrorType.UNKNOWN,
+                error_code="DISCONNECT_002",
+                user_message=f"Disconnection error: {str(e)}",
+                technical_details=str(e),
+                recovery_suggestions=["Try refreshing the page", "Restart the application"],
+                is_recoverable=True,
+                retry_count=0,
+                timestamp=datetime.now()
+            )
+            self.session.transition_to_state(ConnectionState.ERROR, error_info=error_info)
+        finally:
+            loop.close()
     
     @pyqtSlot(str)
     def on_select_process_requested(self, package_name: str):
@@ -289,6 +414,39 @@ class MainController(QObject):
         self.session.is_hook_compatible = False  # Conservative default
         
         self.logger.info("Process selection handled", package_name=package_name)
+    
+    @pyqtSlot()
+    def on_refresh_processes_requested(self):
+        """Handle process refresh requests from the GUI using the new two-phase API."""
+        self.logger.info("Process refresh requested from GUI")
+        
+        # Check if a device is connected
+        if not self.session.is_emulator_connected or not self.session.connected_emulator_serial:
+            self.logger.warning("Cannot refresh processes: no device connected")
+            self.session.available_processes = []
+            return
+        
+        # Use the new two-phase API to get processes from the connected device
+        import asyncio
+        import concurrent.futures
+        
+        # Create a new event loop for this thread
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        
+        try:
+            # Get processes from the connected device using the new API
+            processes = loop.run_until_complete(self.emulator_service.get_installed_third_party_packages())
+            
+            # Update session state with the processes
+            self.session.available_processes = processes
+            self.logger.info("Process refresh completed", process_count=len(processes))
+            
+        except Exception as e:
+            self.logger.error("Error refreshing processes", error=str(e))
+            self.session.available_processes = []
+        finally:
+            loop.close()
     
     @pyqtSlot(str)
     def on_activate_hook_requested(self, package_name: str):

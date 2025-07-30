@@ -820,40 +820,43 @@ class FridaService:
     
     def validate_service_health(self) -> tuple[bool, list[str]]:
         """
-        Validate the health of the service and return any issues found.
+        Validate the health of the Frida service.
         
         Returns:
             Tuple of (is_healthy, list_of_issues)
         """
         issues = []
         
-        # Check Frida availability
+        # Check if Frida is available
         if frida is None:
-            issues.append("Frida not available - install 'frida-tools' package")
+            issues.append("Frida library not available")
         
-        # Check for inconsistent state
-        if self.is_attached() and self.attached_pid is None:
-            issues.append("Inconsistent state: session exists but no PID recorded")
+        # Check if we have a valid session
+        if self.session is None:
+            issues.append("No active Frida session")
         
-        if self.attached_pid is not None and not self.is_attached():
-            issues.append("Inconsistent state: PID recorded but no active session")
+        # Check if we have a valid script
+        if self.script is None:
+            issues.append("No active Frida script")
         
-        if self.script is not None and self.session is None:
-            issues.append("Inconsistent state: script exists but no session")
+        # Check if we have a valid device
+        if self.device is None:
+            issues.append("No active Frida device")
         
-        # Check message queue state
-        if self._event_loop is not None and self._message_queue is None:
-            issues.append("Event loop set but message queue not initialized")
+        return len(issues) == 0, issues
+
+    def check_local_hook_compatibility(self, package_name: str, game_version: str) -> bool:
+        """
+        Check if the local hook script is compatible with the selected package and game version.
         
-        # Check for shutdown state inconsistencies
-        if self._shutdown_requested and self.is_attached():
-            issues.append("Shutdown requested but still attached to process")
+        This method delegates to HookContractValidator to check compatibility.
         
-        is_healthy = len(issues) == 0
-        
-        if not is_healthy:
-            self.logger.warning("Service health check failed", issues=issues)
-        else:
-            self.logger.debug("Service health check passed")
-        
-        return is_healthy, issues 
+        Args:
+            package_name: Package name of the game to check compatibility for
+            game_version: Version of the game to check compatibility for
+            
+        Returns:
+            True if the local hook is compatible and the script file exists, False otherwise
+        """
+        validator = HookContractValidator(self.config, self.logger)
+        return validator.check_local_hook_compatibility(package_name, game_version) 

@@ -74,67 +74,6 @@ class EmulatorService:
         self._cache_timeout = config.get('emulator.cache_timeout_seconds', 300)  # 5 minutes cache timeout
         self._cache_timestamps: Dict[str, float] = {}
 
-    async def find_and_connect_device(self, device_id: Optional[str] = None) -> Optional[str]:
-        """
-        Scan for ADB devices and connect to one.
-
-        Args:
-            device_id: Specific device ID to connect to. If None, will connect
-                      to the first available device.
-
-        Returns:
-            The serial ID of the connected device, or None if no device found
-        """
-        self.logger.info("Scanning for ADB devices", target_device=device_id)
-
-        try:
-            # Add timeout for the entire device discovery process
-            device_discovery_timeout = self.config.get('emulator.timeouts.device_discovery', 3.0)
-            devices = await asyncio.wait_for(
-                self._get_connected_devices(),
-                timeout=device_discovery_timeout
-            )
-
-            if not devices:
-                self.logger.info("No ADB devices found")
-                return None
-
-            if len(devices) == 1 and device_id is None:
-                target_device = devices[0]
-                self.logger.info(
-                    "Single device found, connecting", device=target_device)
-            elif device_id in devices:
-                target_device = device_id
-                self.logger.info(
-                    "Target device found, connecting", device=target_device)
-            elif device_id is None:
-                self.logger.info(
-                    "Multiple devices found, please specify one", devices=devices)
-                return None
-            else:
-                self.logger.error("Target device not found",
-                                  device=device_id, available=devices)
-                return None
-
-            if await self._test_device_connection(target_device):
-                self.connected_device = target_device
-                self.logger.info(
-                    "Successfully connected to device", device=target_device)
-                # Get and cache architecture on successful connection
-                await self.get_device_architecture(target_device)
-                return target_device
-            else:
-                self.logger.error(
-                    "Failed to establish connection to device", device=target_device)
-                return None
-
-        except asyncio.TimeoutError:
-            self.logger.warning("Device discovery timed out.", timeout=device_discovery_timeout)
-            return None
-        except Exception as e:
-            self.logger.error("Error during device discovery", error=str(e))
-            return None
-
     async def get_device_architecture(self, device_id: str) -> str:
         """Get the CPU architecture of the specified device."""
         try:
@@ -149,9 +88,9 @@ class EmulatorService:
             raise RuntimeError(
                 f"Failed to get device architecture: {e}") from e
 
-    async def ensure_frida_server_is_running(self, device_id: str) -> None:
+    async def ensure_frida_server_is_running(self) -> None:
         """
-        Ensures a compatible frida-server is running on the device.
+        Ensures a compatible frida-server is running on the connected device.
 
         This method is idempotent and performs the following steps:
         1. Checks if a responsive frida-server is already running using a real connection.
@@ -160,12 +99,15 @@ class EmulatorService:
         4. Pushes the binary to the device if it's missing or outdated.
         5. Starts the server and verifies it becomes responsive.
 
-        Args:
-            device_id: The serial ID of the target device.
-
         Raises:
+            RuntimeError: If no device is connected.
             FridaServerSetupError: If the setup process fails at any step.
         """
+        if not self.connected_device:
+            self.logger.error("Cannot perform action: no device is connected.")
+            raise RuntimeError("An action was requested, but no device is connected.")
+        device_id = self.connected_device
+        
         if frida is None:
             raise FridaServerSetupError(
                 "Frida library is not installed. Please run 'pip install frida frida-tools'.")
@@ -214,8 +156,13 @@ class EmulatorService:
             self.logger.warning(
                 f"Error trying to connect to {target}", error=str(e))
 
-    async def get_game_pid(self, device_id: str, package_name: str) -> Optional[int]:
-        """Find the Process ID for the running game package."""
+    async def get_game_pid(self, package_name: str) -> Optional[int]:
+        """Find the Process ID for the running game package on the connected device."""
+        if not self.connected_device:
+            self.logger.error("Cannot perform action: no device is connected.")
+            raise RuntimeError("An action was requested, but no device is connected.")
+        device_id = self.connected_device
+        
         try:
             result = await asyncio.create_subprocess_exec(
                 "adb", "-s", device_id, "shell", "pidof", package_name,
@@ -237,8 +184,13 @@ class EmulatorService:
                               device=device_id, package=package_name, error=str(e))
             return None
 
-    async def get_installed_third_party_packages(self, device_id: str) -> list[dict]:
-        """Get a list of running third-party apps only, filtered to exclude system packages."""
+    async def get_installed_third_party_packages(self) -> list[dict]:
+        """Get a list of running third-party apps only, filtered to exclude system packages on the connected device."""
+        if not self.connected_device:
+            self.logger.error("Cannot perform action: no device is connected.")
+            raise RuntimeError("An action was requested, but no device is connected.")
+        device_id = self.connected_device
+        
         self.logger.info(
             "Getting running third-party packages", device=device_id)
 
@@ -429,24 +381,31 @@ class EmulatorService:
         """Get rich information for a specific package."""
         try:
             # Get comprehensive app metadata
-            metadata = await self.get_app_metadata(device_id, package_name)
+            metadata = await self.get_app_metadata(package_name)
             return metadata
         except Exception as e:
             self.logger.warning("Error getting rich package info",
                                 package=package_name, error=str(e))
             return {'name': package_name, 'version': 'Unknown'}
 
-    async def get_app_metadata(self, device_id: str, package_name: str) -> dict[str, Any]:
+    async def get_app_metadata(self, package_name: str) -> dict[str, Any]:
         """
-        Get comprehensive app metadata including display name, version, and icon.
+        Get comprehensive app metadata including display name, version, and icon for the connected device.
 
         Args:
-            device_id: Device serial ID
             package_name: Package name to get metadata for
 
         Returns:
             Dictionary containing app metadata
+            
+        Raises:
+            RuntimeError: If no device is connected.
         """
+        if not self.connected_device:
+            self.logger.error("Cannot perform action: no device is connected.")
+            raise RuntimeError("An action was requested, but no device is connected.")
+        device_id = self.connected_device
+        
         # Check cache first
         cache_key = f"{device_id}_{package_name}_metadata"
         cached_metadata = self._get_cached_app_metadata(cache_key)
@@ -635,121 +594,11 @@ class EmulatorService:
                               package=package_name, error=str(e))
             return None
 
-    async def find_connected_devices(self) -> list[dict]:
-        """Find all connected ADB devices and return detailed information."""
-        self.logger.info("Scanning for connected ADB devices")
-        try:
-            devices = await asyncio.wait_for(self.adb.list_devices(), timeout=10.0)
-            if not devices:
-                self.logger.info("No connected devices found")
-                return []
-
-            tasks = [self._get_device_info(serial) for serial in devices]
-            detailed_devices = await asyncio.gather(*tasks)
-
-            self.logger.info("Found connected devices",
-                             count=len(detailed_devices))
-            return detailed_devices
-        except asyncio.TimeoutError:
-            self.logger.warning("Device scanning timed out")
-            return []
-        except Exception as e:
-            self.logger.error("Error scanning for devices", error=str(e))
-            return []
-
-    def find_connected_devices_sync(self) -> list[dict]:
-        """
-        Synchronous version of find_connected_devices for Qt threading.
-        This version avoids asyncio to prevent qasync conflicts.
-        
-        TODO: Replace with actual sync ADB implementation.
-        For now, returns empty list until real implementation is complete.
-        """
-        self.logger.info("Scanning for connected ADB devices (sync - not yet implemented)")
-        try:
-            # TODO: Implement real synchronous ADB device scanning
-            # For now, return empty list until implementation is complete
-            devices = []
-            
-            self.logger.info("Device scan completed (sync)", count=len(devices))
-            return devices
-        except Exception as e:
-            self.logger.error("Error in device scanning (sync)", error=str(e))
-            return []
-
-    async def _get_device_info(self, device_id: str) -> dict:
-        """Get basic information about a device."""
-        try:
-            model = await self.adb.shell(device_id, "getprop ro.product.model")
-            name = model or f"Device {device_id}"
-            return {'serial': device_id, 'name': name, 'status': 'connected'}
-        except AdbError as e:
-            self.logger.warning("Error getting device info",
-                                device=device_id, error=str(e))
-            return {'serial': device_id, 'name': f"Device {device_id}", 'status': 'error'}
-
-    def _get_device_info_sync(self, device_id: str) -> dict:
-        """Synchronous version of _get_device_info - not yet implemented."""
-        try:
-            # TODO: Implement real synchronous device info retrieval
-            # For now, return basic placeholder info
-            return {
-                'serial': device_id,
-                'name': f'Device {device_id}',
-                'status': 'unknown'
-            }
-        except Exception as e:
-            self.logger.warning("Error getting device info (sync)",
-                                device=device_id, error=str(e))
-            return {'serial': device_id, 'name': f"Device {device_id}", 'status': 'error'}
-
     async def is_connected(self) -> bool:
         """Check if there's an active device connection."""
         if not self.connected_device:
             return False
         return await self._test_device_connection(self.connected_device)
-
-    async def _get_connected_devices(self) -> list[str]:
-        """Get list of connected ADB devices using both standard discovery and network scan."""
-        self.logger.info("Starting comprehensive device discovery...")
-        await self._scan_and_connect_network_devices()
-        try:
-            devices = await self.adb.list_devices()
-            if devices:
-                self.logger.info(
-                    "Comprehensive discovery completed.", final_devices=devices)
-            else:
-                self.logger.warning(
-                    "No devices found after comprehensive discovery.")
-            return devices
-        except AdbError as e:
-            self.logger.error(
-                "Error during final device consolidation", error=str(e))
-            return []
-
-    async def get_enhanced_device_info(self, device_id: str) -> dict[str, Any]:
-        """Get enhanced device information including architecture and properties."""
-        self.logger.debug("Getting enhanced device info", device_id=device_id)
-        
-        # Get basic device info
-        device_info = await self._get_device_info(device_id)
-        
-        # Get device architecture
-        try:
-            device_info['architecture'] = await self.get_device_architecture(device_id)
-        except Exception as e:
-            self.logger.warning("Failed to get device architecture", device_id=device_id, error=str(e))
-            device_info['architecture'] = 'unknown'
-        
-        # Get additional properties
-        try:
-            properties = ['ro.build.version.release', 'ro.build.version.sdk', 'ro.product.model']
-            device_props = await self.get_device_properties(device_id, properties)
-            device_info.update(device_props)
-        except Exception as e:
-            self.logger.warning("Failed to get device properties", device_id=device_id, error=str(e))
-        
-        return device_info
 
     async def get_device_properties(self, device_id: str, properties: list[str]) -> dict[str, str]:
         """Get device properties using ADB shell getprop."""
@@ -927,3 +776,178 @@ class EmulatorService:
         except (AdbError, Exception) as e:
             self.logger.error("Error during file push operation", error=str(e))
             raise
+
+    async def list_devices_with_details(self) -> list[dict]:
+        """
+        Discover all available devices and gather their essential properties for UI display.
+        
+        This is the primary entry point for device listing in the two-phase API.
+        It performs a stateless inspection operation that returns detailed information
+        about all available devices without establishing any stateful connections.
+        
+        Returns:
+            List of dictionaries containing detailed device information
+        """
+        self.logger.info("Starting device discovery with rich details")
+        
+        try:
+            # Ensure network emulators are visible to ADB
+            await self._scan_and_connect_network_devices()
+            
+            # Get all available device serials
+            devices = await self.adb.list_devices()
+            
+            if not devices:
+                self.logger.info("No ADB devices found")
+                return []
+            
+            # Gather rich details for all devices in parallel
+            tasks = [self._get_rich_device_details(serial) for serial in devices]
+            detailed_devices = await asyncio.gather(*tasks, return_exceptions=True)
+            
+            # Filter out any exceptions and log them
+            valid_devices = []
+            for i, result in enumerate(detailed_devices):
+                if isinstance(result, Exception):
+                    self.logger.warning("Failed to get details for device", 
+                                       device=devices[i], error=str(result))
+                else:
+                    valid_devices.append(result)
+            
+            self.logger.info("Device discovery completed", count=len(valid_devices))
+            return valid_devices
+            
+        except Exception as e:
+            self.logger.error("Error during device discovery", error=str(e))
+            return []
+
+    async def _get_rich_device_details(self, device_id: str) -> dict:
+        """
+        Get all necessary read-only properties for a single device.
+        
+        This method gathers comprehensive device information including model,
+        Android version, API level, architecture, and connection status.
+        
+        Args:
+            device_id: The device serial ID
+            
+        Returns:
+            Dictionary containing all device details
+        """
+        try:
+            # Get essential device properties
+            properties = [
+                'ro.product.model',
+                'ro.build.version.release', 
+                'ro.build.version.sdk',
+                'ro.product.cpu.abi'
+            ]
+            
+            device_props = await self.get_device_properties(device_id, properties)
+            
+            # Determine if device has IP address (network device)
+            is_network_device = ':' in device_id
+            
+            # Build the device details dictionary
+            device_details = {
+                'serial': device_id,
+                'model': device_props.get('ro.product.model', 'Unknown Device'),
+                'android_version': device_props.get('ro.build.version.release', 'Unknown'),
+                'api_level': self._parse_api_level(device_props.get('ro.build.version.sdk', '0')),
+                'architecture': device_props.get('ro.product.cpu.abi', 'unknown'),
+                'status': 'Online',
+                'is_network_device': is_network_device
+            }
+            
+            # Add IP address if it's a network device
+            if is_network_device:
+                device_details['ip_address'] = device_id.split(':')[0]
+                device_details['port'] = device_id.split(':')[1]
+            
+            self.logger.debug("Gathered rich device details", 
+                             device=device_id, details=device_details)
+            return device_details
+            
+        except Exception as e:
+            self.logger.warning("Error getting rich device details", 
+                               device=device_id, error=str(e))
+            # Return basic info even if detailed gathering fails
+            return {
+                'serial': device_id,
+                'model': 'Unknown Device',
+                'android_version': 'Unknown',
+                'api_level': 0,
+                'architecture': 'unknown',
+                'status': 'Error',
+                'is_network_device': ':' in device_id
+            }
+
+    async def connect_to_device(self, device_id: str) -> bool:
+        """
+        Establish a stateful connection to a specific device.
+        
+        This method is part of the two-phase API. After using list_devices_with_details()
+        to inspect available devices, this method formally "connects" to a chosen device,
+        setting the internal state of the service for subsequent actions.
+        
+        Args:
+            device_id: The serial ID of the device to connect to
+            
+        Returns:
+            True if connection was successful, False otherwise
+        """
+        self.logger.info("Attempting to connect to device", device=device_id)
+        
+        try:
+            # Verify the device is still reachable
+            if not await self._test_device_connection(device_id):
+                self.logger.error("Device is not reachable", device=device_id)
+                return False
+            
+            # Set the connected device state
+            self.connected_device = device_id
+            
+            # Pre-emptively get and cache the device's architecture
+            self.device_architecture = await self.get_device_architecture(device_id)
+            
+            self.logger.info("Successfully connected to device", 
+                            device=device_id, architecture=self.device_architecture)
+            return True
+            
+        except Exception as e:
+            self.logger.error("Failed to connect to device", 
+                             device=device_id, error=str(e))
+            return False
+
+    async def disconnect_from_device(self) -> bool:
+        """
+        Disconnect from the currently connected device and reset internal state.
+        
+        This method is part of the two-phase API. It clears the internal state
+        and resets the service to a disconnected state.
+        
+        Returns:
+            True if disconnection was successful, False otherwise
+        """
+        if not self.connected_device:
+            self.logger.info("No device currently connected")
+            return True
+        
+        device_id = self.connected_device
+        self.logger.info("Disconnecting from device", device=device_id)
+        
+        try:
+            # Clear the connected device state
+            self.connected_device = None
+            self.device_architecture = None
+            
+            # Clear any cached data for this device
+            self.clear_cache()
+            
+            self.logger.info("Successfully disconnected from device", device=device_id)
+            return True
+            
+        except Exception as e:
+            self.logger.error("Failed to disconnect from device", 
+                             device=device_id, error=str(e))
+            return False

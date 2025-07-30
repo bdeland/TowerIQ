@@ -12,11 +12,11 @@ from ..utils.content_page import ContentPage
 from ...core.session import ConnectionState, ConnectionSubState
 from PyQt6.QtWidgets import (
     QHBoxLayout, QVBoxLayout, QLabel, QStackedWidget, QWidget,
-    QGroupBox, QTextEdit, QFrame, QHeaderView, QTableWidgetItem
+    QGroupBox, QTextEdit, QFrame, QHeaderView, QTableWidgetItem, QSizePolicy
 )
 from qfluentwidgets import (SwitchButton, FluentIcon, PushButton, TableWidget, TableItemDelegate, isDarkTheme,
                             ProgressRing, BodyLabel, InfoBar, InfoBarPosition, CardWidget, SimpleCardWidget)
-from PyQt6.QtCore import pyqtSignal, Qt
+from PyQt6.QtCore import pyqtSignal, Qt, QTimer
 from PyQt6.QtGui import QPalette, QColor
 
 # NOTE: CustomTableItemDelegate remains unchanged as it's already well-designed.
@@ -45,6 +45,7 @@ class CustomTableItemDelegate(TableItemDelegate):
             status = index.data()
             color_map = {
                 "Online": ("#2ecc71", "#27ae60"),
+                "Connected": ("#3498db", "#2980b9"),  # Blue color for connected status
                 "Offline": ("#e74c3c", "#c0392b"),
                 "Unauthorized": ("#f39c12", "#e67e22"),
                 "No Permissions": ("#e74c3c", "#c0392b"),
@@ -60,6 +61,7 @@ class ConnectionPage(QWidget):
     # --- Signals remain the same ---
     scan_devices_requested = pyqtSignal()
     connect_device_requested = pyqtSignal(str)
+    disconnect_device_requested = pyqtSignal()  # New signal for disconnect requests
     refresh_processes_requested = pyqtSignal()
     select_process_requested = pyqtSignal(dict)
     activate_hook_requested = pyqtSignal()
@@ -74,6 +76,10 @@ class ConnectionPage(QWidget):
         
         # Flag to track if device card has been expanded
         self._device_card_expanded = False
+        
+        # Track connection state for infobar management
+        self._last_connection_state = ConnectionState.DISCONNECTED
+        self._connection_infobar = None
         
         # Main layout
         layout = QVBoxLayout(self)
@@ -100,12 +106,118 @@ class ConnectionPage(QWidget):
         self.session_manager.hook_activation_stage_changed.connect(self.update_activation_view)
         self.session_manager.hook_activation_message_changed.connect(self.update_activation_view)
         
+        # Connect connection state changes to device table updates
+        self.session_manager.connection_main_state_changed.connect(self._update_device_table_on_connection_change)
+        
         # --- Initial state update ---
         self._on_connection_state_changed(self.session_manager.connection_main_state)
         self.update_device_table(self.session_manager.available_emulators)
         
         # Note: Device scan will be triggered by on_page_shown() when page is navigated to
         # No need to scan during initialization as the page might not be visible yet
+
+    def _show_connection_infobar(self, title: str, content: str, icon: FluentIcon, duration: int = 3000):
+        """Show an infobar notification for connection events."""
+        # Close any existing connection infobar
+        if self._connection_infobar:
+            self._connection_infobar.close()
+            self._connection_infobar = None
+        
+        # Create and show new infobar
+        self._connection_infobar = InfoBar(
+            icon=icon,
+            title=title,
+            content=content,
+            duration=duration,
+            position=InfoBarPosition.BOTTOM_RIGHT,
+            parent=self
+        )
+        self._connection_infobar.show()
+
+    def _show_connecting_infobar(self, device_serial: str):
+        """Show connecting infobar with indeterminate progress."""
+        self._show_connection_infobar(
+            title="Connecting to device",
+            content=f"Establishing connection to {device_serial}...",
+            icon=FluentIcon.SYNC,
+            duration=0  # No auto-close, will be closed manually
+        )
+
+    def _show_connection_success_infobar(self, device_serial: str):
+        """Show successful connection infobar."""
+        # Close any existing connection infobar
+        if self._connection_infobar:
+            self._connection_infobar.close()
+            self._connection_infobar = None
+        
+        # Use InfoBar.success static method
+        InfoBar.success(
+            title="Successfully connected to device",
+            content=f"Device {device_serial} is now connected and ready.",
+            duration=4000,
+            parent=self
+        )
+
+    def _show_connection_error_infobar(self, device_serial: str, error_message: str):
+        """Show connection error infobar."""
+        # Close any existing connection infobar
+        if self._connection_infobar:
+            self._connection_infobar.close()
+            self._connection_infobar = None
+        
+        # Use InfoBar.error static method
+        InfoBar.error(
+            title="Connection failed",
+            content=f"Failed to connect to {device_serial}: {error_message}",
+            duration=5000,
+            parent=self
+        )
+
+    def _handle_card_transitions(self, new_state: ConnectionState):
+        """Handle automatic card transitions based on connection state."""
+        if new_state == ConnectionState.CONNECTED and self._last_connection_state != ConnectionState.CONNECTED:
+            # Device just connected - expand process card but keep device card open
+            self.logger.info("Device connected - expanding process card")
+            self.process_card.set_expanded(True)
+            # Force layout update to fix width issue
+            QTimer.singleShot(100, self._force_process_card_layout_update)
+            
+        elif new_state == ConnectionState.DISCONNECTED and self._last_connection_state != ConnectionState.DISCONNECTED:
+            # Device disconnected - collapse process card but keep device card open
+            self.logger.info("Device disconnected - collapsing process card")
+            self.process_card.set_expanded(False)
+            
+        elif new_state == ConnectionState.ACTIVE and self._last_connection_state != ConnectionState.ACTIVE:
+            # Hook activated - close process card
+            self.logger.info("Hook activated - closing process card")
+            self.process_card.set_expanded(False)
+
+    def _force_process_card_layout_update(self):
+        """Force a layout update for the process card to fix width issues."""
+        if hasattr(self, 'process_card') and self.process_card:
+            # Force the process card to update its layout
+            self.process_card.updateGeometry()
+            # Force the process table to resize properly
+            if hasattr(self, 'process_table') and self.process_table:
+                self.process_table.resizeColumnsToContents()
+                # Ensure the table takes full width
+                header = self.process_table.horizontalHeader()
+                if header is not None:
+                    # Force stretch on the package column to fill width
+                    header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+            # Force the parent widget to update
+            self.updateGeometry()
+
+    def _on_process_card_toggle_changed(self, expanded: bool):
+        """Handle process card expansion/collapse."""
+        if expanded:
+            # When process card is expanded, force layout update to fix width issues
+            QTimer.singleShot(100, self._force_process_card_layout_update)
+
+    def _on_device_card_toggle_changed(self, expanded: bool):
+        """Handle device card expansion/collapse."""
+        # No special handling needed for device card
+        pass
 
     def _create_standard_table(self, headers: list[str]) -> TableWidget:
         # This factory method is still useful and remains unchanged.
@@ -121,11 +233,15 @@ class ConnectionPage(QWidget):
         table.setWordWrap(False)
         table.setSortingEnabled(False)
         
+        # Set size policy to prevent extra space
+        table.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        
         vertical_header = table.verticalHeader()
         if vertical_header is not None:
             vertical_header.setMinimumSectionSize(30)
             vertical_header.setDefaultSectionSize(40)
             vertical_header.setMaximumSectionSize(50)
+            vertical_header.setStretchLastSection(False)  # Prevent extra space after last row
             vertical_header.hide()
             
         return table
@@ -165,6 +281,7 @@ class ConnectionPage(QWidget):
 
         # Create a content card to hold the table and buttons
         content_card = SimpleCardWidget()
+        content_card.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
         content_layout = QVBoxLayout(content_card)
         content_layout.setContentsMargins(10, 10, 10, 10)
         content_layout.setSpacing(10)
@@ -180,7 +297,7 @@ class ConnectionPage(QWidget):
             header.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
             header.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
             header.setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)
-        content_layout.addWidget(self.device_table)
+        content_layout.addWidget(self.device_table, 0)  # Add with stretch factor 0 to prevent expansion
 
         # Create the bottom button bar
         bottom_bar_layout = QHBoxLayout()
@@ -193,12 +310,23 @@ class ConnectionPage(QWidget):
         self.connect_button.setEnabled(False)
         self.connect_button.clicked.connect(self._on_connect_clicked)
         bottom_bar_layout.addWidget(self.connect_button)
+        
+        # Add disconnect button (initially hidden)
+        self.disconnect_button = PushButton(FluentIcon.CLOSE, "Disconnect")
+        self.disconnect_button.setVisible(False)
+        self.disconnect_button.clicked.connect(self._on_disconnect_clicked)
+        bottom_bar_layout.addWidget(self.disconnect_button)
+        
         content_layout.addLayout(bottom_bar_layout)
         
         self.device_table.itemSelectionChanged.connect(self._on_device_selection_changed)
         
         # Add the single content card to the expandable group
         device_card_group.add_card(content_card)
+        
+        # Connect the toggle signal to handle manual expansion
+        device_card_group.toggle_changed.connect(self._on_device_card_toggle_changed)
+        
         return device_card_group
 
     def _create_process_card(self) -> ExpandableCardGroup:
@@ -213,6 +341,7 @@ class ConnectionPage(QWidget):
 
         # Create a content card for the table and buttons
         content_card = SimpleCardWidget()
+        content_card.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
         content_layout = QVBoxLayout(content_card)
         content_layout.setContentsMargins(10, 10, 10, 10)
         content_layout.setSpacing(10)
@@ -227,7 +356,7 @@ class ConnectionPage(QWidget):
             header.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
             header.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
             header.setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)
-        content_layout.addWidget(self.process_table)
+        content_layout.addWidget(self.process_table, 0)  # Add with stretch factor 0 to prevent expansion
 
         # Create the bottom button bar
         bottom_bar_layout = QHBoxLayout()
@@ -245,6 +374,10 @@ class ConnectionPage(QWidget):
         
         # Add the content card to the expandable group
         process_card_group.add_card(content_card)
+        
+        # Connect the toggle signal to handle manual expansion
+        process_card_group.toggle_changed.connect(self._on_process_card_toggle_changed)
+        
         return process_card_group
 
     def _create_activation_section(self) -> QGroupBox:
@@ -395,17 +528,60 @@ class ConnectionPage(QWidget):
     # --- Reactive Slots for State Changes ---
     def _on_connection_state_changed(self, state):
         """Reacts to SessionManager's main connection state."""
-        self._update_ui_for_state(state)
         self.logger.info("Connection main state changed", state=state.value)
+        
+        # Handle infobar notifications
+        if state == ConnectionState.CONNECTING and self._last_connection_state != ConnectionState.CONNECTING:
+            # Show connecting infobar
+            device_serial = self.session_manager.connected_emulator_serial or "device"
+            self._show_connecting_infobar(device_serial)
+            
+        elif state == ConnectionState.CONNECTED and self._last_connection_state != ConnectionState.CONNECTED:
+            # Show success infobar and close connecting infobar
+            if self._connection_infobar:
+                self._connection_infobar.close()
+                self._connection_infobar = None
+            device_serial = self.session_manager.connected_emulator_serial or "device"
+            self._show_connection_success_infobar(device_serial)
+            
+        elif state == ConnectionState.ERROR and self._last_connection_state != ConnectionState.ERROR:
+            # Show error infobar
+            if self._connection_infobar:
+                self._connection_infobar.close()
+                self._connection_infobar = None
+            device_serial = self.session_manager.connected_emulator_serial or "device"
+            error_info = self.session_manager.get_last_error_info()
+            error_message = error_info.user_message if error_info else "Unknown error"
+            self._show_connection_error_infobar(device_serial, error_message)
+            
+        elif state == ConnectionState.DISCONNECTED and self._last_connection_state != ConnectionState.DISCONNECTED:
+            # Close any existing infobar
+            if self._connection_infobar:
+                self._connection_infobar.close()
+                self._connection_infobar = None
+        
+        # Handle card transitions
+        self._handle_card_transitions(state)
+        
+        # Update UI
+        self._update_ui_for_state(state)
+        
+        # Update last state
+        self._last_connection_state = state
 
     def _on_connection_sub_state_changed(self, sub_state):
-        """Reacts to SessionManager's sub-state."""
-        # ... (no changes needed here) ...
-        if sub_state:
-            self.logger.info("Connection sub state changed", sub_state=sub_state.value)
-        else:
+        """Reacts to SessionManager's connection sub-state."""
+        self.logger.info("Connection sub state changed", sub_state=sub_state.value if sub_state else "None")
+        
+        # Clear sub-state when connection is established
+        if self.session_manager.connection_main_state in [ConnectionState.CONNECTED, ConnectionState.ACTIVE]:
             self.logger.info("Connection sub state cleared")
 
+    def _update_device_table_on_connection_change(self, state):
+        """Update device table when connection state changes to reflect connected status."""
+        # Only update if we have devices in the table
+        if self.session_manager.available_emulators:
+            self.update_device_table(self.session_manager.available_emulators)
 
     def _update_ui_for_state(self, state: ConnectionState):
         """Centralized method to update all UI components based on the main state."""
@@ -413,22 +589,55 @@ class ConnectionPage(QWidget):
         is_connected = state == ConnectionState.CONNECTED
         is_active = state == ConnectionState.ACTIVE
         
-        self.process_card.setEnabled(is_connected or is_active)
+        # Process card is always enabled but content is disabled when no device connected
+        self.process_card.setEnabled(True)
         self.refresh_processes_button.setEnabled(is_connected or is_active)
+        self.activate_hook_button.setEnabled(False)  # Will be enabled when process is selected
         self.activation_section.setVisible(is_active)
+        
+        # Update device card button visibility based on connection state
+        if is_connected or is_active:
+            # Device is connected - show disconnect button, hide connect button
+            self.connect_button.setVisible(False)
+            self.disconnect_button.setVisible(True)
+        else:
+            # Device is not connected - show connect button, hide disconnect button
+            self.connect_button.setVisible(True)
+            self.disconnect_button.setVisible(False)
         
         # Update header card descriptions
         if is_active or is_connected:
             serial = self.session_manager.connected_emulator_serial
-            self.device_card.header_card.content_label.setText(f"Connected: {serial}")
+            self.device_card.header_card.content_label.setText(f"Connected to {serial}")
         else:
             self.device_card.header_card.content_label.setText("Select a device to begin")
 
         if is_active:
             process_name = self.session_manager.selected_target_app_name or "N/A"
             self.process_card.header_card.content_label.setText(f"Hooked: {process_name}")
-        else:
+        elif is_connected:
             self.process_card.header_card.content_label.setText("Select a process to hook")
+        else:
+            self.process_card.header_card.content_label.setText("Connect to a device to see available processes")
+        
+        # Update process table and button states based on connection
+        if is_connected or is_active:
+            # Enable process table and buttons
+            self.process_table.setEnabled(True)
+            self.refresh_processes_button.setEnabled(True)
+        else:
+            # Disable process table and buttons when no device connected
+            self.process_table.setEnabled(False)
+            self.refresh_processes_button.setEnabled(False)
+            # Clear the process table when no device is connected
+            self.process_table.setRowCount(0)
+        
+        # Automatically refresh processes when device is connected
+        if is_connected and not is_active:
+            # Only refresh if we don't already have processes loaded
+            if not self.session_manager.available_processes:
+                self.logger.info("Auto-refreshing processes for newly connected device")
+                self.refresh_processes_requested.emit()
             
         # Update the top-level status indicator
         self._update_status_section(state)
@@ -468,6 +677,9 @@ class ConnectionPage(QWidget):
         """Populates the device table with enhanced device data."""
         self.logger.info("Received device table update signal", device_count=len(emulators))
         
+        # Get the currently connected device serial
+        connected_serial = self.session_manager.connected_emulator_serial
+        
         self.device_table.setRowCount(len(emulators))
         for row, emulator in enumerate(emulators):
             # Format Android version display
@@ -486,12 +698,19 @@ class ConnectionPage(QWidget):
             # Enhanced emulator detection
             emulator_display = self._detect_emulator_type(emulator)
             
+            # Determine status - show "Connected" for the currently connected device
+            device_serial = emulator.get('serial', '')
+            if device_serial == connected_serial:
+                status = "Connected"
+            else:
+                status = str(emulator.get('status', 'Unknown'))
+            
             items = [
-                QTableWidgetItem(str(emulator.get('serial', ''))),
+                QTableWidgetItem(str(device_serial)),
                 QTableWidgetItem(model_display),
                 QTableWidgetItem(android_display),
                 QTableWidgetItem(emulator_display),
-                QTableWidgetItem(str(emulator.get('status', 'Unknown')))
+                QTableWidgetItem(status)
             ]
             
             for item in items:
@@ -508,6 +727,13 @@ class ConnectionPage(QWidget):
             self.device_table.setItem(row, 4, items[4])
         
         self.device_table.resizeRowsToContents()
+        
+        # Set the table height to fit content exactly
+        row_height = 40  # Default row height from _create_standard_table
+        header_height = 30  # Approximate header height
+        total_height = header_height + (len(emulators) * row_height) + 2  # +2 for borders
+        self.device_table.setFixedHeight(total_height)
+        
         self.logger.info("Device table updated successfully", rows=len(emulators))
 
     def _detect_emulator_type(self, emulator: dict) -> str:
@@ -600,6 +826,12 @@ class ConnectionPage(QWidget):
                 self.process_table.setItem(row, col, item)
 
         self.process_table.resizeColumnsToContents()
+        
+        # Set the table height to fit content exactly
+        row_height = 40  # Default row height from _create_standard_table
+        header_height = 30  # Approximate header height
+        total_height = header_height + (len(processes) * row_height) + 2  # +2 for borders
+        self.process_table.setFixedHeight(total_height)
     
     def update_activation_view(self):
         """Updates the activation section UI based on session state with detailed multi-stage progress."""
@@ -728,7 +960,9 @@ class ConnectionPage(QWidget):
 
     def _on_process_selection_changed(self):
         selected_items = self.process_table.selectedItems()
-        self.activate_hook_button.setEnabled(bool(selected_items))
+        # Only enable activate hook button if device is connected and process is selected
+        is_connected = self.session_manager.connection_main_state in [ConnectionState.CONNECTED, ConnectionState.ACTIVE]
+        self.activate_hook_button.setEnabled(bool(selected_items) and is_connected)
         if selected_items:
             item = self.process_table.item(selected_items[0].row(), 0)
             if item is not None and hasattr(item, 'data'):
@@ -746,6 +980,11 @@ class ConnectionPage(QWidget):
         else:
             # If in activation process, go back to process selection
             self.back_to_stage_requested.emit(1)
+
+    def _on_disconnect_clicked(self):
+        """Handle disconnect button clicks."""
+        self.logger.info("Disconnect button clicked")
+        self.disconnect_device_requested.emit()
 
     def update_theme_styles(self):
         """Update theme styles for all sections."""

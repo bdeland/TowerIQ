@@ -912,19 +912,33 @@ class ConnectionFlowController(QObject):
             raise ValueError(f"Unknown connection stage: {stage}")
     
     async def _validate_device_connection(self, device_id: str) -> bool:
-        """Validate device connection and accessibility."""
+        """Validate device connection and availability."""
         self._logger.debug("Validating device connection", device_id=device_id)
         
         if not self.emulator_service:
-            self._logger.warning("Emulator service not available for device validation")
+            self._logger.warning("Emulator service not available, skipping device validation")
             return True  # Skip validation if service not available
         
         try:
-            # Use emulator service to validate device connection
-            connected_device = await self.emulator_service.find_and_connect_device(device_id)
-            if connected_device != device_id:
-                self._logger.error("Failed to connect to specified device", 
-                                 expected=device_id, actual=connected_device)
+            # Use the new two-phase API: first list devices, then connect
+            devices = await self.emulator_service.list_devices_with_details()
+            
+            # Check if the target device is in the list
+            target_device = None
+            for device in devices:
+                if device.get('serial') == device_id:
+                    target_device = device
+                    break
+            
+            if not target_device:
+                self._logger.error("Target device not found in available devices", 
+                                 device_id=device_id, available_devices=[d.get('serial') for d in devices])
+                return False
+            
+            # Connect to the device using the new stateful connection method
+            success = await self.emulator_service.connect_to_device(device_id)
+            if not success:
+                self._logger.error("Failed to connect to specified device", device_id=device_id)
                 return False
             
             self._logger.info("Device connection validated", device_id=device_id)
@@ -976,8 +990,8 @@ class ConnectionFlowController(QObject):
             
             try:
                 # Use emulator service directly
-                await self.emulator_service.ensure_frida_server_is_running(device_id)
-                return await self.emulator_service.is_frida_server_responsive(device_id)
+                await self.emulator_service.ensure_frida_server_is_running()
+                return True
             except Exception as e:
                 self._logger.error("Frida server setup failed", error=str(e))
                 return False

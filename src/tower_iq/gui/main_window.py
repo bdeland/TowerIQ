@@ -1,7 +1,8 @@
 import sys
 import asyncio
+import traceback
 
-from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtCore import Qt, pyqtSignal, QMetaObject, Q_ARG
 from PyQt6.QtWidgets import QApplication, QVBoxLayout, QWidget
 from PyQt6.QtGui import QCloseEvent
 from qfluentwidgets import (FluentWindow, setTheme, Theme, FluentIcon, 
@@ -17,6 +18,7 @@ from .pages.dashboards_page import DashboardsPage
 from .pages.settings_page import SettingsPage
 from .pages.connection_page import ConnectionPage
 
+import structlog
 
 class MainWindow(FluentWindow):
 
@@ -25,6 +27,7 @@ class MainWindow(FluentWindow):
         self.session_manager = session_manager
         self.config_manager = config_manager
         self.controller = controller
+        self.logger = structlog.get_logger().bind(source="MainWindow")
 
         # Initialize theme and connect the global style handler
         self._initialize_theme()
@@ -85,7 +88,7 @@ class MainWindow(FluentWindow):
         self.addSubInterface(self.settings_page, FluentIcon.SETTING, 'Settings', position=NavigationItemPosition.BOTTOM)
         
     def _connect_signals(self):
-        """Connect all signals after the window is fully initialized."""
+        """Connect all signals between components."""
         # Connect theme change signal
         qconfig.themeChanged.connect(self.apply_global_stylesheet)
         
@@ -96,8 +99,10 @@ class MainWindow(FluentWindow):
         self.header.breadcrumb.currentItemChanged.connect(self.on_breadcrumb_item_changed)
         
         # Connect connection page signals
-        self.connection_page.connect_device_requested.connect(self.navigate_to_process_selection)
         self.connection_page.scan_devices_requested.connect(self._on_scan_devices_requested)
+        self.connection_page.connect_device_requested.connect(self._on_connect_device_requested)
+        self.connection_page.disconnect_device_requested.connect(self._on_disconnect_device_requested)
+        self.connection_page.refresh_processes_requested.connect(self._on_refresh_processes_requested)
         
         # Connect settings page signals
         self.settings_page.category_navigated.connect(self.on_settings_category_navigated)
@@ -240,14 +245,72 @@ class MainWindow(FluentWindow):
         """Handle device scan requests from the connection page."""
         if self.controller:
             try:
-                self.controller.on_scan_devices_requested()
+                # Use QMetaObject.invokeMethod for thread-safe async task scheduling
+                from PyQt6.QtCore import QMetaObject, Qt
+                QMetaObject.invokeMethod(
+                    self.controller, 
+                    "on_scan_devices_requested", 
+                    Qt.ConnectionType.QueuedConnection
+                )
+                self.logger.info("MainWindow: device_scan_requested signal emitted to worker thread")
+            except Exception as e:
+                self.logger.error("Failed to emit device scan signal", error=str(e))
+                traceback.print_exc()
+        else:
+            #TODO: fix this
+            pass
+
+    def _on_connect_device_requested(self, device_serial: str):
+        """Handle device connection requests from the connection page."""
+        if self.controller:
+            try:
+                # Use QMetaObject.invokeMethod for thread-safe async task scheduling
+                from PyQt6.QtCore import QMetaObject, Qt
+                QMetaObject.invokeMethod(
+                    self.controller, 
+                    "on_connect_device_requested", 
+                    Qt.ConnectionType.QueuedConnection,
+                    Q_ARG(str, device_serial)
+                )
+                self.logger.info("MainWindow: connect_device_requested signal emitted to worker thread")
+            except Exception as e:
+                self.logger.error("Failed to emit connect device signal", error=str(e))
+                traceback.print_exc()
+        else:
+            #TODO: fix this
+            pass
+
+    def _on_disconnect_device_requested(self):
+        """Handle device disconnection requests from the connection page."""
+        if self.controller:
+            try:
+                # Use QMetaObject.invokeMethod for thread-safe async task scheduling
+                from PyQt6.QtCore import QMetaObject, Qt
+                QMetaObject.invokeMethod(
+                    self.controller, 
+                    "on_disconnect_device_requested", 
+                    Qt.ConnectionType.QueuedConnection
+                )
+                self.logger.info("MainWindow: disconnect_device_requested signal emitted to worker thread")
+            except Exception as e:
+                self.logger.error("Failed to emit disconnect device signal", error=str(e))
+                traceback.print_exc()
+        else:
+            #TODO: fix this
+            pass
+        
+    def _on_refresh_processes_requested(self):
+        """Handle process refresh requests from the connection page."""
+        if self.controller:
+            try:
+                self.controller.on_refresh_processes_requested()
             except Exception as e:
                 import traceback
                 traceback.print_exc()
         else:
             #TODO: fix this
             pass
-        
+
     def on_settings_category_navigated(self, category: str):
         """Handle settings category navigation for breadcrumb updates only."""
         if not hasattr(self, 'header'):

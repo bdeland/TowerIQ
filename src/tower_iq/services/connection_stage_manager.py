@@ -289,16 +289,11 @@ class ConnectionStageManager:
     async def _check_frida_server(self, device_id: str) -> bool:
         """Check if Frida server is already running."""
         try:
-            is_responsive = await self.emulator_service.is_frida_server_responsive(device_id)
-            if is_responsive:
-                self.logger.info("Frida server already running and responsive")
-                # Skip installation and start stages
-                self._skip_stage("frida_server_install")
-                self._skip_stage("frida_server_start")
-                return True
-            else:
-                self.logger.info("Frida server not running or not responsive")
-                return True  # Continue to installation
+            # Frida server management is now handled by FridaServerManager
+            # The ensure_frida_server_is_running method handles all server management
+            # For now, we'll assume we need to run the full setup process
+            self.logger.info("Proceeding with Frida server setup")
+            return True  # Continue to installation
         except Exception as e:
             self.logger.warning("Error checking Frida server", error=str(e))
             return True  # Continue to installation anyway
@@ -307,7 +302,7 @@ class ConnectionStageManager:
         """Install Frida server on the device."""
         try:
             # This will download and push the server if needed
-            await self.emulator_service.ensure_frida_server_is_running(device_id)
+            await self.emulator_service.ensure_frida_server_is_running()
             return True
         except Exception as e:
             self.logger.error("Error installing Frida server", error=str(e))
@@ -316,7 +311,9 @@ class ConnectionStageManager:
     async def _start_frida_server(self, device_id: str) -> bool:
         """Start Frida server process."""
         try:
-            await self.emulator_service.start_frida_server(device_id)
+            # Frida server management is now handled by FridaServerManager
+            # The ensure_frida_server_is_running method handles starting the server
+            await self.emulator_service.ensure_frida_server_is_running()
             return True
         except Exception as e:
             self.logger.error("Error starting Frida server", error=str(e))
@@ -325,10 +322,9 @@ class ConnectionStageManager:
     async def _verify_frida_server(self, device_id: str) -> bool:
         """Verify Frida server is responsive."""
         try:
-            is_responsive = await self.emulator_service.is_frida_server_responsive(device_id)
-            if not is_responsive:
-                self.logger.error("Frida server not responsive after start")
-                return False
+            # Frida server verification is now handled by FridaServerManager
+            # The ensure_frida_server_is_running method includes verification
+            await self.emulator_service.ensure_frida_server_is_running()
             return True
         except Exception as e:
             self.logger.error("Error verifying Frida server", error=str(e))
