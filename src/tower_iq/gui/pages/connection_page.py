@@ -12,7 +12,7 @@ from ..utils.content_page import ContentPage
 from ...core.session import ConnectionState, ConnectionSubState
 from PyQt6.QtWidgets import (
     QHBoxLayout, QVBoxLayout, QLabel, QStackedWidget, QWidget,
-    QGroupBox, QTextEdit, QFrame, QHeaderView, QTableWidgetItem
+    QGroupBox, QTextEdit, QFrame, QHeaderView, QTableWidgetItem, QSizePolicy
 )
 from qfluentwidgets import (SwitchButton, FluentIcon, PushButton, TableWidget, TableItemDelegate, isDarkTheme,
                             ProgressRing, BodyLabel, InfoBar, InfoBarPosition, CardWidget, SimpleCardWidget)
@@ -120,6 +120,9 @@ class ConnectionPage(QWidget):
         table.setBorderRadius(8)
         table.setWordWrap(False)
         table.setSortingEnabled(False)
+        
+        # Set size policy to prevent extra space after rows
+        table.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
         
         vertical_header = table.verticalHeader()
         if vertical_header is not None:
