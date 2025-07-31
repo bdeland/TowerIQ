@@ -27,7 +27,7 @@ from .utils.database_info_card import DatabaseInfoCard
 from .utils.health_check_card import HealthCheckCard
 from .utils.settings_item_card import SettingsItemCard
 from .utils.settings_category_card import SettingsCategoryCard
-from .utils.expandable_settings_card import ExpandableSettingsCard, SubsettingItem
+from .utils.expandable_settings_card import ExpandableCardGroup, SubsettingItem
 from .utils.page_header import PageHeader
 from .utils.header_widget import HeaderWidget
 from .utils.logging_settings_widget import LoggingSettingsWidget
@@ -52,7 +52,7 @@ __all__ = [
     'HealthCheckCard',
     'SettingsItemCard',
     'SettingsCategoryCard',
-    'ExpandableSettingsCard',
+    'ExpandableCardGroup',
     'SubsettingItem',
     'PageHeader',
     'HeaderWidget',

@@ -174,15 +174,10 @@ class SessionManager(QObject):
     Enhanced with state machine logic and consistency validation.
     """
     # Signals for individual state changes
-    connection_state_changed = pyqtSignal(bool) # True if hook is active
     round_status_changed = pyqtSignal(bool) # True if a round is active
     available_emulators_changed = pyqtSignal(list)
     available_processes_changed = pyqtSignal(list)
     selected_process_changed = pyqtSignal()
-    hook_activation_stage_changed = pyqtSignal(str)
-    hook_activation_message_changed = pyqtSignal(str)
-    emulator_connection_changed = pyqtSignal(bool) # True if emulator is connected
-    emulator_connection_state_changed = pyqtSignal(bool) # ADDED: for new UI connection panel
     
     # New state machine signals
     connection_main_state_changed = pyqtSignal(ConnectionState)
@@ -214,7 +209,24 @@ class SessionManager(QObject):
             ConnectionState.ERROR: [ConnectionState.DISCONNECTED, ConnectionState.CONNECTING]
         }
         
-        self.reset_all_state()
+        # Initialize state variables
+        with QMutexLocker(self._mutex):
+            self._current_round_seed = None
+            self._is_round_active = False
+            self._connected_emulator_serial = None
+            self._available_emulators = []
+            self._available_processes = []
+            self._selected_target_package = None
+            self._selected_target_pid = None
+            self._selected_target_version = None
+            self._is_hook_compatible = False
+            
+            # Initialize state machine properties
+            self._connection_main_state = ConnectionState.DISCONNECTED
+            self._connection_sub_state = None
+            self._stage_progress = {}
+            self._last_error_info = None
+            self._state_snapshot = None
 
     def _set_property(self, name: str, value: Any, signal: Any = None):
         """Generic thread-safe property setter that emits a signal on change."""
@@ -231,11 +243,8 @@ class SessionManager(QObject):
     # --- Properties ---
     @property
     def is_hook_active(self) -> bool:
-        with QMutexLocker(self._mutex): return self._is_hook_active
-    @is_hook_active.setter
-    def is_hook_active(self, value: bool):
-        if self._set_property('_is_hook_active', value, self.connection_state_changed):
-            self.logger.info("Hook active state changed", active=value)
+        with QMutexLocker(self._mutex):
+            return self._connection_main_state == ConnectionState.ACTIVE
 
     @property
     def is_round_active(self) -> bool:
@@ -285,12 +294,8 @@ class SessionManager(QObject):
 
     @property
     def is_emulator_connected(self) -> bool:
-        with QMutexLocker(self._mutex): return self._is_emulator_connected
-    @is_emulator_connected.setter
-    def is_emulator_connected(self, value: bool):
-        # Emit both signals for compatibility
-        self._set_property('_is_emulator_connected', value, self.emulator_connection_changed)
-        self.emulator_connection_state_changed.emit(value)
+        with QMutexLocker(self._mutex):
+            return self._connection_main_state in [ConnectionState.CONNECTED, ConnectionState.ACTIVE]
 
     @property
     def selected_target_package(self) -> Optional[str]:
@@ -315,62 +320,41 @@ class SessionManager(QObject):
 
     @property
     def hook_activation_stage(self) -> str:
-        with QMutexLocker(self._mutex): return self._hook_activation_stage
-    @hook_activation_stage.setter
-    def hook_activation_stage(self, value: str):
-        self._set_property('_hook_activation_stage', value, self.hook_activation_stage_changed)
+        with QMutexLocker(self._mutex):
+            return self._get_stage_from_sub_state(self._connection_sub_state) if self._connection_main_state == ConnectionState.CONNECTING else self._connection_main_state.value
 
     @property
     def hook_activation_message(self) -> str:
-        with QMutexLocker(self._mutex): return self._hook_activation_message
-    @hook_activation_message.setter
-    def hook_activation_message(self, value: str):
-        self._set_property('_hook_activation_message', value, self.hook_activation_message_changed)
+        with QMutexLocker(self._mutex):
+            # This can be made more sophisticated later if needed
+            if self._connection_main_state == ConnectionState.ERROR and self._last_error_info:
+                return self._last_error_info.user_message
+            return f"Current state: {self.hook_activation_stage.replace('_', ' ').title()}"
 
-    def reset_connection_state(self) -> None:
-        """Resets only the connection-related state variables."""
+    def reset_to_disconnected(self) -> None:
+        """Resets all connection-related state and transitions to DISCONNECTED."""
         with QMutexLocker(self._mutex):
             self._connected_emulator_serial = None
-            self._available_emulators = []
             self._available_processes = []
             self._selected_target_package = None
             self._selected_target_pid = None
             self._selected_target_version = None
             self._is_hook_compatible = False
-            self._is_emulator_connected = False
-            self._hook_activation_stage = "idle"
-            self._hook_activation_message = ""
-
-    # ... and so on for other properties like selected_target_package, version, is_hook_compatible, etc.
-    # get_status_summary and reset methods remain useful.
+            self.clear_stage_progress()
+            self.clear_error_info()
+            
+            # Finally, perform the transition
+            self.transition_to_state(ConnectionState.DISCONNECTED)
+        
+        # Since this is a hard reset, also clear non-connection state
+        # (or decide if this should be separate)
+        with QMutexLocker(self._mutex):
+             self._current_round_seed = None
+             self._is_round_active = False
 
     def get_status_summary(self) -> dict:
         with QMutexLocker(self._mutex):
             return self.__dict__.copy()
-
-    def reset_all_state(self) -> None:
-        """Resets all state variables to their default values."""
-        with QMutexLocker(self._mutex):
-            self._current_round_seed = None
-            self._is_hook_active = False
-            self._is_round_active = False
-            self._connected_emulator_serial = None
-            self._available_emulators = []
-            self._available_processes = []
-            self._selected_target_package = None
-            self._selected_target_pid = None
-            self._selected_target_version = None
-            self._is_hook_compatible = False
-            self._is_emulator_connected = False
-            self._hook_activation_stage = "idle"  # idle, checking_frida, validating_hook, attaching, failed, success
-            self._hook_activation_message = ""    # A user-friendly message for the current stage or error
-            
-            # Reset state machine properties
-            self._connection_main_state = ConnectionState.DISCONNECTED
-            self._connection_sub_state = None
-            self._stage_progress = {}
-            self._last_error_info = None
-            self._state_snapshot = None
 
     # --- State Machine Methods ---
     
@@ -421,8 +405,7 @@ class SessionManager(QObject):
                 # Clear error info when leaving error state
                 self._last_error_info = None
             
-            # Update legacy state for backward compatibility
-            self._update_legacy_state(new_state, sub_state)
+
         
         # Emit signals outside of mutex lock
         if old_main_state != new_state:
@@ -437,31 +420,7 @@ class SessionManager(QObject):
         """Check if a state transition is valid."""
         return to_state in self._valid_transitions.get(from_state, [])
     
-    def _update_legacy_state(self, main_state: ConnectionState, sub_state: Optional[ConnectionSubState]):
-        """Update legacy state properties for backward compatibility."""
-        # Update is_hook_active based on main state
-        new_hook_active = main_state == ConnectionState.ACTIVE
-        if self._is_hook_active != new_hook_active:
-            self._is_hook_active = new_hook_active
-            # Signal will be emitted by the property setter
-        
-        # Update emulator connection state
-        new_emulator_connected = main_state in [ConnectionState.CONNECTED, ConnectionState.ACTIVE]
-        if self._is_emulator_connected != new_emulator_connected:
-            self._is_emulator_connected = new_emulator_connected
-        
-        # Update hook activation stage
-        stage_mapping = {
-            ConnectionState.DISCONNECTED: "idle",
-            ConnectionState.CONNECTING: self._get_stage_from_sub_state(sub_state),
-            ConnectionState.CONNECTED: "ready",
-            ConnectionState.ACTIVE: "success",
-            ConnectionState.DISCONNECTING: "disconnecting",
-            ConnectionState.ERROR: "failed"
-        }
-        new_stage = stage_mapping.get(main_state, "idle")
-        if self._hook_activation_stage != new_stage:
-            self._hook_activation_stage = new_stage
+
     
     def _get_stage_from_sub_state(self, sub_state: Optional[ConnectionSubState]) -> str:
         """Convert sub-state to legacy stage string."""
@@ -558,9 +517,7 @@ class SessionManager(QObject):
                         )
                         recovery_success = True
         
-        # Update legacy state after recovery
-        if recovery_success:
-            self._update_legacy_state(self._connection_main_state, self._connection_sub_state)
+
         
         self.state_recovery_attempted.emit(recovery_success)
         return recovery_success
@@ -589,7 +546,6 @@ class SessionManager(QObject):
                 old_state = self._connection_main_state
                 self._connection_main_state = ConnectionState.ERROR
                 self._connection_sub_state = None
-                self._update_legacy_state(ConnectionState.ERROR, None)
         
         # Emit signal outside mutex
         self.connection_main_state_changed.emit(ConnectionState.ERROR)

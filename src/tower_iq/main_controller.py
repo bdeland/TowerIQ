@@ -287,7 +287,6 @@ class MainController(QObject):
             if success:
                 # Update session state to reflect successful connection
                 self.session.connected_emulator_serial = device_serial
-                self.session.is_emulator_connected = True
                 
                 # Find the device in available emulators to get additional info
                 device_found = False
@@ -306,7 +305,7 @@ class MainController(QObject):
                     self.logger.warning("Device not found in available emulators", device_serial=device_serial)
                     self.session.available_processes = []
                 
-                # Transition to CONNECTED state
+                # Transition to CONNECTED state - this will automatically update is_emulator_connected
                 self.session.transition_to_state(ConnectionState.CONNECTED, ConnectionSubState.PROCESS_SELECTION)
                 self.logger.info("Device connection successful", device_serial=device_serial)
             else:
@@ -362,13 +361,12 @@ class MainController(QObject):
             if success:
                 # Clear session state to reflect successful disconnection
                 self.session.connected_emulator_serial = None
-                self.session.is_emulator_connected = False
                 self.session.available_processes = []
                 self.session.selected_target_package = None
                 self.session.selected_target_pid = None
                 self.session.selected_target_version = None
                 
-                # Transition to DISCONNECTED state
+                # Transition to DISCONNECTED state - this will automatically update is_emulator_connected
                 self.session.transition_to_state(ConnectionState.DISCONNECTED)
                 self.logger.info("Device disconnection successful")
             else:
@@ -454,7 +452,7 @@ class MainController(QObject):
         self.logger.info("Hook activation requested from GUI", package_name=package_name)
         
         # TODO: Implement real hook activation
-        self.session.is_hook_active = False  # Conservative default
+        # Note: is_hook_active is computed from connection state, so we don't set it directly
         self.session.selected_target_package = package_name
         
         self.logger.info("Hook activation handled (not yet implemented)", package_name=package_name)
@@ -469,6 +467,20 @@ class MainController(QObject):
             'available_emulators_count': len(self.session.available_emulators),
             'available_processes_count': len(self.session.available_processes)
         }
+    
+    def get_database_stats(self) -> dict:
+        """Get database statistics from the database service."""
+        if hasattr(self, 'db_service') and self.db_service:
+            return self.db_service.get_database_statistics()
+        else:
+            return {}
+    
+    def validate_database_health(self, perform_fixes: bool = False) -> list:
+        """Validate database health and optionally perform fixes."""
+        if hasattr(self, 'db_service') and self.db_service:
+            return self.db_service.validate_database(perform_fixes=perform_fixes)
+        else:
+            return [{'status': 'error', 'message': 'Database service not available'}]
     
     def shutdown(self):
         """Shutdown the controller."""
@@ -489,14 +501,22 @@ class MainController(QObject):
             if hasattr(self, 'device_scan_worker'):
                 self.device_scan_worker.stop()
             
-            # Quit and wait for threads
-            if hasattr(self, 'device_scan_thread'):
-                self.device_scan_thread.quit()
-                self.device_scan_thread.wait(2000)  # Wait up to 2 seconds
+            # Quit and wait for threads with better error handling
+            if hasattr(self, 'device_scan_thread') and self.device_scan_thread:
+                if self.device_scan_thread.isRunning():
+                    self.device_scan_thread.quit()
+                    if not self.device_scan_thread.wait(3000):  # Wait up to 3 seconds
+                        self.logger.warning("Device scan thread did not stop gracefully, terminating")
+                        self.device_scan_thread.terminate()
+                        self.device_scan_thread.wait(1000)  # Wait a bit more for termination
             
-            if hasattr(self, 'database_thread'):
-                self.database_thread.quit()
-                self.database_thread.wait(2000)  # Wait up to 2 seconds
+            if hasattr(self, 'database_thread') and self.database_thread:
+                if self.database_thread.isRunning():
+                    self.database_thread.quit()
+                    if not self.database_thread.wait(3000):  # Wait up to 3 seconds
+                        self.logger.warning("Database thread did not stop gracefully, terminating")
+                        self.database_thread.terminate()
+                        self.database_thread.wait(1000)  # Wait a bit more for termination
             
             # Close database
             if hasattr(self, 'db_service'):

@@ -4,9 +4,9 @@ TowerIQ Database Settings Page
 This module provides the database and storage settings content.
 """
 
-import asyncio
 from pathlib import Path
-from PyQt6.QtCore import Qt, pyqtSlot
+import structlog
+from PyQt6.QtCore import Qt, pyqtSlot, QObject, QThread, pyqtSignal
 from PyQt6.QtWidgets import QWidget, QVBoxLayout, QScrollArea, QFileDialog
 from qfluentwidgets import FluentIcon, LineEdit, InfoBar
 
@@ -16,6 +16,44 @@ from ..utils.database_info_card import DatabaseInfoCard
 from ..utils.health_check_card import HealthCheckCard
 
 
+class DatabaseWorker(QObject):
+    """Worker thread for database operations."""
+    
+    # Signals
+    stats_ready = pyqtSignal(dict)  # Emits database statistics
+    health_check_ready = pyqtSignal(list)  # Emits health check results
+    error_occurred = pyqtSignal(str)  # Emits error message
+    
+    def __init__(self, controller, logger):
+        super().__init__()
+        self.controller = controller
+        self.logger = logger
+    
+    @pyqtSlot()
+    def get_database_stats(self):
+        """Get database statistics in worker thread."""
+        try:
+            self.logger.info("Getting database statistics")
+            stats = self.controller.get_database_stats()
+            self.stats_ready.emit(stats)
+            self.logger.info("Database statistics retrieved successfully")
+        except Exception as e:
+            self.logger.error("Error getting database statistics", error=str(e))
+            self.error_occurred.emit(f"Failed to get database statistics: {str(e)}")
+    
+    @pyqtSlot(bool)
+    def run_health_check(self, perform_fixes: bool):
+        """Run database health check in worker thread."""
+        try:
+            self.logger.info("Running database health check", perform_fixes=perform_fixes)
+            results = self.controller.validate_database_health(perform_fixes=perform_fixes)
+            self.health_check_ready.emit(results)
+            self.logger.info("Database health check completed")
+        except Exception as e:
+            self.logger.error("Error running database health check", error=str(e))
+            self.error_occurred.emit(f"Health check failed: {str(e)}")
+
+
 class DatabaseSettingsPage(QWidget):
     """Database & Storage settings content page."""
     
@@ -23,7 +61,38 @@ class DatabaseSettingsPage(QWidget):
         super().__init__(parent)
         self.config_manager = config_manager
         self.controller = controller
+        
+        # Set up worker thread for database operations
+        self._setup_worker_thread()
+        
         self.setup_ui()
+    
+    def _setup_worker_thread(self):
+        """Set up worker thread for database operations."""
+        if not self.controller:
+            return
+            
+        # Create worker thread
+        self.database_thread = QThread()
+        
+        # Get logger from controller if available, otherwise create a simple one
+        logger = None
+        if hasattr(self.controller, 'logger'):
+            logger = self.controller.logger
+        else:
+            # Create a simple logger that doesn't fail
+            logger = structlog.get_logger().bind(source="DatabaseSettingsPage")
+        
+        self.database_worker = DatabaseWorker(self.controller, logger)
+        self.database_worker.moveToThread(self.database_thread)
+        
+        # Connect signals
+        self.database_worker.stats_ready.connect(self._on_stats_ready)
+        self.database_worker.health_check_ready.connect(self._on_health_check_ready)
+        self.database_worker.error_occurred.connect(self._on_database_error)
+        
+        # Start thread
+        self.database_thread.start()
         
     def setup_ui(self):
         """Set up the database settings user interface."""
@@ -85,8 +154,40 @@ class DatabaseSettingsPage(QWidget):
         super().showEvent(event)
         if not self._info_loaded:
             self._info_loaded = True
-            # Create async task directly without using QTimer.singleShot
-            asyncio.create_task(self._refresh_database_info())
+            # Use worker thread to get database stats
+            if hasattr(self, 'database_worker') and self.database_worker:
+                self.database_worker.get_database_stats()
+    
+    @pyqtSlot(dict)
+    def _on_stats_ready(self, stats):
+        """Handle database statistics from worker thread."""
+        self.info_card.update_info(stats)
+    
+    @pyqtSlot(list)
+    def _on_health_check_ready(self, results):
+        """Handle health check results from worker thread."""
+        self.health_check_card.update_results(results)
+        self.health_check_card.set_busy(False)
+        
+        # Show success message if fixes were attempted
+        if any('fixes' in str(result).lower() for result in results):
+            InfoBar.success(
+                title='Fixes Attempted',
+                content='Database health check and fix process completed.',
+                duration=3000,
+                parent=self
+            )
+    
+    @pyqtSlot(str)
+    def _on_database_error(self, error_message):
+        """Handle database errors from worker thread."""
+        InfoBar.error(
+            title='Error',
+            content=error_message,
+            duration=3000,
+            parent=self
+        )
+        self.health_check_card.set_busy(False)
         
     def _on_choose_folder(self):
         """Handle choose folder button click."""
@@ -125,59 +226,50 @@ class DatabaseSettingsPage(QWidget):
     @pyqtSlot()
     def _on_refresh_info_clicked(self):
         """Handle refresh info button click."""
-        asyncio.create_task(self._refresh_database_info())
+        if hasattr(self, 'database_worker') and self.database_worker:
+            self.database_worker.get_database_stats()
     
     @pyqtSlot()
     def _on_run_health_check_clicked(self):
         """Handle run health check button click."""
-        asyncio.create_task(self._run_health_check(perform_fixes=False))
+        if hasattr(self, 'database_worker') and self.database_worker:
+            self.health_check_card.set_busy(True)
+            self.database_worker.run_health_check(perform_fixes=False)
     
     @pyqtSlot()
     def _on_attempt_fixes_clicked(self):
         """Handle attempt fixes button click."""
-        asyncio.create_task(self._run_health_check(perform_fixes=True))
+        if hasattr(self, 'database_worker') and self.database_worker:
+            self.health_check_card.set_busy(True)
+            self.database_worker.run_health_check(perform_fixes=True)
     
-    async def _refresh_database_info(self):
-        """Refresh database information from the controller."""
-        if not self.controller:
-            return
-        
-        try:
-            stats = await self.controller.get_database_stats()
-            self.info_card.update_info(stats)
-        except Exception as e:
-            InfoBar.error(
-                title='Error',
-                content=f'Failed to refresh database info: {str(e)}',
-                duration=3000,
-                parent=self
-            )
-    
-    async def _run_health_check(self, perform_fixes: bool):
-        """Run database health check."""
-        if not self.controller:
-            return
-        
-        self.health_check_card.set_busy(True)
-        
-        try:
-            results = await self.controller.validate_database_health(perform_fixes=perform_fixes)
-            self.health_check_card.update_results(results)
+    def cleanup(self):
+        """Clean up worker thread before destruction."""
+        if hasattr(self, 'database_thread') and self.database_thread and self.database_thread.isRunning():
+            # Disconnect signals to prevent callbacks after thread stops
+            if hasattr(self, 'database_worker') and self.database_worker:
+                try:
+                    self.database_worker.stats_ready.disconnect()
+                    self.database_worker.health_check_ready.disconnect()
+                    self.database_worker.error_occurred.disconnect()
+                except Exception:
+                    # Signals might already be disconnected
+                    pass
             
-            # Show success message if fixes were attempted
-            if perform_fixes:
-                InfoBar.success(
-                    title='Fixes Attempted',
-                    content='Database health check and fix process completed.',
-                    duration=3000,
-                    parent=self
-                )
-        except Exception as e:
-            InfoBar.error(
-                title='Error',
-                content=f'Health check failed: {str(e)}',
-                duration=3000,
-                parent=self
-            )
-        finally:
-            self.health_check_card.set_busy(False) 
+            # Stop the thread
+            self.database_thread.quit()
+            if not self.database_thread.wait(2000):  # Wait up to 2 seconds
+                self.database_thread.terminate()  # Force terminate if it doesn't stop
+            
+            # Clean up references
+            self.database_worker = None
+            self.database_thread = None
+    
+    def closeEvent(self, event):
+        """Override closeEvent to ensure proper cleanup."""
+        self.cleanup()
+        super().closeEvent(event)
+    
+    def __del__(self):
+        """Destructor to ensure cleanup."""
+        self.cleanup()

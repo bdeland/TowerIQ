@@ -10,6 +10,7 @@ import structlog
 from ..utils.expandable_settings_card import ExpandableCardGroup
 from ..utils.content_page import ContentPage
 from ...core.session import ConnectionState, ConnectionSubState
+from .activation_status_widget import ActivationStatusWidget
 from PyQt6.QtWidgets import (
     QHBoxLayout, QVBoxLayout, QLabel, QStackedWidget, QWidget,
     QGroupBox, QTextEdit, QFrame, QHeaderView, QTableWidgetItem, QSizePolicy
@@ -89,7 +90,10 @@ class ConnectionPage(QWidget):
         self.status_section = self._create_status_section() # Status section remains a GroupBox
         self.device_card = self._create_device_card()
         self.process_card = self._create_process_card()
-        self.activation_section = self._create_activation_section()
+        # Temporarily use a simple QGroupBox instead of ActivationStatusWidget
+        self.activation_section = QGroupBox("Activation", self)
+        activation_layout = QVBoxLayout(self.activation_section)
+        activation_layout.addWidget(BodyLabel("Activation widget temporarily disabled"))
         
         # Add sections to layout
         layout.addWidget(self.status_section)
@@ -98,16 +102,17 @@ class ConnectionPage(QWidget):
         layout.addWidget(self.activation_section)
         layout.addStretch(1) # Push all content to the top
         
-        # --- Connect signals (unchanged) ---
+        # --- Connect signals ---
         self.session_manager.available_emulators_changed.connect(self.update_device_table)
         self.session_manager.available_processes_changed.connect(self.update_process_table)
         self.session_manager.connection_main_state_changed.connect(self._on_connection_state_changed)
         self.session_manager.connection_sub_state_changed.connect(self._on_connection_sub_state_changed)
-        self.session_manager.hook_activation_stage_changed.connect(self.update_activation_view)
-        self.session_manager.hook_activation_message_changed.connect(self.update_activation_view)
         
-        # Connect connection state changes to device table updates
-        self.session_manager.connection_main_state_changed.connect(self._update_device_table_on_connection_change)
+        # Connect activation widget signals (disabled for debugging)
+        # self.activation_section.cancel_clicked.connect(self._on_cancel_clicked)
+        # self.activation_section.retry_clicked.connect(self.activate_hook_requested)
+        
+
         
         # --- Initial state update ---
         self._on_connection_state_changed(self.session_manager.connection_main_state)
@@ -118,6 +123,8 @@ class ConnectionPage(QWidget):
 
     def _show_connection_infobar(self, title: str, content: str, icon: FluentIcon, duration: int = 3000):
         """Show an infobar notification for connection events."""
+        self.logger.info("Showing connection infobar", title=title, content=content, duration=duration)
+        
         # Close any existing connection infobar
         if self._connection_infobar:
             self._connection_infobar.close()
@@ -136,6 +143,7 @@ class ConnectionPage(QWidget):
 
     def _show_connecting_infobar(self, device_serial: str):
         """Show connecting infobar with indeterminate progress."""
+        self.logger.info("Showing connecting infobar", device_serial=device_serial)
         self._show_connection_infobar(
             title="Connecting to device",
             content=f"Establishing connection to {device_serial}...",
@@ -145,6 +153,8 @@ class ConnectionPage(QWidget):
 
     def _show_connection_success_infobar(self, device_serial: str):
         """Show successful connection infobar."""
+        self.logger.info("Showing connection success infobar", device_serial=device_serial)
+        
         # Close any existing connection infobar
         if self._connection_infobar:
             self._connection_infobar.close()
@@ -160,6 +170,8 @@ class ConnectionPage(QWidget):
 
     def _show_connection_error_infobar(self, device_serial: str, error_message: str):
         """Show connection error infobar."""
+        self.logger.info("Showing connection error infobar", device_serial=device_serial, error_message=error_message)
+        
         # Close any existing connection infobar
         if self._connection_infobar:
             self._connection_infobar.close()
@@ -173,46 +185,13 @@ class ConnectionPage(QWidget):
             parent=self
         )
 
-    def _handle_card_transitions(self, new_state: ConnectionState):
-        """Handle automatic card transitions based on connection state."""
-        if new_state == ConnectionState.CONNECTED and self._last_connection_state != ConnectionState.CONNECTED:
-            # Device just connected - expand process card but keep device card open
-            self.logger.info("Device connected - expanding process card")
-            self.process_card.set_expanded(True)
-            # Force layout update to fix width issue
-            QTimer.singleShot(100, self._force_process_card_layout_update)
-            
-        elif new_state == ConnectionState.DISCONNECTED and self._last_connection_state != ConnectionState.DISCONNECTED:
-            # Device disconnected - collapse process card but keep device card open
-            self.logger.info("Device disconnected - collapsing process card")
-            self.process_card.set_expanded(False)
-            
-        elif new_state == ConnectionState.ACTIVE and self._last_connection_state != ConnectionState.ACTIVE:
-            # Hook activated - close process card
-            self.logger.info("Hook activated - closing process card")
-            self.process_card.set_expanded(False)
 
-    def _force_process_card_layout_update(self):
-        """Force a layout update for the process card to fix width issues."""
-        if hasattr(self, 'process_card') and self.process_card:
-            # Force the process card to update its layout
-            self.process_card.updateGeometry()
-            # Force the process table to resize properly
-            if hasattr(self, 'process_table') and self.process_table:
-                self.process_table.resizeColumnsToContents()
-                # Ensure the table takes full width
-                header = self.process_table.horizontalHeader()
-                if header is not None:
-                    # Force stretch on the package column to fill width
-                    header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
-            # Force the parent widget to update
-            self.updateGeometry()
 
     def _on_process_card_toggle_changed(self, expanded: bool):
         """Handle process card expansion/collapse."""
         if expanded:
             # When process card is expanded, force layout update to fix width issues
-            QTimer.singleShot(100, self._force_process_card_layout_update)
+            pass  # Removed QTimer hack - tables now use proper size policies
 
     def _on_device_card_toggle_changed(self, expanded: bool):
         """Handle device card expansion/collapse."""
@@ -233,8 +212,8 @@ class ConnectionPage(QWidget):
         table.setWordWrap(False)
         table.setSortingEnabled(False)
         
-        # Set size policy to prevent extra space
-        table.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        # Set size policy to allow natural resizing
+        table.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.MinimumExpanding)
         
         vertical_header = table.verticalHeader()
         if vertical_header is not None:
@@ -380,149 +359,7 @@ class ConnectionPage(QWidget):
         
         return process_card_group
 
-    def _create_activation_section(self) -> QGroupBox:
-        # This section remains unchanged as requested.
-        # ... (no changes needed here) ...
-        activation_group = QGroupBox("Activation")
-        layout = QVBoxLayout(activation_group)
-        layout.setAlignment(Qt.AlignmentFlag.AlignTop)
-        layout.setSpacing(12)
 
-        # Title section
-        title_layout = QVBoxLayout()
-        title_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        
-        self.activation_title = BodyLabel("Ready to Connect")
-        self.activation_title.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.activation_title.setStyleSheet("font-size: 16px; font-weight: bold; margin-bottom: 10px;")
-        title_layout.addWidget(self.activation_title)
-        
-        self.activation_subtitle = BodyLabel("Select a device and process to begin")
-        self.activation_subtitle.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.activation_subtitle.setStyleSheet("color: gray; margin-bottom: 20px;")
-        title_layout.addWidget(self.activation_subtitle)
-        
-        layout.addLayout(title_layout)
-
-        # Progress steps section - Hidden but logic kept for error reporting
-        self.steps_container = QWidget()
-        steps_layout = QVBoxLayout(self.steps_container)
-        steps_layout.setSpacing(12)
-        self.steps_container.setVisible(False)  # Hide the steps but keep the logic
-
-        # Define all connection stages with detailed descriptions
-        self.activation_steps = {}
-        steps_to_create = {
-            "frida_server_check": {
-                "title": "Checking Frida Server",
-                "description": "Verifying if Frida server is already running on device"
-            },
-            "frida_server_install": {
-                "title": "Installing Frida Server", 
-                "description": "Downloading and installing Frida server binary"
-            },
-            "frida_server_start": {
-                "title": "Starting Frida Server",
-                "description": "Starting Frida server process on device"
-            },
-            "frida_server_verify": {
-                "title": "Verifying Frida Server",
-                "description": "Testing Frida server connection and functionality"
-            },
-            "hook_compatibility_check": {
-                "title": "Validating Hook Script",
-                "description": "Checking hook script compatibility with target app"
-            },
-            "process_attachment": {
-                "title": "Attaching to Process",
-                "description": "Attaching Frida to the target application process"
-            },
-            "script_injection": {
-                "title": "Injecting Hook Script",
-                "description": "Loading and executing the hook script in target process"
-            }
-        }
-
-        for step_name, step_info in steps_to_create.items():
-            step_widget = self._create_progress_step(step_name, step_info["title"], step_info["description"])
-            steps_layout.addWidget(step_widget)
-            
-        layout.addWidget(self.steps_container)
-
-        # Action buttons section
-        button_layout = QHBoxLayout()
-        button_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        button_layout.setSpacing(10)
-        
-        self.cancel_button = PushButton("Cancel")
-        self.cancel_button.clicked.connect(self._on_cancel_clicked)
-        self.cancel_button.setVisible(False)  # Hidden by default
-        button_layout.addWidget(self.cancel_button)
-        
-        self.retry_button = PushButton("Retry")
-        self.retry_button.setVisible(False)  # Hidden by default, shown on failure
-        self.retry_button.clicked.connect(self.activate_hook_requested)
-        button_layout.addWidget(self.retry_button)
-        
-        layout.addLayout(button_layout)
-
-        return activation_group
-
-
-    def _create_progress_step(self, step_name: str, title: str, description: str) -> QWidget:
-        # This function remains unchanged.
-        # ... (no changes needed here) ...
-        step_widget = QWidget()
-        step_layout = QHBoxLayout(step_widget)
-        step_layout.setContentsMargins(10, 8, 10, 8)
-        step_layout.setSpacing(15)
-
-        # Status icon (spinner, checkmark, or error)
-        icon_container = QWidget()
-        icon_container.setFixedSize(24, 24)
-        icon_layout = QVBoxLayout(icon_container)
-        icon_layout.setContentsMargins(0, 0, 0, 0)
-        icon_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        
-        # Create different icons for different states
-        spinner = ProgressRing()
-        spinner.setFixedSize(20, 20)
-        spinner.hide()
-        
-        status_label = BodyLabel("⏳")
-        status_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        status_label.setStyleSheet("font-size: 16px;")
-        
-        icon_layout.addWidget(spinner)
-        icon_layout.addWidget(status_label)
-        
-        step_layout.addWidget(icon_container)
-
-        # Step content
-        content_layout = QVBoxLayout()
-        content_layout.setSpacing(2)
-        
-        title_label = BodyLabel(title)
-        title_label.setStyleSheet("font-weight: bold; font-size: 14px;")
-        content_layout.addWidget(title_label)
-        
-        desc_label = BodyLabel(description)
-        desc_label.setStyleSheet("color: gray; font-size: 12px;")
-        content_layout.addWidget(desc_label)
-        
-        step_layout.addLayout(content_layout)
-        step_layout.addStretch()
-
-        # Store references for easy access
-        self.activation_steps[step_name] = {
-            'widget': step_widget,
-            'spinner': spinner,
-            'status_label': status_label,
-            'title_label': title_label,
-            'desc_label': desc_label
-        }
-
-        return step_widget
 
 
     # --- Reactive Slots for State Changes ---
@@ -560,11 +397,11 @@ class ConnectionPage(QWidget):
                 self._connection_infobar.close()
                 self._connection_infobar = None
         
-        # Handle card transitions
-        self._handle_card_transitions(state)
-        
         # Update UI
         self._update_ui_for_state(state)
+        
+        # Update activation view
+        self.update_activation_view()
         
         # Update last state
         self._last_connection_state = state
@@ -573,21 +410,38 @@ class ConnectionPage(QWidget):
         """Reacts to SessionManager's connection sub-state."""
         self.logger.info("Connection sub state changed", sub_state=sub_state.value if sub_state else "None")
         
+        # Update activation view when sub-state changes
+        self.update_activation_view()
+        
         # Clear sub-state when connection is established
         if self.session_manager.connection_main_state in [ConnectionState.CONNECTED, ConnectionState.ACTIVE]:
             self.logger.info("Connection sub state cleared")
 
-    def _update_device_table_on_connection_change(self, state):
-        """Update device table when connection state changes to reflect connected status."""
-        # Only update if we have devices in the table
-        if self.session_manager.available_emulators:
-            self.update_device_table(self.session_manager.available_emulators)
+
 
     def _update_ui_for_state(self, state: ConnectionState):
         """Centralized method to update all UI components based on the main state."""
         # Update section visibility and enabled status
         is_connected = state == ConnectionState.CONNECTED
         is_active = state == ConnectionState.ACTIVE
+        
+        # Handle card transitions based on connection state
+        if state == ConnectionState.CONNECTED and self._last_connection_state != ConnectionState.CONNECTED:
+            # Device just connected - expand process card but keep device card open
+            self.logger.info("Device connected - expanding process card")
+            self.process_card.set_expanded(True)
+            # Force layout update to fix width issue
+            pass  # Removed QTimer hack - tables now use proper size policies
+            
+        elif state == ConnectionState.DISCONNECTED and self._last_connection_state != ConnectionState.DISCONNECTED:
+            # Device disconnected - collapse process card but keep device card open
+            self.logger.info("Device disconnected - collapsing process card")
+            self.process_card.set_expanded(False)
+            
+        elif state == ConnectionState.ACTIVE and self._last_connection_state != ConnectionState.ACTIVE:
+            # Hook activated - close process card
+            self.logger.info("Hook activated - closing process card")
+            self.process_card.set_expanded(False)
         
         # Process card is always enabled but content is disabled when no device connected
         self.process_card.setEnabled(True)
@@ -638,6 +492,10 @@ class ConnectionPage(QWidget):
             if not self.session_manager.available_processes:
                 self.logger.info("Auto-refreshing processes for newly connected device")
                 self.refresh_processes_requested.emit()
+        
+        # Update device table when connection state changes to reflect connected status
+        if self.session_manager.available_emulators:
+            self.update_device_table(self.session_manager.available_emulators)
             
         # Update the top-level status indicator
         self._update_status_section(state)
@@ -728,11 +586,7 @@ class ConnectionPage(QWidget):
         
         self.device_table.resizeRowsToContents()
         
-        # Set the table height to fit content exactly
-        row_height = 40  # Default row height from _create_standard_table
-        header_height = 30  # Approximate header height
-        total_height = header_height + (len(emulators) * row_height) + 2  # +2 for borders
-        self.device_table.setFixedHeight(total_height)
+
         
         self.logger.info("Device table updated successfully", rows=len(emulators))
 
@@ -827,123 +681,15 @@ class ConnectionPage(QWidget):
 
         self.process_table.resizeColumnsToContents()
         
-        # Set the table height to fit content exactly
-        row_height = 40  # Default row height from _create_standard_table
-        header_height = 30  # Approximate header height
-        total_height = header_height + (len(processes) * row_height) + 2  # +2 for borders
-        self.process_table.setFixedHeight(total_height)
+
     
     def update_activation_view(self):
         """Updates the activation section UI based on session state with detailed multi-stage progress."""
-        stage = self.session_manager.hook_activation_stage
-        message = self.session_manager.hook_activation_message
-        
-        # Update title and subtitle
-        if message:
-            self.activation_title.setText(message)
-        else:
-            self.activation_title.setText("Establishing Connection...")
-        
-        # Define the complete pipeline matching ConnectionStageManager stages
-        pipeline = [
-            "frida_server_check",
-            "frida_server_install", 
-            "frida_server_start",
-            "frida_server_verify",
-            "hook_compatibility_check",
-            "process_attachment",
-            "script_injection"
-        ]
-        
-        # Map legacy stage names to new pipeline for backward compatibility
-        stage_mapping = {
-            "checking_frida": "frida_server_check",
-            "validating_hook": "hook_compatibility_check", 
-            "attaching": "process_attachment"
-        }
-        
-        # Use mapped stage name if available
-        current_stage = stage_mapping.get(stage, stage)
-        
-        try:
-            current_stage_index = pipeline.index(current_stage)
-        except ValueError:
-            current_stage_index = -1
-        
-        # Update each step's visual state
-        for i, step_name in enumerate(pipeline):
-            if step_name not in self.activation_steps:
-                continue
-                
-            step_ui = self.activation_steps[step_name]
-            spinner = step_ui['spinner']
-            status_label = step_ui['status_label']
-            title_label = step_ui['title_label']
-            desc_label = step_ui['desc_label']
-            
-            if stage == "failed":
-                # Show failure state
-                spinner.hide()
-                status_label.show()
-                status_label.setText("❌")
-                status_label.setStyleSheet("font-size: 16px; color: #e74c3c;")
-                title_label.setStyleSheet("font-weight: bold; font-size: 14px; color: #e74c3c;")
-                desc_label.setStyleSheet("color: #e74c3c; font-size: 12px;")
-                
-            elif stage == "success" or stage == "completed":
-                # Show all completed
-                spinner.hide()
-                status_label.show()
-                status_label.setText("✅")
-                status_label.setStyleSheet("font-size: 16px; color: #2ecc71;")
-                title_label.setStyleSheet("font-weight: bold; font-size: 14px; color: #2ecc71;")
-                desc_label.setStyleSheet("color: gray; font-size: 12px;")
-                
-            elif i < current_stage_index:
-                # Completed steps
-                spinner.hide()
-                status_label.show()
-                status_label.setText("✅")
-                status_label.setStyleSheet("font-size: 16px; color: #2ecc71;")
-                title_label.setStyleSheet("font-weight: bold; font-size: 14px; color: #2ecc71;")
-                desc_label.setStyleSheet("color: gray; font-size: 12px;")
-                
-            elif i == current_stage_index:
-                # Currently active step
-                status_label.hide()
-                spinner.show()
-                try:
-                    if hasattr(spinner, 'isSpinning') and not spinner.isSpinning():
-                        spinner.start()
-                    elif not hasattr(spinner, 'isSpinning'):
-                        spinner.start()
-                except Exception:
-                    pass  # Ignore spinner errors
-                title_label.setStyleSheet("font-weight: bold; font-size: 14px; color: #3498db;")
-                desc_label.setStyleSheet("color: #3498db; font-size: 12px;")
-                
-            else:
-                # Pending steps
-                spinner.hide()
-                status_label.show()
-                status_label.setText("⏳")
-                status_label.setStyleSheet("font-size: 16px; color: gray;")
-                title_label.setStyleSheet("font-weight: bold; font-size: 14px; color: gray;")
-                desc_label.setStyleSheet("color: gray; font-size: 12px;")
-        
-        # Update button states
-        if stage == "failed":
-            self.cancel_button.setText("Go Back")
-            self.cancel_button.setVisible(True)
-            self.retry_button.setVisible(True)
-        elif stage in ["success", "completed"]:
-            self.cancel_button.setText("Disconnect")
-            self.cancel_button.setVisible(True)
-            self.retry_button.setVisible(False)
-        else:
-            self.cancel_button.setText("Cancel")
-            self.cancel_button.setVisible(True)
-            self.retry_button.setVisible(False)
+        # Temporarily disabled for debugging
+        pass
+        # stage = self.session_manager.hook_activation_stage
+        # message = self.session_manager.hook_activation_message
+        # self.activation_section.update_view(stage, message)
 
     # --- UI Action Handlers ---
     def _on_connect_clicked(self):
@@ -953,6 +699,7 @@ class ConnectionPage(QWidget):
             item = self.device_table.item(selected_items[0].row(), 0)
             if item is not None and hasattr(item, 'text'):
                 serial = item.text()
+                self.logger.info("Connect button clicked", device_serial=serial)
                 self.connect_device_requested.emit(serial)
 
     def _on_device_selection_changed(self):

@@ -187,7 +187,7 @@ class ExpandableCardGroup(QWidget):
         self.content_container.setVisible(False)
         self.spacer.setVisible(False)
 
-    #TODO: add animation to expansion and collapse
+
     def _toggle_expansion(self):
         """Toggle the expansion state of the card group."""
         is_expanding = not self.content_container.isVisible()
@@ -297,6 +297,4 @@ class SubsettingItem(SimpleCardWidget):
             widget.setParent(self)
             layout.addWidget(widget)
 
-#TODO: Remove this alias
-# Backward compatibility alias
-ExpandableSettingsCard = ExpandableCardGroup 
+ 

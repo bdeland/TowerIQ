@@ -222,5 +222,25 @@ class SettingsPage(QWidget):
             for route_key, item in pivot.items.items():
                 pivot.hBoxLayout.setStretch(pivot.hBoxLayout.indexOf(item), 1)
     
+    def cleanup(self):
+        """Clean up all settings pages before destruction."""
+        # Clean up all content widgets in the stack
+        for i in range(self.content_stack.count()):
+            widget = self.content_stack.widget(i)
+            if widget:
+                # Check if the widget has a cleanup method and call it
+                cleanup_method = getattr(widget, 'cleanup', None)
+                if cleanup_method and callable(cleanup_method):
+                    try:
+                        cleanup_method()
+                    except Exception:
+                        # Ignore cleanup errors
+                        pass
+    
+    def closeEvent(self, event):
+        """Override closeEvent to ensure proper cleanup."""
+        self.cleanup()
+        super().closeEvent(event)
+    
 
     

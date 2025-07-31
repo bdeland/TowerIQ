@@ -336,6 +336,11 @@ class MainWindow(FluentWindow):
         self.header.breadcrumb.blockSignals(False)
 
     def closeEvent(self, event: QCloseEvent):
+        # Clean up settings page first
+        if hasattr(self, 'settings_page'):
+            self.settings_page.cleanup()
+        
+        # Clean up controller
         if self.controller:
             try:
                 # Use a more robust shutdown approach
