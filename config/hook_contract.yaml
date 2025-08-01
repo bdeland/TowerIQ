@@ -5,7 +5,7 @@ contract_version: "1.0"
 
 script_info:
   # The relative path to the script file from the project root.
-  path: "tower_hook_compiled.js"
+  path: "export_modules_c.js"
   
   # The target package name this script is designed for
   target_package: "com.TechTreeGames.TheTower"

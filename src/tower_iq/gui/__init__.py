@@ -10,6 +10,7 @@ __author__ = "TowerIQ Development Team"
 from .main_window import MainWindow
 from .pages.home_page import HomePage
 from .pages.dashboards_page import DashboardsPage
+from .pages.modules_page import ModulesPage
 from .pages.connection_page import ConnectionPage
 from .pages.settings_page import SettingsPage
 
@@ -38,7 +39,8 @@ from .stylesheets import get_themed_stylesheet, THEME_COLORS, LIGHT_THEME_COLORS
 __all__ = [
     'MainWindow',
     'HomePage',
-    'DashboardsPage', 
+    'DashboardsPage',
+    'ModulesPage',
     'ConnectionPage',
     'SettingsPage',
     'AppearanceSettingsPage',

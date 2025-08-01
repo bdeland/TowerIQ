@@ -1,94 +1,52 @@
 📦
-4100 /allmodules.js.map
-4680 /allmodules.js
+1967 /tracer.js.map
+2488 /tracer.js
 157866 /node_modules/frida-il2cpp-bridge/dist/index.js
 ↻ frida-il2cpp-bridge
 ✄
-{"version":3,"file":"allmodules.js","sourceRoot":"C:/Users/delan/Documents/GitHub/TowerIQ/","sources":["allmodules.js"],"names":[],"mappings":"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"}
+{"version":3,"file":"tracer.js","sourceRoot":"C:/Users/delan/Documents/GitHub/TowerIQ/","sources":["tracer.js"],"names":[],"mappings":"AAAA,oBAAoB;AACpB,yFAAyF;AACzF,+DAA+D;AAE/D,OAAO,qBAAqB,CAAC;AAE7B,SAAS,GAAG,CAAC,KAAK,EAAE,OAAO,IAAI,OAAO,CAAC,GAAG,CAAC,IAAI,KAAK,CAAC,WAAW,EAAE,KAAK,OAAO,EAAE,CAAC,CAAC,CAAC,CAAC;AAEpF,MAAM,CAAC,YAAY,GAAG;IAClB,GAAG,CAAC,QAAQ,EAAE,8BAA8B,CAAC,CAAC;IAC9C,IAAI;QACA,MAAM,aAAa,GAAG,MAAM,CAAC,MAAM,CAAC,QAAQ,CAAC,iBAAiB,CAAC,CAAC,KAAK,CAAC,KAAK,CAAC,eAAe,CAAC,CAAC;QAC7F,0EAA0E;QAC1E,MAAM,YAAY,GAAG,aAAa,CAAC,MAAM,CAAC,wBAAwB,EAAE,CAAC,CAAC,CAAC;QAEvE,WAAW,CAAC,MAAM,CAAC,YAAY,CAAC,MAAM,EAAE;YACpC,OAAO,EAAE,UAAS,IAAI;gBAClB,GAAG,CAAC,SAAS,EAAE,oDAAoD,CAAC,CAAC;gBACrE,GAAG,CAAC,SAAS,EAAE,8CAA8C,CAAC,CAAC;gBAE/D,uFAAuF;gBACvF,MAAM,QAAQ,GAAG,IAAI,CAAC,CAAC,CAAC,CAAC,OAAO,EAAE,KAAK,CAAC,CAAC;gBACzC,MAAM,QAAQ,GAAG,IAAI,CAAC,CAAC,CAAC,CAAC,OAAO,EAAE,KAAK,CAAC,CAAC;gBACzC,GAAG,CAAC,QAAQ,EAAE,uBAAuB,QAAQ,eAAe,QAAQ,EAAE,CAAC,CAAC;gBAExE,oEAAoE;gBACpE,MAAM,KAAK,GAAG,MAAM,CAAC,SAAS,CAAC,IAAI,CAAC,OAAO,EAAE,UAAU,CAAC,QAAQ,CAAC,CAAC,GAAG,CAAC,WAAW,CAAC,WAAW,CAAC,CAAC,IAAI,CAAC,KAAK,CAAC,CAAC;gBAC3G,OAAO,CAAC,GAAG,CAAC,uBAAuB,KAAK,yBAAyB,CAAC,CAAC;YACvE,CAAC;YACD,OAAO,EAAE,UAAS,MAAM;gBACpB,sDAAsD;gBACtD,MAAM,SAAS,GAAG,IAAI,MAAM,CAAC,MAAM,CAAC,MAAM,CAAC,CAAC;gBAC5C,MAAM,SAAS,GAAG,SAAS,CAAC,KAAK,CAAC,WAAW,CAAC,CAAC,KAAK,CAAC;gBACrD,MAAM,MAAM,GAAG,SAAS,CAAC,KAAK,CAAC,eAAe,CAAC,CAAC,KAAK,CAAC,QAAQ,EAAE,CAAC;gBACjE,MAAM,UAAU,GAAG,aAAa,CAAC,KAAK,CAAC,UAAU,CAAC,CAAC,KAAK,CAAC,MAAM,CAAC,eAAe,EAAE,CAAC,CAAC,CAAC,MAAM,CAAC,SAAS,CAAC,CAAC,QAAQ,EAAE,CAAC;gBACjH,GAAG,CAAC,QAAQ,EAAE,WAAW,UAAU,MAAM,MAAM,qBAAqB,CAAC,CAAC;gBACtE,GAAG,CAAC,SAAS,EAAE,sDAAsD,CAAC,CAAC;YAC3E,CAAC;SACJ,CAAC,CAAC;QAEH,GAAG,CAAC,SAAS,EAAE,8EAA8E,CAAC,CAAC;KAElG;IAAC,OAAO,CAAC,EAAE;QACR,GAAG,CAAC,OAAO,EAAE,4BAA4B,CAAC,CAAC,KAAK,EAAE,CAAC,CAAC;KACvD;AACL,CAAC,CAAC;AAEF,MAAM,CAAC,OAAO,CAAC,GAAG,EAAE;IAChB,GAAG,CAAC,SAAS,EAAE,gEAAgE,CAAC,CAAC;AACrF,CAAC,CAAC,CAAC"}
 ✄
-// full_inventory_inspector_final.js
-// The complete module analysis tool. Dumps the stats and sprite info for
-// EVERY module the player has, including both inventory and equipped items.
+// creator_tracer.js
+// This script hooks the final "factory" method that creates a module from a banner pull.
+// It reveals the final result of all probability calculations.
 import "frida-il2cpp-bridge";
 function log(level, message) { console.log(`[${level.toUpperCase()}] ${message}`); }
-// --- Global Helper Function ---
-global.inspectInventory = function () {
-    log("ACTION", "Inspecting ALL modules (inventory and equipped)...");
-    let moduleManager, allEffectsArray;
+global.traceCreator = function () {
+    log("ACTION", "Arming the creator tracer...");
     try {
-        moduleManager = Il2Cpp.domain.assembly("Assembly-CSharp").image.class("ModuleManager").field("Instance").value;
-        allEffectsArray = moduleManager.field("effects").value;
+        const ModuleManager = Il2Cpp.domain.assembly("Assembly-CSharp").image.class("ModuleManager");
+        // This function is the result of a banner purchase. It takes 3 arguments.
+        const targetMethod = ModuleManager.method("CreateModuleFromBanner", 3);
+        Interceptor.attach(targetMethod.handle, {
+            onEnter: function (args) {
+                log("SUCCESS", "--------------------------------------------------");
+                log("SUCCESS", "---> CreateModuleFromBanner was called! <---");
+                // args[0] is 'this', args[1] is ModuleBanner, args[2] is epicPity, args[3] is rarePity
+                const epicPity = args[2].toInt32() === 1;
+                const rarePity = args[3].toInt32() === 1;
+                log("DETAIL", `Inputs -> epicPity: ${epicPity}, rarePity: ${rarePity}`);
+                // The call stack shows us the function that made the final decision
+                const stack = Thread.backtrace(this.context, Backtracer.ACCURATE).map(DebugSymbol.fromAddress).join('\\n');
+                console.log(`--- Called by ---\\n${stack}\\n-----------------\\n`);
+            },
+            onLeave: function (retval) {
+                // retval is a pointer to the newly created ModuleItem
+                const newModule = new Il2Cpp.Object(retval);
+                const infoIndex = newModule.field("infoIndex").value;
+                const rarity = newModule.field("currentRarity").value.toString();
+                const moduleName = ModuleManager.field("Instance").value.method("GetModuleName", 1).invoke(infoIndex).toString();
+                log("RESULT", `---> A "${moduleName}" (${rarity}) was created! <---`);
+                log("SUCCESS", "--------------------------------------------------\n");
+            }
+        });
+        log("SUCCESS", "Tracer is live on 'CreateModuleFromBanner'. Please buy a module in the game.");
     }
     catch (e) {
-        log("ERROR", "Could not get ModuleManager. Is the game fully loaded?");
-        return;
-    }
-    try {
-        // --- CORRECTED: Get both inventory and equipped modules ---
-        const inventoryList = moduleManager.field("inventory").value;
-        const equippedArray = moduleManager.field("equipped").value;
-        const allModuleItems = [];
-        // 1. Add all items from the main inventory
-        const inventorySize = inventoryList.method("get_Count").invoke();
-        for (let i = 0; i < inventorySize; i++) {
-            allModuleItems.push(inventoryList.method("get_Item", 1).invoke(i));
-        }
-        // 2. Add all non-null items from the equipped slots
-        for (let i = 0; i < equippedArray.length; i++) {
-            const moduleItem = equippedArray.get(i);
-            // Important: Equipped slots can be empty (null)
-            if (moduleItem && !moduleItem.isNull()) {
-                allModuleItems.push(moduleItem);
-            }
-        }
-        const totalSize = allModuleItems.length;
-        log("INFO", `Found ${totalSize} total modules.`);
-        console.log("=============================================");
-        // 3. Loop through the combined list
-        for (let i = 0; i < totalSize; i++) {
-            const moduleItem = allModuleItems[i];
-            const infoIndex = moduleItem.field("infoIndex").value;
-            const moduleLevel = moduleItem.field("level").value;
-            const moduleRarity = moduleItem.field("currentRarity").value;
-            const moduleInfo = moduleItem.method("GetInfo").invoke();
-            const moduleType = moduleInfo.field("type").value;
-            // Use the game's IsEquipped method for a definitive status
-            const isEquipped = moduleManager.method("IsEquipped", 1).invoke(moduleItem);
-            let moduleName = "Unknown Name";
-            const moduleNameObject = moduleManager.method("GetModuleName", 1).invoke(infoIndex);
-            if (moduleNameObject && !moduleNameObject.isNull()) {
-                moduleName = moduleNameObject.toString();
-            }
-            const rarityString = moduleRarity ? moduleRarity.toString() : "Unknown Rarity";
-            const frameSprite = moduleManager.method("GetModuleFrame", 2).invoke(moduleType, moduleRarity);
-            const iconSprite = moduleManager.method("GetModuleIcon", 1).invoke(infoIndex);
-            const frameSpriteName = frameSprite ? frameSprite.method("get_name").invoke().toString() : "None";
-            const iconSpriteName = iconSprite ? iconSprite.method("get_name").invoke().toString() : "None";
-            console.log(`[${i + 1}/${totalSize}] "${moduleName}" (Level ${moduleLevel}, ${rarityString}) - Equipped: ${isEquipped}`);
-            console.log(`    Sprites -> Frame: '${frameSpriteName}', Icon: '${iconSpriteName}'`);
-            const effects = moduleItem.field("effects").value;
-            const effectLocked = moduleItem.field("effectLocked").value;
-            for (let j = 0; j < effects.length; j++) {
-                const effectId = effects.get(j);
-                const isLocked = effectLocked.get(j);
-                const effectInfo = allEffectsArray.get(effectId);
-                const clusterName = effectInfo.field("clusterIndex").value.toString();
-                if (clusterName !== "None") {
-                    const rarity = effectInfo.field("rarity").value.toString();
-                    console.log(`    Substat ${j} -> ${clusterName} (${rarity}) | Locked: ${isLocked}`);
-                }
-            }
-            console.log("---------------------------------------------");
-        }
-        log("INFO", "Full inventory inspection complete.");
-    }
-    catch (e) {
-        log("ERROR", `An error occurred while inspecting the inventory: ${e.stack}`);
+        log("ERROR", `Failed to attach tracer: ${e.stack}`);
     }
 };
 Il2Cpp.perform(() => {
-    log("SUCCESS", "Full Inventory Inspection Tool is ready.");
-    log("ACTION", "Call 'inspectInventory()' from the Frida console to dump all modules.");
+    log("SUCCESS", "Tracer script is ready. Call traceCreator() to arm the tracer.");
 });
 ✄
 "use strict";

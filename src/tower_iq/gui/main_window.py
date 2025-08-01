@@ -15,6 +15,7 @@ from .stylesheets import get_themed_stylesheet
 from .utils.header_widget import HeaderWidget
 from .pages.home_page import HomePage
 from .pages.dashboards_page import DashboardsPage
+from .pages.modules_page import ModulesPage
 from .pages.settings_page import SettingsPage
 from .pages.connection_page import ConnectionPage
 
@@ -69,6 +70,8 @@ class MainWindow(FluentWindow):
         self.home_page.setObjectName('home')
         self.dashboards_page = DashboardsPage(self)
         self.dashboards_page.setObjectName('dashboards')
+        self.modules_page = ModulesPage(self)
+        self.modules_page.setObjectName('modules')
         self.settings_page = SettingsPage(self.config_manager, self.controller, self)
         self.settings_page.setObjectName('settings')
         self.connection_page = ConnectionPage(self.session_manager, self.config_manager)
@@ -78,12 +81,13 @@ class MainWindow(FluentWindow):
             self.controller.set_dashboard(self.connection_page)
 
         self._nav_key_to_text = {
-            'home': 'Home', 'dashboards': 'Dashboards', 'connection': 'Connection', 'settings': 'Settings'
+            'home': 'Home', 'dashboards': 'Dashboards', 'modules': 'Modules', 'connection': 'Connection', 'settings': 'Settings'
         }
 
         # Add main navigation items
         self.addSubInterface(self.home_page, FluentIcon.HOME, 'Home', position=NavigationItemPosition.TOP)
         self.addSubInterface(self.dashboards_page, FluentIcon.TILES, 'Dashboards')
+        self.addSubInterface(self.modules_page, FluentIcon.LIBRARY, 'Modules')
         self.addSubInterface(self.connection_page, FluentIcon.CONNECT, 'Connection', position=NavigationItemPosition.BOTTOM)
         self.addSubInterface(self.settings_page, FluentIcon.SETTING, 'Settings', position=NavigationItemPosition.BOTTOM)
         

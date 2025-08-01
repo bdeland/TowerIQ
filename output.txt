@@ -1,0 +1,14 @@
+     ____
+    / _  |   Frida 15.2.2 - A world-class dynamic instrumentation toolkit
+   | (_| |
+    > _  |   Commands:
+   /_/ |_|       help      -> Displays the help system
+   . . . .       object?   -> Display information about 'object'
+   . . . .       exit/quit -> Exit
+   . . . .
+   . . . .   More info at https://frida.re/docs/home/
+   . . . .
+   . . . .   Connected to SM S908E (id=127.0.0.1:5555)
+Attaching...
+[SUCCESS] Module Data Generator is ready. Call generate()
+[SM S908E::The Tower ]-> 
