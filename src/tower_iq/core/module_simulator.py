@@ -7,6 +7,206 @@ import datetime
 
 lookup_file = "resources/lookups/module_lookups.yaml"
 
+class Module:
+    def __init__(self, guid: str, name: str, module_type: str, rarity: str, level: int, 
+                 substat_enum_ids: Optional[List[int]] = None, substat_rarities: Optional[List[str]] = None,
+                 coins_spent: int = 0, shards_spent: int = 0,
+                 is_equipped: bool = False, is_favorite: bool = False, frame: Optional[str] = None, icon: Optional[str] = None):
+        """
+        Initialize a Module instance.
+        
+        Args:
+            guid: Unique identifier for the module
+            name: Display name of the module
+            module_type: Type of module (Cannon, Armor, Generator, Core)
+            rarity: Rarity level (Common, Rare, Epic, Legendary, Mythic, Ancestral, etc.)
+            level: Current level of the module
+            substat_enum_ids: List of substat enum IDs for this module
+            substat_rarities: List of rarity levels for each substat (must match length of substat_enum_ids)
+            coins_spent: Total coins spent on this module
+            shards_spent: Total shards spent on this module
+            is_equipped: Whether the module is currently equipped
+            is_favorite: Whether the module is marked as favorite
+            frame: Frame sprite name
+            icon: Icon sprite name
+        """
+        self.guid = guid
+        self.name = name
+        self.module_type = module_type
+        self.rarity = rarity
+        self.level = level
+        self.substat_enum_ids = substat_enum_ids or []
+        self.substat_rarities = substat_rarities or []
+        self.coins_spent = coins_spent
+        self.shards_spent = shards_spent
+        self.is_equipped = is_equipped
+        self.is_favorite = is_favorite
+        self.frame = frame
+        self.icon = icon
+        
+        # Validate substat data
+        self._validate_substat_data()
+        
+        # Initialize substats
+        self.substats = self._initialize_substats()
+        
+        # Validation
+        self._validate_module()
+    
+    def _get_frame_sprite(self) -> str:
+        """Get the frame sprite based on rarity."""
+        rarity_mapping = {
+            'Common': 'mf_armor_common',
+            'Rare': 'mf_armor_rare',
+            'RarePlus': 'mf_armor_rare_plus',
+            'Epic': 'mf_armor_epic',
+            'EpicPlus': 'mf_armor_epic_plus',
+            'Legendary': 'mf_armor_legendary',
+            'LegendaryPlus': 'mf_armor_legendary_plus',
+            'Mythic': 'mf_armor_mythic',
+            'MythicPlus': 'mf_armor_mythic_plus',
+            'Ancestral': 'mf_armor_ancestral'
+        }
+        
+        base_frame = rarity_mapping.get(self.rarity, 'mf_armor_common')
+        # Replace armor with the correct module type
+        return base_frame.replace('armor', self.module_type.lower())
+    
+    def _get_icon_sprite(self) -> str:
+        """Get the icon sprite based on module type and rarity."""
+        # This would need to be implemented based on the actual icon mapping
+        # For now, using a placeholder
+        return f"{self.module_type.lower()}_epic_1"
+    
+    def _validate_substat_data(self):
+        """Validate that substat_enum_ids and substat_rarities have matching lengths."""
+        if len(self.substat_enum_ids) != len(self.substat_rarities):
+            raise ValueError(
+                f"substat_enum_ids ({len(self.substat_enum_ids)}) and "
+                f"substat_rarities ({len(self.substat_rarities)}) must have the same length"
+            )
+    
+    def _initialize_substats(self) -> List[Dict[str, Any]]:
+        """Initialize substats based on enum IDs and their individual rarities."""
+        substats = []
+        for i, (enum_id, substat_rarity) in enumerate(zip(self.substat_enum_ids, self.substat_rarities)):
+            substat_data = {
+                'index': i,
+                'enum_id': enum_id,
+                'name': self._get_substat_name(enum_id),
+                'value': self._get_substat_value_with_rarity(enum_id, substat_rarity),
+                'unit': self._get_substat_unit(enum_id),
+                'rarity': substat_rarity,  # Use the individual substat rarity
+                'is_locked': False  # Default to unlocked
+            }
+            substats.append(substat_data)
+        return substats
+    
+    def _get_substat_name(self, enum_id: int) -> str:
+        """Get substat name from enum ID."""
+        try:
+            return module_lookups['substat_values'][enum_id]['name'].replace('_', ' ')
+        except KeyError:
+            return f"Unknown_{enum_id}"
+    
+    def _get_substat_value(self, enum_id: int) -> Optional[float]:
+        """Get substat value for the module's rarity (legacy method)."""
+        try:
+            return module_lookups['substat_values'][enum_id]['values'][self.rarity]
+        except KeyError:
+            return None
+    
+    def _get_substat_value_with_rarity(self, enum_id: int, substat_rarity: str) -> Optional[float]:
+        """Get substat value for a specific substat rarity."""
+        try:
+            return module_lookups['substat_values'][enum_id]['values'][substat_rarity]
+        except KeyError:
+            return None
+    
+    def _get_substat_unit(self, enum_id: int) -> str:
+        """Get substat unit from enum ID."""
+        try:
+            return module_lookups['substat_values'][enum_id]['unit']
+        except KeyError:
+            return ""
+    
+    def _get_substat_rarity(self, enum_id: int) -> str:
+        """Get substat rarity - for now using module rarity."""
+        return self.rarity
+    
+    def _validate_module(self):
+        """Validate the module data."""
+        if not self.guid:
+            raise ValueError("Module GUID cannot be empty")
+        
+        if not self.name:
+            raise ValueError("Module name cannot be empty")
+        
+        if self.level < 1:
+            raise ValueError("Module level must be at least 1")
+        
+        # Validate rarity exists
+        if self.rarity not in module_lookups.get('rarity_colors', {}):
+            logger.warning(f"Unknown rarity: {self.rarity}")
+    
+    def get_formatted_name(self) -> str:
+        """Get the formatted name with level and rarity."""
+        return f'"{self.name}" (Level {self.level}, {self.rarity})'
+    
+    def get_status_flags(self) -> List[str]:
+        """Get list of status flags (Equipped, Favorite, etc.)."""
+        flags = []
+        if self.is_equipped:
+            flags.append("Equipped")
+        if self.is_favorite:
+            flags.append("Favorite")
+        return flags
+    
+    def get_formatted_status(self) -> str:
+        """Get formatted status string."""
+        flags = self.get_status_flags()
+        if flags:
+            return f" - [{', '.join(flags)}]"
+        return ""
+    
+    def get_stats_summary(self) -> str:
+        """Get formatted stats summary."""
+        return f"Coins Spent: {self.coins_spent:,}, Shards Spent: {self.shards_spent:,}"
+    
+    def get_sprites_summary(self) -> str:
+        """Get formatted sprites summary."""
+        return f"Frame: '{self.frame}', Icon: '{self.icon}'"
+    
+    def get_substat_summary(self, index: int) -> str:
+        """Get formatted substat summary."""
+        if index >= len(self.substats):
+            return ""
+        
+        substat = self.substats[index]
+        locked_status = " | Locked: true" if substat['is_locked'] else ""
+        return f"Substat {index} -> {substat['name']} ({substat['rarity']}){locked_status}"
+    
+    def to_string(self) -> str:
+        """Convert module to string representation."""
+        lines = [
+            f"{self.get_formatted_name()}{self.get_formatted_status()}",
+            f"    GUID -> \"{self.guid}\"",
+            f"    Stats -> {self.get_stats_summary()}",
+            f"    Sprites -> {self.get_sprites_summary()}"
+        ]
+        
+        for i, substat in enumerate(self.substats):
+            lines.append(f"    {self.get_substat_summary(i)}")
+        
+        return "\n".join(lines)
+    
+    def __str__(self) -> str:
+        return self.to_string()
+    
+    def __repr__(self) -> str:
+        return f"Module(name='{self.name}', type='{self.module_type}', rarity='{self.rarity}', level={self.level})"
+
+
 # Initialize logger
 logger = structlog.get_logger()
 
@@ -318,3 +518,39 @@ def print_colored_substat_full(enum_id, rarity):
     substat_light_color = get_substat_light_color(rarity)
     substat_dark_color = get_substat_dark_color(rarity)
     print(print_colored(substat_value_formatted, substat_dark_color) + " " + print_colored(substat_name, substat_light_color))
+
+def test_module_class():
+    """Test function to demonstrate the Module class usage."""
+    try:
+        # Create a test module based on the data from the attached files
+        test_module = Module(
+            guid="59211dfd-747b-448a-8e3a-640dc3514984",
+            name="Wormhole Redirector",
+            module_type="Armor",
+            rarity="LegendaryPlus",
+            level=90,
+            substat_enum_ids=[19, 20, 21],  # Example substat IDs
+            coins_spent=4796440000,
+            shards_spent=15588,
+            is_equipped=True,
+            is_favorite=True
+        )
+        
+        print("Test Module Created Successfully:")
+        print(test_module)
+        print("\n" + "="*50)
+        
+        # Test individual methods
+        print(f"Formatted Name: {test_module.get_formatted_name()}")
+        print(f"Status Flags: {test_module.get_status_flags()}")
+        print(f"Stats Summary: {test_module.get_stats_summary()}")
+        print(f"Sprites Summary: {test_module.get_sprites_summary()}")
+        
+        return True
+        
+    except Exception as e:
+        logger.error("Test failed", error=str(e))
+        return False
+
+if __name__ == "__main__":
+    test_module_class()

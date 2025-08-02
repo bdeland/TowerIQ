@@ -240,6 +240,203 @@ QWidget#content_page QWidget#content_widget {{
 }}
 """
 
+# Styles for the ModuleViewWidget component
+MODULE_VIEW_QSS = """
+QWidget#ModuleView {{
+    background-color: {card_bg};
+    border: 1px solid {card_border};
+    border-radius: 15px;
+    padding: 0px;
+}}
+
+QWidget#ModuleView TitleLabel#ModuleRarity {{
+    background-color: transparent;
+    font-size: 18px;
+    font-weight: 600;
+    padding: 5px 0px;
+}}
+
+
+
+QWidget#ModuleView TitleLabel#ModuleName {{
+    background-color: transparent;
+    font-size: 16px;
+    font-weight: 500;
+}}
+
+QWidget#ModuleView TitleLabel#ModuleName[rarity="common"] {{
+    color: #e4e4e5;
+}}
+
+QWidget#ModuleView TitleLabel#ModuleName[rarity="rare"] {{
+    color: #47dbff;
+}}
+
+QWidget#ModuleView TitleLabel#ModuleName[rarity="rareplus"] {{
+    color: #47dbff;
+}}
+
+QWidget#ModuleView TitleLabel#ModuleName[rarity="epic"] {{
+    color: #ff4ccf;
+}}
+
+QWidget#ModuleView TitleLabel#ModuleName[rarity="epicplus"] {{
+    color: #ff4ccf;
+}}
+
+QWidget#ModuleView TitleLabel#ModuleName[rarity="legendary"] {{
+    color: #ff9c3d;
+}}
+
+QWidget#ModuleView TitleLabel#ModuleName[rarity="legendaryplus"] {{
+    color: #ff9c3d;
+}}
+
+QWidget#ModuleView TitleLabel#ModuleName[rarity="mythic"] {{
+    color: #ff4040;
+}}
+
+QWidget#ModuleView TitleLabel#ModuleName[rarity="mythicplus"] {{
+    color: #ff4040;
+}}
+
+QWidget#ModuleView TitleLabel#ModuleName[rarity="ancestral"] {{
+    color: #79f369;
+}}
+
+QWidget#ModuleView BodyLabel#ModuleRarity {{
+    background-color: transparent;
+    font-size: 12px;
+    font-weight: 400;
+    font-style: italic;
+    color: {secondary_text};
+    margin-left: 8px;
+}}
+
+QWidget#ModuleView BodyLabel#ModuleMainStat {{
+    background-color: transparent;
+    font-size: 12px;
+    color: {secondary_text};
+}}
+
+QWidget#ModuleView QWidget#ModuleIconContainer {{
+    background-color: transparent;
+    border: none;
+}}
+
+QWidget#ModuleView QLabel#ModuleIcon {{
+    background-color: transparent;
+    border: none;
+}}
+
+QWidget#ModuleView QLabel#ModuleFavorite {{
+    background-color: transparent;
+    border: none;
+}}
+
+QWidget#ModuleView BodyLabel#ModuleLevel {{
+    background-color: transparent;
+    font-size: 13px;
+    font-weight: 500;
+}}
+
+QWidget#ModuleView ProgressBar#ModuleLevelBar {{
+    background-color: transparent;
+}}
+
+QWidget#ModuleView BodyLabel#EffectsTitle {{
+    background-color: transparent;
+    font-size: 14px;
+    font-weight: 600;
+    padding: 8px 0px 4px 0px;
+}}
+
+QWidget#ModuleView BodyLabel#UniqueEffectTitle {{
+    background-color: transparent;
+    font-size: 14px;
+    font-weight: 600;
+    padding: 8px 0px 4px 0px;
+}}
+
+QWidget#ModuleView BodyLabel#UniqueEffectText {{
+    background-color: {unique_effect_bg};
+    border: 1px solid {unique_effect_border};
+    border-radius: 8px;
+    padding: 12px;
+    font-size: 12px;
+    font-weight: 400;
+    color: {unique_effect_text};
+}}
+
+QWidget#SubstatRow {{
+    background-color: {substat_row_bg};
+    border: 1px solid {substat_row_border};
+    border-radius: 8px;
+    margin: 2px 0px;
+}}
+
+QWidget#SubstatRow BodyLabel#RarityPill {{
+    background-color: {rarity_pill_bg};
+    color: {rarity_pill_text};
+    padding: 3px 8px;
+    border-radius: 6px;
+    font-size: 11px;
+    font-weight: 600;
+    min-width: 50px;
+    max-width: 60px;
+}}
+
+QWidget#SubstatRow BodyLabel#RarityPill[rarity="common"] {{
+    background-color: #a0a0a0;
+    color: #ffffff;
+}}
+
+QWidget#SubstatRow BodyLabel#RarityPill[rarity="rare"] {{
+    background-color: #47dbff;
+    color: #000000;
+}}
+
+QWidget#SubstatRow BodyLabel#RarityPill[rarity="epic"] {{
+    background-color: #ff4ccf;
+    color: #ffffff;
+}}
+
+QWidget#SubstatRow BodyLabel#RarityPill[rarity="legendary"] {{
+    background-color: #ff9c3d;
+    color: #000000;
+}}
+
+QWidget#SubstatRow BodyLabel#RarityPill[rarity="mythic"] {{
+    background-color: #ff4040;
+    color: #ffffff;
+}}
+
+QWidget#SubstatRow BodyLabel#RarityPill[rarity="ancestral"] {{
+    background-color: #79f369;
+    color: #000000;
+}}
+
+QWidget#SubstatRow BodyLabel#SubstatText {{
+    background-color: transparent;
+    font-size: 12px;
+    font-weight: 400;
+}}
+
+QWidget#LockedSubstatRow {{
+    background-color: {locked_substat_bg};
+    border: 1px solid {locked_substat_border};
+    border-radius: 8px;
+    margin: 2px 0px;
+}}
+
+QWidget#LockedSubstatRow BodyLabel#LockedText {{
+    background-color: transparent;
+    font-size: 12px;
+    font-style: italic;
+    color: {secondary_text};
+}}
+"""
+
 # --- Theme Color Definitions ---
 # This dictionary structure is correct.
 THEME_COLORS = {
@@ -250,6 +447,17 @@ THEME_COLORS = {
         'card_hover_border': '#d0d0d0',
         'sub_card_bg': '#ffffff',
         'sub_card_border': '#e0e0e0',
+        # Module view colors
+        'secondary_text': '#666666',
+        'substat_row_bg': '#f8f9fa',
+        'substat_row_border': '#e9ecef',
+        'rarity_pill_bg': '#6c757d',
+        'rarity_pill_text': '#ffffff',
+        'locked_substat_bg': '#f1f3f4',
+        'locked_substat_border': '#dadce0',
+        'unique_effect_bg': '#fff3cd',
+        'unique_effect_border': '#ffeaa7',
+        'unique_effect_text': '#856404',
         # Pivot colors
         'pivot_item_bg': '#f8f9fa',
         'pivot_item_border': '#303030',
@@ -272,6 +480,17 @@ THEME_COLORS = {
         'card_hover_border': '#505050',
         'sub_card_bg': '#2d2d2d',
         'sub_card_border': '#404040',
+        # Module view colors
+        'secondary_text': '#a0a0a0',
+        'substat_row_bg': '#3a3a3a',
+        'substat_row_border': '#505050',
+        'rarity_pill_bg': '#555555',
+        'rarity_pill_text': '#ffffff',
+        'locked_substat_bg': '#2a2a2a',
+        'locked_substat_border': '#404040',
+        'unique_effect_bg': '#3a2f1a',
+        'unique_effect_border': '#5a4a2a',
+        'unique_effect_text': '#ffd700',
         # Pivot colors
         'pivot_item_bg': '#3a3a3a',
         'pivot_item_border': '#11a8cd',
@@ -307,5 +526,6 @@ def get_themed_stylesheet() -> str:
         SETTINGS_CATEGORY_PAGE_QSS.format(**theme_palette) +
         PAGE_HEADER_QSS.format(**theme_palette) +
         CONTENT_PAGE_QSS.format(**theme_palette) +
-        PIVOT_QSS.format(**theme_palette)
+        PIVOT_QSS.format(**theme_palette) +
+        MODULE_VIEW_QSS.format(**theme_palette)
     )

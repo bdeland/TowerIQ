@@ -20,7 +20,7 @@ rarity_colors:
 substat_values:
   1:
     name: Attack_Speed
-    applies_to: Cannon
+    type: Cannon
     unit: '%'
     values:
       Common: 2
@@ -31,7 +31,7 @@ substat_values:
       Ancestral: 30
   2:
     name: Critical_Chance
-    applies_to: Cannon
+    type: Cannon
     unit: '%'
     values:
       Common: 2
@@ -42,7 +42,7 @@ substat_values:
       Ancestral: 10
   3:
     name: Critical_Factor
-    applies_to: Cannon
+    type: Cannon
     unit: '%'
     values:
       Common: 2
@@ -53,7 +53,7 @@ substat_values:
       Ancestral: 15
   4:
     name: Attack_Range
-    applies_to: Cannon
+    type: Cannon
     unit: m
     values:
       Common: 2
@@ -64,7 +64,7 @@ substat_values:
       Ancestral: 30
   5:
     name: Damage_Per_Meter
-    applies_to: Cannon
+    type: Cannon
     unit: m
     values:
       Common: 0.005
@@ -75,7 +75,7 @@ substat_values:
       Ancestral: 0.15
   6:
     name: Multishot_Chance
-    applies_to: Cannon
+    type: Cannon
     unit: '%'
     values:
       Rare: 3
@@ -85,7 +85,7 @@ substat_values:
       Ancestral: 13
   7:
     name: Multishot_Targets
-    applies_to: Cannon
+    type: Cannon
     unit: ''
     values:
       Epic: 1
@@ -94,7 +94,7 @@ substat_values:
       Ancestral: 4
   8:
     name: Rapid_Fire_Chance
-    applies_to: Cannon
+    type: Cannon
     unit: '%'
     values:
       Rare: 2
@@ -104,7 +104,7 @@ substat_values:
       Ancestral: 12
   9:
     name: Rapid_Fire_Duration
-    applies_to: Cannon
+    type: Cannon
     unit: s
     values:
       Rare: 0.4
@@ -114,7 +114,7 @@ substat_values:
       Ancestral: 3.5
   10:
     name: Bounce_Shot_Chance
-    applies_to: Cannon
+    type: Cannon
     unit: '%'
     values:
       Rare: 2
@@ -124,7 +124,7 @@ substat_values:
       Ancestral: 12
   11:
     name: Bounce_Shot_Targets
-    applies_to: Cannon
+    type: Cannon
     unit: ''
     values:
       Epic: 1
@@ -133,7 +133,7 @@ substat_values:
       Ancestral: 4
   12:
     name: Bounce_Shot_Range
-    applies_to: Cannon
+    type: Cannon
     unit: m
     values:
       Rare: 0.5
@@ -143,7 +143,7 @@ substat_values:
       Ancestral: 2.0
   13:
     name: Super_Critical_Chance
-    applies_to: Cannon
+    type: Cannon
     unit: '%'
     values:
       Epic: 3
@@ -152,7 +152,7 @@ substat_values:
       Ancestral: 10
   14:
     name: Super_Critical_Factor
-    applies_to: Cannon
+    type: Cannon
     unit: ''
     values:
       Epic: 2
@@ -161,7 +161,7 @@ substat_values:
       Ancestral: 7
   15:
     name: Rend_Armor_Chance
-    applies_to: Cannon
+    type: Cannon
     unit: '%'
     values:
       Legendary: 2
@@ -169,7 +169,7 @@ substat_values:
       Ancestral: 8
   16:
     name: Rend_Armor_Mult
-    applies_to: Cannon
+    type: Cannon
     unit: '%'
     values:
       Legendary: 2
@@ -177,7 +177,7 @@ substat_values:
       Ancestral: 8
   17:
     name: Rend_Armor_Max
-    applies_to: Cannon
+    type: Cannon
     unit: '%'
     values:
       Legendary: 200
@@ -185,7 +185,7 @@ substat_values:
       Ancestral: 500
   18:
     name: Health_Regen
-    applies_to: Armor
+    type: Armor
     unit: '%'
     values:
       Common: 20
@@ -196,7 +196,7 @@ substat_values:
       Ancestral: 400
   19:
     name: Defense_Percent
-    applies_to: Armor
+    type: Armor
     unit: '%'
     values:
       Common: 1
@@ -207,7 +207,7 @@ substat_values:
       Ancestral: 8
   20:
     name: Defense_Absolute
-    applies_to: Armor
+    type: Armor
     unit: '%'
     values:
       Common: 15
@@ -218,7 +218,7 @@ substat_values:
       Ancestral: 1000
   21:
     name: Thorn_Damage
-    applies_to: Armor
+    type: Armor
     unit: ''
     values:
       Epic: 2
@@ -227,7 +227,7 @@ substat_values:
       Ancestral: 10
   22:
     name: Lifesteal
-    applies_to: Armor
+    type: Armor
     unit: '%'
     values:
       Epic: 0.3
@@ -236,7 +236,7 @@ substat_values:
       Ancestral: 2
   23:
     name: Knockback_Chance
-    applies_to: Armor
+    type: Armor
     unit: '%'
     values:
       Epic: 2
@@ -245,7 +245,7 @@ substat_values:
       Ancestral: 9
   24:
     name: Knockback_Force
-    applies_to: Armor
+    type: Armor
     unit: ''
     values:
       Epic: 0.1
@@ -254,7 +254,7 @@ substat_values:
       Ancestral: 1.5
   25:
     name: Orb_Speed
-    applies_to: Armor
+    type: Armor
     unit: ''
     values:
       Epic: 1
@@ -263,14 +263,14 @@ substat_values:
       Ancestral: 3
   26:
     name: Orbs
-    applies_to: Armor
+    type: Armor
     unit: ''
     values:
       Mythic: 1
       Ancestral: 2
   27:
     name: Shockwave_Size
-    applies_to: Armor
+    type: Armor
     unit: ''
     values:
       Epic: 0.1
@@ -279,7 +279,7 @@ substat_values:
       Ancestral: 1
   28:
     name: Shockwave_Frequency
-    applies_to: Armor
+    type: Armor
     unit: s
     values:
       Epic: -1
@@ -288,7 +288,7 @@ substat_values:
       Ancestral: -4
   29:
     name: Land_Mine_Chance
-    applies_to: Armor
+    type: Armor
     unit: '%'
     values:
       Rare: 1.5
@@ -298,7 +298,7 @@ substat_values:
       Ancestral: 12
   30:
     name: Land_Mine_Damage
-    applies_to: Armor
+    type: Armor
     unit: '%'
     values:
       Rare: 30
@@ -308,7 +308,7 @@ substat_values:
       Ancestral: 800
   31:
     name: Land_Mine_Radius
-    applies_to: Armor
+    type: Armor
     unit: ''
     values:
       Rare: 0.1
@@ -318,7 +318,7 @@ substat_values:
       Ancestral: 1
   32:
     name: Death_Defy
-    applies_to: Armor
+    type: Armor
     unit: '%'
     values:
       Legendary: 1.5
@@ -326,7 +326,7 @@ substat_values:
       Ancestral: 5
   33:
     name: Wall_Health
-    applies_to: Armor
+    type: Armor
     unit: '%'
     values:
       Epic: 20
@@ -335,7 +335,7 @@ substat_values:
       Ancestral: 120
   34:
     name: Wall_Rebuild
-    applies_to: Armor
+    type: Armor
     unit: s
     values:
       Epic: -20
@@ -344,7 +344,7 @@ substat_values:
       Ancestral: -100
   35:
     name: Cash_Bonus
-    applies_to: Generator
+    type: Generator
     unit: x
     values:
       Common: 0.1
@@ -355,7 +355,7 @@ substat_values:
       Ancestral: 2.5
   36:
     name: Cash_Per_Wave
-    applies_to: Generator
+    type: Generator
     unit: ''
     values:
       Common: 30
@@ -366,7 +366,7 @@ substat_values:
       Ancestral: 1000
   37:
     name: Coins_Per_Kill
-    applies_to: Generator
+    type: Generator
     unit: x
     values:
       Common: 0.1
@@ -377,7 +377,7 @@ substat_values:
       Ancestral: 0.6
   38:
     name: Coins_Per_Wave
-    applies_to: Generator
+    type: Generator
     unit: ''
     values:
       Common: 20
@@ -388,7 +388,7 @@ substat_values:
       Ancestral: 350
   39:
     name: Free_Attack_Upgrade
-    applies_to: Generator
+    type: Generator
     unit: '%'
     values:
       Common: 2
@@ -399,7 +399,7 @@ substat_values:
       Ancestral: 12
   40:
     name: Free_Defense_Upgrade
-    applies_to: Generator
+    type: Generator
     unit: '%'
     values:
       Common: 2
@@ -410,7 +410,7 @@ substat_values:
       Ancestral: 12
   41:
     name: Free_Utility_Upgrade
-    applies_to: Generator
+    type: Generator
     unit: '%'
     values:
       Common: 2
@@ -421,7 +421,7 @@ substat_values:
       Ancestral: 12
   42:
     name: Interest_Per_Wave
-    applies_to: Generator
+    type: Generator
     unit: '%'
     values:
       Epic: 2
@@ -430,7 +430,7 @@ substat_values:
       Ancestral: 8
   43:
     name: Recovery_Amount
-    applies_to: Generator
+    type: Generator
     unit: '%'
     values:
       Epic: 3
@@ -439,7 +439,7 @@ substat_values:
       Ancestral: 10
   44:
     name: Max_Recovery
-    applies_to: Generator
+    type: Generator
     unit: ''
     values:
       Epic: 0.4
@@ -448,7 +448,7 @@ substat_values:
       Ancestral: 1.5
   45:
     name: Package_Chance
-    applies_to: Generator
+    type: Generator
     unit: '%'
     values:
       Epic: 5
@@ -457,7 +457,7 @@ substat_values:
       Ancestral: 15
   46:
     name: Enemy_Attack_Level_Skip
-    applies_to: Generator
+    type: Generator
     unit: '%'
     values:
       Epic: 2
@@ -466,7 +466,7 @@ substat_values:
       Ancestral: 8
   47:
     name: Enemy_Health_Level_Skip
-    applies_to: Generator
+    type: Generator
     unit: '%'
     values:
       Epic: 2
@@ -475,7 +475,7 @@ substat_values:
       Ancestral: 8
   48:
     name: Chain_Lightning_Damage
-    applies_to: Core
+    type: Core
     unit: x
     values:
       Common: 8
@@ -486,7 +486,7 @@ substat_values:
       Ancestral: 250
   49:
     name: Chain_Lightning_Quantity
-    applies_to: Core
+    type: Core
     unit: ''
     values:
       Epic: 1
@@ -495,7 +495,7 @@ substat_values:
       Ancestral: 4
   50:
     name: Chain_Lightning_Chance
-    applies_to: Core
+    type: Core
     unit: '%'
     values:
       Common: 2
@@ -506,7 +506,7 @@ substat_values:
       Ancestral: 15
   51:
     name: Smart_Missiles_Damage
-    applies_to: Core
+    type: Core
     unit: ''
     values:
       Common: 8
@@ -517,7 +517,7 @@ substat_values:
       Ancestral: 250
   52:
     name: Smart_Missiles_Quantity
-    applies_to: Core
+    type: Core
     unit: ''
     values:
       Epic: 1
@@ -526,7 +526,7 @@ substat_values:
       Ancestral: 5
   53:
     name: Smart_Missiles_Cooldown
-    applies_to: Core
+    type: Core
     unit: s
     values:
       Legendary: -2
@@ -534,7 +534,7 @@ substat_values:
       Ancestral: -6
   54:
     name: Death_Wave_Damage
-    applies_to: Core
+    type: Core
     unit: x
     values:
       Common: 8
@@ -545,7 +545,7 @@ substat_values:
       Ancestral: 250
   55:
     name: Death_Wave_Quantity
-    applies_to: Core
+    type: Core
     unit: ''
     values:
       Legendary: 1
@@ -553,7 +553,7 @@ substat_values:
       Ancestral: 3
   56:
     name: Death_Wave_Cooldown
-    applies_to: Core
+    type: Core
     unit: s
     values:
       Legendary: -6
@@ -561,7 +561,7 @@ substat_values:
       Ancestral: -13
   57:
     name: Chrono_Field_Duration
-    applies_to: Core
+    type: Core
     unit: s
     values:
       Legendary: 4
@@ -569,7 +569,7 @@ substat_values:
       Ancestral: 10
   58:
     name: Chrono_Field_Speed_Reduction
-    applies_to: Core
+    type: Core
     unit: '%'
     values:
       Epic: 3
@@ -578,7 +578,7 @@ substat_values:
       Ancestral: 15
   59:
     name: Chrono_Field_Cooldown
-    applies_to: Core
+    type: Core
     unit: s
     values:
       Legendary: -4
@@ -586,7 +586,7 @@ substat_values:
       Ancestral: -10
   60:
     name: Inner_Land_Mines_Damage
-    applies_to: Core
+    type: Core
     unit: x
     values:
       Common: 8
@@ -597,7 +597,7 @@ substat_values:
       Ancestral: 250
   61:
     name: Inner_Land_Mines_Quantity
-    applies_to: Core
+    type: Core
     unit: ''
     values:
       Legendary: 1
@@ -605,7 +605,7 @@ substat_values:
       Ancestral: 3
   62:
     name: Inner_Land_Mines_Cooldown
-    applies_to: Core
+    type: Core
     unit: s
     values:
       Epic: -5
@@ -614,7 +614,7 @@ substat_values:
       Ancestral: -13
   63:
     name: Golden_Tower_Bonus
-    applies_to: Core
+    type: Core
     unit: ''
     values:
       Epic: 1
@@ -623,7 +623,7 @@ substat_values:
       Ancestral: 4
   64:
     name: Golden_Tower_Duration
-    applies_to: Core
+    type: Core
     unit: s
     values:
       Legendary: 2
@@ -631,7 +631,7 @@ substat_values:
       Ancestral: 7
   65:
     name: Golden_Tower_Cooldown
-    applies_to: Core
+    type: Core
     unit: s
     values:
       Legendary: -5
@@ -639,7 +639,7 @@ substat_values:
       Ancestral: -12
   66:
     name: Poison_Swamp_Damage
-    applies_to: Core
+    type: Core
     unit: x
     values:
       Common: 8
@@ -650,7 +650,7 @@ substat_values:
       Ancestral: 250
   67:
     name: Poison_Swamp_Duration
-    applies_to: Core
+    type: Core
     unit: s
     values:
       Legendary: 2
@@ -658,7 +658,7 @@ substat_values:
       Ancestral: 10
   68:
     name: Poison_Swamp_Cooldown
-    applies_to: Core
+    type: Core
     unit: s
     values:
       Rare: -2
@@ -668,7 +668,7 @@ substat_values:
       Ancestral: -10
   69:
     name: Black_Hole_Size
-    applies_to: Core
+    type: Core
     unit: m
     values:
       Common: 2
@@ -679,7 +679,7 @@ substat_values:
       Ancestral: 12
   70:
     name: Black_Hole_Duration
-    applies_to: Core
+    type: Core
     unit: s
     values:
       Legendary: 2
@@ -687,7 +687,7 @@ substat_values:
       Ancestral: 4
   71:
     name: Black_Hole_Cooldown
-    applies_to: Core
+    type: Core
     unit: s
     values:
       Legendary: -2
@@ -695,7 +695,7 @@ substat_values:
       Ancestral: -4
   72:
     name: Spotlight_Bonus
-    applies_to: Core
+    type: Core
     unit: ''
     values:
       Common: 1.2
@@ -706,7 +706,7 @@ substat_values:
       Ancestral: 20
   73:
     name: Spotlight_Angle
-    applies_to: Core
+    type: Core
     unit: ''
     values:
       Epic: 3
@@ -715,7 +715,7 @@ substat_values:
       Ancestral: 15
   74:
     name: Spotlight_Quantity
-    applies_to: Core
+    type: Core
     unit: ''
     values:
       Epic: 3
@@ -725,200 +725,205 @@ substat_values:
 unique_effects:
   0:
     name: Anti-Cube Portal
-    effect: Enemies take {X}x damage for 7s after they are hit by a shockwave
+    type: Armor
+    effect: Enemies take {X} damage for 7s after they are hit by a shockwave.
+    unit: x
     values:
       Epic: 10
       Legendary: 15
       Mythic: 20
       Ancestral: 25
-    type: Cannon
   1:
     name: Astral Deliverance
-    effect: Bounce Shot's range is increased by 3% of the Tower's total range. Each
-      bounce increases the projectile's damage by {X}%.
+    type: Cannon
+    effect: Bounce Shot's range is increased by 3% of the Tower's total range. Each bounce increases the projectile's damage by {X}.
+    unit: '%'
     values:
       Epic: 20
       Legendary: 40
       Mythic: 60
       Ancestral: 80
-    type: Cannon
   2:
     name: Being Annihilator
+    type: Cannon
     effect: When you super crit, your next {X} shots are guaranteed super crit.
+    unit: ''
     values:
       Epic: 3
       Legendary: 4
       Mythic: 5
       Ancestral: 6
-    type: Cannon
   3:
     name: Black Hole Digestor
-    effect: Temporarily get {X}% extra Coins / Kill Bonus for each free upgrade you
-      got on the current wave. Free Upgrades can not increase Tower Range.
+    type: Generator
+    effect: Temporarily get {X} extra Coins / Kill Bonus for each free upgrade you got on the current wave. Free Upgrades can not increase Tower Range.
+    unit: '%'
     values:
       Epic: 3
       Legendary: 5
       Mythic: 7
       Ancestral: 10
-    type: Cannon
+    
   4:
     name: Death Penalty
-    effect: Chance of {X}% to mark an enemy for death when it spawns, causing any
-      damage to destroy it
+    type: Cannon
+    effect: Chance of {X} to mark an enemy for death when it spawns, causing the first hit to destroy it.
+    unit: '%'
     values:
       Epic: 5
       Legendary: 8
       Mythic: 11
       Ancestral: 15
-    type: Cannon
   5:
     name: Dimension Core
-    effect: Chain Lightning have 60% chance of hitting the initial target. Shock chance
-      and multiplier is doubled. If a shock is applied again to the same enemy the
-      shock multiplier will add up to a max stack of {X}.
+    type: Core
+    effect: Chain Lightning have 60% chance of hitting the initial target. Shock chance and multiplier is doubled. If a shock is applied again to the same enemy the shock multiplier will add up to a max stack of {X}.
+    unit: ''
     values:
       Epic: 5
       Legendary: 10
       Mythic: 15
       Ancestral: 20
-    type: Cannon
   6:
     name: Galaxy Compressor
-    effect: Collecting a recovery package reduces the cooldown of all Ultimate Weapons
-      except Poison Swamp by {X}s.
+    type: Generator
+    effect: Collecting a recovery package reduces the cooldown of all Ultimate Weapons except Poison Swamp by {X}.
+    unit: s
     values:
       Epic: 10
       Legendary: 13
       Mythic: 17
       Ancestral: 20
-    type: Cannon
   7:
     name: Harmony Conductor
-    effect: '{X}% chance of poisoned enemies to miss attack. Boss chance is halved.'
+    type: Core
+    effect: '{X} chance of poisoned enemies to miss attack. Boss chance is halved.'
+    unit: '%'
     values:
       Epic: 15
       Legendary: 20
       Mythic: 25
       Ancestral: 30
-    type: Cannon
   8:
     name: Havoc Bringer
-    effect: '{X}% chance for Rend Armor to instantly go to max'
+    effect: '{X} chance for Rend Armor to instantly go to max.'
+    unit: '%'
+    type: Cannon
     values:
       Epic: 10
       Legendary: 13
       Mythic: 15
       Ancestral: 20
-    type: Cannon
   9:
     name: Magnetic Hook
-    effect: '{X} Inner Land Mines are fired at Bosses as they enter Tower range. 25%
-      of Elites have Inner Land Mines fired at them as they enter Tower range.'
+    type: Core
+    effect: '{X} Inner Land Mines are fired at Bosses as they enter Tower range. 25% of Elites have Inner Land Mines fired at them as they enter Tower range.'
+    unit: ''
     values:
       Epic: 1
       Legendary: 2
       Mythic: 3
       Ancestral: 4
-    type: Cannon
   10:
     name: Multiverse Nexus
-    effect: Death Wave, Golden Tower and Black Hole will always activate at the same
-      time, but the cooldown will be the average of those {X}s.
+    type: Core
+    effect: Death Wave, Golden Tower and Black Hole will always activate at the same time, but the cooldown will be the average of those {X}.
+    unit: s
     values:
       Epic: 20
       Legendary: 10
       Mythic: 1
       Ancestral: -10
-    type: Cannon
   11:
     name: Negative Mass Projector
-    effect: If an Orb doesn't kill the enemy it will apply a stacking debuff, reducing
-      its damage and speed by {X}% per hit, to a max reduction of 50%
+    type: Armor
+    effect: If an Orb doesn't kill the enemy it will apply a stacking debuff, reducing its damage and speed by {X} per hit, to a max reduction of 50%.
+    unit: '%'
     values:
       Epic: 1
       Legendary: 1.5
       Mythic: 2
       Ancestral: 2.5
-    type: Armor
   12:
     name: Om Chip
-    effect: Spotlight will rotate to focus a boss, this effect can only happen again
-      after {X} bosses.
+    type: Core
+    effect: Spotlight will rotate to focus a boss. This effect can only happen again after {X} bosses.
+    unit: ''
     values:
       Epic: 3
       Legendary: 2
       Mythic: 1
       Ancestral: 0
-    type: Armor
   13:
     name: Project Funding
-    effect: Tower damage is multiplied by {X}% of the number of digits in your current
-      cash.
+    type: Generator
+    effect: Tower damage is multiplied by {X} of the number of digits in your current cash.
+    unit: '%'
     values:
       Epic: 12.5
       Legendary: 25
       Mythic: 50
       Ancestral: 100
-    type: Armor
   14:
     name: Pulsar Harvester
-    effect: Each time a projectile hits an enemy, there is a {X}% chance that it will
-      reduce the enemy's Health and Attack Level by 1.
+    type: Generator
+    effect: Each time a projectile hits an enemy, there is a {X} chance that it will reduce the enemy's Health and Attack Level by 1.
+    unit: '%'
     values:
       Epic: 1
       Legendary: 1.5
       Mythic: 2
       Ancestral: 2.5
-    type: Armor
   15:
     name: Sharp Fortitude
-    effect: Increase the Wall's health and regen by {X}x. Enemies take +1% increased
-      damage from wall thorns per subsequent hit.
+    type: Armor
+    effect: Increase the Wall's health and regen by {X}. Enemies take +1% increased damage from wall thorns per subsequent hit.
+    unit: x
     values:
       Epic: 1.25
       Legendary: 1.5
       Mythic: 2
       Ancestral: 2.5
-    type: Armor
   16:
     name: Shrink Ray
-    effect: Attacks have a 1% chance to apply a non-stacking effect that decreases
-      the enemy's mass by {X}%.
+    type: Cannon
+    effect: Attacks have a 1% chance to apply a non-stacking effect that decreases the enemy's mass by {X}.
+    unit: '%'
     values:
       Epic: 10
       Legendary: 20
       Mythic: 30
       Ancestral: 40
-    type: Armor
   17:
     name: Singularity Harness
-    effect: Increases the range of each bot by {X} meters. Enemies hit by the Flame
-      bot receive double damage.
+    type: Generator
+    effect: Increases the range of each bot by {X}. Enemies hit by the Flame bot receive double damage.
+    unit: m
     values:
       Epic: 5
       Legendary: 8
       Mythic: 11
       Ancestral: 15
-    type: Armor
   18:
     name: Space Displacer
-    effect: Land mines have a {X}% chance of spawning as an Inner Land Mine (20 max)
-      instead of a normal mine. These mines move and organize around the tower autonomously.
+    type: Armor
+    effect: Landmines have a {X} chance of spawning as an Inner Land Mine (20 max) instead of a normal mine. These mines autonomously move and organize around the tower.
+    unit: '%'
     values:
       Epic: 15
       Legendary: 20
       Mythic: 25
       Ancestral: 30
-    type: Armor
   19:
     name: Wormhole Redirector
-    effect: Health Regen can heal up to {X}% of Package Max Recovery.
+    type: Armor
+    effect: Health Regen can heal up to {X} of Package Max Recovery.
+    unit: '%'
     values:
       Epic: 25
       Legendary: 50
       Mythic: 75
       Ancestral: 100
-    type: Armor
 module_rarity:
   0: 
     full: "None"
@@ -965,3 +970,43 @@ module_rarity:
   15: 
     full: "Ancestral5"
     base: "Ancestral"
+  
+module_drop_chance:
+  Common: 0.685
+  Rare: 0.29
+  Epic: 0.025
+
+subeffect_drop_chance:
+  Common: 0.462
+  Rare: 0.4
+  Epic: 0.1
+  Legendary: 0.025
+  Mythic: 0.01
+  Ancestral: 0.003
+
+reroll_lock_costs:
+  0: 10
+  1: 40
+  2: 160
+  3: 500
+  4: 1000
+  5: 1600
+  6: 2250
+  7: 3000
+
+max_module_level:
+  Rare: 30 
+  RarePlus: 40
+  Epic: 60
+  EpicPlus: 80
+  Legendary: 100
+  LegendaryPlus: 120
+  Mythic: 140
+  MythicPlus: 160
+  Ancestral: 200
+  Ancestral1: 220
+  Ancestral2: 240
+  Ancestral3: 260
+  Ancestral4: 280
+  Ancestral5: 300
+
