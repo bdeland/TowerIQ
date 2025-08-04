@@ -52,7 +52,7 @@ class LockedSubstatRowWidget(QWidget):
         layout.setContentsMargins(10, 8, 10, 8)
         
         self.label = BodyLabel(f"Unlocks at Lv. {unlock_level}")
-        self.label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.label.setAlignment(Qt.AlignmentFlag.AlignLeft)
         self.label.setObjectName("LockedText")
         
         layout.addWidget(self.label)
@@ -61,10 +61,10 @@ class LockedSubstatRowWidget(QWidget):
 class ModuleViewWidget(QWidget):
     # Favorite icon positioning offsets for different module types
     FAVORITE_ICON_POSITIONS = {
-        'Armor': {'x': 85, 'y': 15},
-        'Cannon': {'x': 85, 'y': 15}, 
-        'Generator': {'x': 85, 'y': 15},
-        'Core': {'x': 85, 'y': 15}
+        'Armor': {'x': 22, 'y': 93},
+        'Cannon': {'x': 22, 'y': 93}, 
+        'Generator': {'x': 22, 'y': 93},
+        'Core': {'x': 22, 'y': 93}
     }
     """
     A reusable widget to display a single module's details.
@@ -76,10 +76,12 @@ class ModuleViewWidget(QWidget):
     - Theme-aware components using QFluentWidgets
     """
     
-    def __init__(self, module=None, parent=None):
+    def __init__(self, module=None, frame_name=None, icon_name=None, parent=None):
         super().__init__(parent=parent)
         self.setObjectName("ModuleView")
         self.module = None
+        self.frame_name = frame_name
+        self.icon_name = icon_name
         self.lookup_data = self._load_lookup_data()
         
         # Initialize UI components
@@ -128,7 +130,7 @@ class ModuleViewWidget(QWidget):
         # Favorite overlay label
         self.favorite_label = QLabel(self.icon_container)
         self.favorite_label.setObjectName("ModuleFavorite")
-        self.favorite_label.setFixedSize(32, 32)
+        self.favorite_label.setFixedSize(25, 25)
         self.favorite_label.hide()  # Hidden by default
         
         # Level information
@@ -170,17 +172,17 @@ class ModuleViewWidget(QWidget):
         # Icon container on the left
         info_layout.addWidget(self.icon_container)
         
-        # Name, rarity and main stat on the right
+        # Rarity, name and main stat on the right
         name_layout = QVBoxLayout()
         name_layout.addStretch(1)
         
-        # Name and rarity on same line
-        name_rarity_layout = QHBoxLayout()
-        name_rarity_layout.addWidget(self.name_label)
-        name_rarity_layout.addWidget(self.rarity_label)
-        name_rarity_layout.addStretch()
-        name_layout.addLayout(name_rarity_layout)
+        # Rarity first
+        name_layout.addWidget(self.rarity_label)
         
+        # Name second
+        name_layout.addWidget(self.name_label)
+        
+        # Main stat third
         name_layout.addWidget(self.main_stat_label)
         name_layout.addStretch(1)
         info_layout.addLayout(name_layout)
@@ -229,13 +231,30 @@ class ModuleViewWidget(QWidget):
         # Update substats
         self._update_substats()
     
+    def _get_display_rarity(self, rarity: str) -> str:
+        """Convert rarity to display format."""
+        display_map = {
+            'common': 'COMMON',
+            'rare': 'RARE   ',
+            'rareplus': 'RARE+',
+            'epic': 'EPIC',
+            'epicplus': 'EPIC+',
+            'legendary': 'LEGENDARY',
+            'legendaryplus': 'LEGENDARY+',
+            'mythic': 'MYTHIC',
+            'mythicplus': 'MYTHIC+',
+            'ancestral': 'ANCESTRAL'
+        }
+        return display_map.get(rarity.lower(), rarity.upper())
+    
     def _update_rarity(self):
         """Update rarity display and apply rarity-based styling."""
         if not self.module:
             return
             
         rarity = self.module.rarity
-        self.rarity_label.setText(f"({rarity.upper()})")
+        display_rarity = self._get_display_rarity(rarity)
+        self.rarity_label.setText(display_rarity)  # Removed parentheses
         
         # Apply rarity property for styling
         self.setProperty("module_rarity", rarity.lower())
@@ -257,42 +276,29 @@ class ModuleViewWidget(QWidget):
             name_style.polish(self.name_label)
     
     def _update_icon(self):
-        """Load and combine the frame and icon images."""
+        """Load and combine the frame and icon images using provided filenames."""
         if not self.module:
             return
             
-        # Get base paths
+        # Get base sprites path
         sprites_path = os.path.join(os.path.dirname(__file__), "../../../..", "resources", "assets", "sprites")
         sprites_path = os.path.normpath(sprites_path)
         
-        # Determine frame file based on module type and rarity
-        module_type_lower = self.module.module_type.lower()
-        rarity_lower = self.module.rarity.lower().replace("plus", "_plus")
-        
-        frame_filename = f"mf_{module_type_lower}_{rarity_lower}.png"
-        frame_path = os.path.join(sprites_path, frame_filename)
-        
-        # Try to find icon file
-        icon_filename = f"{self.module.name}.png"
-        icon_path = os.path.join(sprites_path, icon_filename)
+        # Construct full paths from filenames
+        frame_path = os.path.join(sprites_path, f"{self.frame_name}.png") if self.frame_name else None
+        icon_path = os.path.join(sprites_path, f"{self.icon_name}.png") if self.icon_name else None
         
         # Load frame
-        frame_pixmap = QPixmap(frame_path)
+        frame_pixmap = QPixmap(frame_path) if frame_path else QPixmap()
         
         if frame_pixmap.isNull():
-            # Fallback: try without "mf_" prefix
-            frame_filename = f"{module_type_lower}_{rarity_lower}.png"
-            frame_path = os.path.join(sprites_path, frame_filename)
-            frame_pixmap = QPixmap(frame_path)
-        
-        if frame_pixmap.isNull():
-            # Final fallback
+            # Fallback: display placeholder
             self.icon_label.setText("?")
             self.icon_label.setStyleSheet("font-size: 48px; color: #666666;")
             return
         
         # Load icon
-        icon_pixmap = QPixmap(icon_path)
+        icon_pixmap = QPixmap(icon_path) if icon_path else QPixmap()
         
         # Create combined image
         combined_pixmap = QPixmap(frame_pixmap.size())
@@ -313,12 +319,25 @@ class ModuleViewWidget(QWidget):
         
         painter.end()
         
-        # Scale and set the combined image
+        # Scale and set the combined image with better quality
+        # Use device pixel ratio for better quality on high-DPI displays
+        target_size = self.icon_label.size()
+        device_pixel_ratio = self.devicePixelRatio()
+        
+        # Calculate size accounting for device pixel ratio
+        scaled_size = QSize(
+            int(target_size.width() * device_pixel_ratio),
+            int(target_size.height() * device_pixel_ratio)
+        )
+        
         scaled_pixmap = combined_pixmap.scaled(
-            self.icon_label.size(),
+            scaled_size,
             Qt.AspectRatioMode.KeepAspectRatio,
             Qt.TransformationMode.SmoothTransformation
         )
+        
+        # Set the device pixel ratio on the pixmap
+        scaled_pixmap.setDevicePixelRatio(device_pixel_ratio)
         
         self.icon_label.setPixmap(scaled_pixmap)
         
@@ -375,25 +394,27 @@ class ModuleViewWidget(QWidget):
             sprites_path = os.path.normpath(sprites_path)
             favorite_path = os.path.join(sprites_path, "favorite.png")
             
-            # Try alternative names if favorite.png doesn't exist
-            if not os.path.exists(favorite_path):
-                # Look for star icon or similar
-                possible_names = ["star.png", "favorite_star.png", "fav.png"]
-                for name in possible_names:
-                    alt_path = os.path.join(sprites_path, name)
-                    if os.path.exists(alt_path):
-                        favorite_path = alt_path
-                        break
-            
             if os.path.exists(favorite_path):
                 favorite_pixmap = QPixmap(favorite_path)
                 if not favorite_pixmap.isNull():
-                    # Scale favorite icon
+                    # Scale favorite icon with better quality
+                    target_size = self.favorite_label.size()
+                    device_pixel_ratio = self.devicePixelRatio()
+                    
+                    # Calculate size accounting for device pixel ratio
+                    scaled_size = QSize(
+                        int(target_size.width() * device_pixel_ratio),
+                        int(target_size.height() * device_pixel_ratio)
+                    )
+                    
                     scaled_favorite = favorite_pixmap.scaled(
-                        self.favorite_label.size(),
+                        scaled_size,
                         Qt.AspectRatioMode.KeepAspectRatio,
                         Qt.TransformationMode.SmoothTransformation
                     )
+                    
+                    # Set the device pixel ratio on the pixmap
+                    scaled_favorite.setDevicePixelRatio(device_pixel_ratio)
                     self.favorite_label.setPixmap(scaled_favorite)
                     
                     # Position the favorite icon based on module type
@@ -402,23 +423,6 @@ class ModuleViewWidget(QWidget):
                     self.favorite_label.move(pos['x'], pos['y'])
                     self.favorite_label.show()
                     return
-            
-            # Fallback: create a simple star character overlay
-            self.favorite_label.setText("★")
-            self.favorite_label.setStyleSheet("""
-                QLabel {
-                    background-color: rgba(255, 215, 0, 180);
-                    color: #FFD700;
-                    border-radius: 16px;
-                    font-size: 20px;
-                    font-weight: bold;
-                    text-align: center;
-                }
-            """)
-            module_type = self.module.module_type
-            pos = self.FAVORITE_ICON_POSITIONS.get(module_type, {'x': 85, 'y': 15})
-            self.favorite_label.move(pos['x'], pos['y'])
-            self.favorite_label.show()
         else:
             self.favorite_label.hide()
     
@@ -485,14 +489,25 @@ class ModuleViewWidget(QWidget):
                     self.substats_layout.addWidget(row)
         
         # Add locked slots based on rarity
-        # This is a simplified implementation - you might want to add unlock level logic
+        # Only show locked slots if the module hasn't reached the level to unlock them
         current_substats = len(self.module.substat_enum_ids)
         max_substats = self._get_max_substats_for_rarity(self.module.rarity)
         
         for i in range(current_substats, max_substats):
-            unlock_level = (i + 1) * 20  # Simplified unlock level calculation
-            locked_row = LockedSubstatRowWidget(unlock_level)
-            self.substats_layout.addWidget(locked_row)
+            # Fixed unlock levels: slot 3=41, slot 4=101, slot 5=141, slot 6=161
+            slot_number = i + 1  # Convert 0-based index to 1-based slot number
+            unlock_levels = {
+                3: 41,   # Slot 3 unlocks at level 41
+                4: 101,  # Slot 4 unlocks at level 101
+                5: 141,  # Slot 5 unlocks at level 141
+                6: 161   # Slot 6 unlocks at level 161
+            }
+            unlock_level = unlock_levels.get(slot_number, 200)  # Default fallback
+            
+            # Only show locked slot if module level is below unlock level
+            if self.module.level < unlock_level:
+                locked_row = LockedSubstatRowWidget(unlock_level)
+                self.substats_layout.addWidget(locked_row)
     
     def _get_base_rarity(self, rarity: str) -> str:
         """Convert full rarity name to base rarity for lookup."""
@@ -515,11 +530,11 @@ class ModuleViewWidget(QWidget):
         # Simplified logic - in reality this might be more complex
         base_rarity = self._get_base_rarity(rarity)
         max_substats = {
-            'Common': 2,
-            'Rare': 3,
-            'Epic': 4,
-            'Legendary': 4,
-            'Mythic': 4,
-            'Ancestral': 4
+            'Common': 1,
+            'Rare': 4,
+            'Epic': 6,
+            'Legendary': 6,
+            'Mythic': 6,
+            'Ancestral': 6
         }
         return max_substats.get(base_rarity, 2)

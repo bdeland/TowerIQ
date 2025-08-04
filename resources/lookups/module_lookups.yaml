@@ -17,6 +17,15 @@ rarity_colors:
   Ancestral:
     light_color: 99d1ac
     dark_color: 79f369
+
+rarity_order:
+  - Common
+  - Rare
+  - Epic
+  - Legendary
+  - Mythic
+  - Ancestral
+
 substat_values:
   1:
     name: Attack_Speed
@@ -1009,4 +1018,51 @@ max_module_level:
   Ancestral3: 260
   Ancestral4: 280
   Ancestral5: 300
+
+module_frame:
+  Armor:
+    Common: mf_armor_common
+    Rare: mf_armor_rare
+    RarePlus: mf_armor_rare_plus
+    Epic: mf_armor_epic
+    EpicPlus: mf_armor_epic_plus
+    Legendary: mf_armor_legendary
+    LegendaryPlus: mf_armor_legendary_plus
+    Mythic: mf_armor_mythic
+    MythicPlus: mf_armor_mythic_plus
+    Ancestral: mf_armor_ancestral
+  Cannon:
+    Common: mf_cannon_common
+    Rare: mf_cannon_rare
+    RarePlus: mf_cannon_rare_plus
+    Epic: mf_cannon_epic
+    EpicPlus: mf_cannon_epic_plus
+    Legendary: mf_cannon_legendary
+    LegendaryPlus: mf_cannon_legendary_plus
+    Mythic: mf_cannon_mythic
+    MythicPlus: mf_cannon_mythic_plus
+    Ancestral: mf_cannon_ancestral
+  Core:
+    Common: mf_core_common
+    Rare: mf_core_rare
+    RarePlus: mf_core_rare_plus
+    Epic: mf_core_epic
+    EpicPlus: mf_core_epic_plus
+    Legendary: mf_core_legendary
+    LegendaryPlus: mf_core_legendary_plus
+    Mythic: mf_core_mythic
+    MythicPlus: mf_core_mythic_plus
+    Ancestral: mf_core_ancestral
+  Generator:
+    Common: mf_generator_common
+    Rare: mf_generator_rare
+    RarePlus: mf_generator_rare_plus
+    Epic: mf_generator_epic
+    EpicPlus: mf_generator_epic_plus
+    Legendary: mf_generator_legendary
+    LegendaryPlus: mf_generator_legendary_plus
+    Mythic: mf_generator_mythic
+    MythicPlus: mf_generator_mythic_plus
+    Ancestral: mf_generator_ancestral
+module_icon:
 

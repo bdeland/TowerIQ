@@ -306,11 +306,10 @@ QWidget#ModuleView TitleLabel#ModuleName[rarity="ancestral"] {{
 
 QWidget#ModuleView BodyLabel#ModuleRarity {{
     background-color: transparent;
-    font-size: 12px;
-    font-weight: 400;
-    font-style: italic;
+    font-size: 18px;
+    font-weight: 600;
     color: {secondary_text};
-    margin-left: 8px;
+    margin-left: 0px;
 }}
 
 QWidget#ModuleView BodyLabel#ModuleMainStat {{

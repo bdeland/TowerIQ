@@ -4,19 +4,33 @@ import random
 import colorama
 from typing import Dict, List, Set, Optional, Tuple, Any
 import datetime
+import numpy as np
+import matplotlib.pyplot as plt
+import matplotlib.patches as mpatches
 
 lookup_file = "resources/lookups/module_lookups.yaml"
+module_lookups = yaml.load(open(lookup_file), Loader=yaml.FullLoader)
 
 class Module:
-    def __init__(self, guid: str, name: str, module_type: str, rarity: str, level: int, 
-                 substat_enum_ids: Optional[List[int]] = None, substat_rarities: Optional[List[str]] = None,
-                 coins_spent: int = 0, shards_spent: int = 0,
-                 is_equipped: bool = False, is_favorite: bool = False, frame: Optional[str] = None, icon: Optional[str] = None):
+    def __init__(self, 
+                 name: str, 
+                 module_type: str, 
+                 rarity: str, 
+                 level: int, 
+                 substat_enum_ids: Optional[List[int]] = None, 
+                 substat_rarities: Optional[List[str]] = None,
+                 coins_spent: int = 0, 
+                 shards_spent: int = 0,
+                 is_equipped: bool = False, 
+                 is_favorite: bool = False, 
+                 frame: Optional[str] = None, 
+                 icon: Optional[str] = None,
+                 guid: Optional[str] = None
+                 ):
         """
         Initialize a Module instance.
         
         Args:
-            guid: Unique identifier for the module
             name: Display name of the module
             module_type: Type of module (Cannon, Armor, Generator, Core)
             rarity: Rarity level (Common, Rare, Epic, Legendary, Mythic, Ancestral, etc.)
@@ -29,6 +43,7 @@ class Module:
             is_favorite: Whether the module is marked as favorite
             frame: Frame sprite name
             icon: Icon sprite name
+            guid: Unique identifier for the module
         """
         self.guid = guid
         self.name = name
@@ -134,6 +149,22 @@ class Module:
         """Get substat rarity - for now using module rarity."""
         return self.rarity
     
+    def _get_base_rarity(self, rarity: str) -> str:
+        """Convert full rarity name to base rarity for lookup."""
+        rarity_map = {
+            'common': 'Common',
+            'rare': 'Rare',
+            'rareplus': 'Rare',
+            'epic': 'Epic',
+            'epicplus': 'Epic',
+            'legendary': 'Legendary',
+            'legendaryplus': 'Legendary',
+            'mythic': 'Mythic',
+            'mythicplus': 'Mythic',
+            'ancestral': 'Ancestral'
+        }
+        return rarity_map.get(rarity.lower(), 'Common')
+    
     def _validate_module(self):
         """Validate the module data."""
         if not self.guid:
@@ -145,9 +176,10 @@ class Module:
         if self.level < 1:
             raise ValueError("Module level must be at least 1")
         
-        # Validate rarity exists
-        if self.rarity not in module_lookups.get('rarity_colors', {}):
-            logger.warning(f"Unknown rarity: {self.rarity}")
+        # Validate rarity exists using base rarity
+        base_rarity = self._get_base_rarity(self.rarity)
+        if base_rarity not in module_lookups.get('rarity_colors', {}):
+            logger.warning(f"Unknown base rarity: {base_rarity} (from {self.rarity})")
     
     def get_formatted_name(self) -> str:
         """Get the formatted name with level and rarity."""
@@ -206,6 +238,434 @@ class Module:
     def __repr__(self) -> str:
         return f"Module(name='{self.name}', type='{self.module_type}', rarity='{self.rarity}', level={self.level})"
 
+
+def simulate_substat_rarity(module_rarity: str) -> str:
+    """
+    Simulates the rarity of a single substat for purchased modules only,
+    respecting the module's rarity as a ceiling.
+
+    Args:
+        module_rarity: The rarity of the parent module (e.g., "Epic").
+                     Only "Common", "Rare", or "Epic" are allowed for purchased modules.
+
+    Returns:
+        The simulated rarity string for the substat (e.g., "Rare").
+        
+    Raises:
+        ValueError: If module_rarity is not a valid purchased module rarity.
+    """
+    # Validate that this is a purchased module rarity
+    valid_purchased_rarities = ["Common", "Rare", "Epic"]
+    if module_rarity not in valid_purchased_rarities:
+        raise ValueError(
+            f"Invalid module rarity '{module_rarity}'. "
+            f"Purchased modules can only be {', '.join(valid_purchased_rarities)}. "
+            f"Received: {module_rarity}"
+        )
+    
+    RARITY_ORDER = module_lookups['rarity_order']
+    BASE_SUBSTAT_WEIGHTS = module_lookups['subeffect_drop_chance']
+    # Step 1: Filter the probabilities
+    module_rarity_index = RARITY_ORDER.index(module_rarity)
+    
+    valid_rarities = []
+    valid_weights = []
+    
+    for i, rarity in enumerate(RARITY_ORDER):
+        if i <= module_rarity_index:
+            valid_rarities.append(rarity)
+            valid_weights.append(BASE_SUBSTAT_WEIGHTS[rarity])
+
+    # Step 2 & 3: Normalize the weights
+    # NumPy automatically handles normalization if the probabilities don't sum to 1
+    normalized_weights = np.array(valid_weights, dtype=np.float64) / sum(valid_weights)
+
+    # Step 4: Perform the weighted random choice
+    chosen_rarity = np.random.choice(valid_rarities, p=normalized_weights)
+    
+    return chosen_rarity
+
+
+# Test code to run simulate_substat_rarity 100 times on each module rarity level
+def test_substat_rarity_distribution():
+    """Test the distribution of substat rarities for each module rarity level."""
+    from collections import Counter
+    import matplotlib.pyplot as plt
+    import matplotlib.patches as mpatches
+    
+    # Define purchased module rarity levels only (Common, Rare, Epic)
+    module_rarities = ["Common", "Rare", "Epic"]
+    
+    # Dictionary to store results for each module rarity
+    results = {}
+    
+    print("Testing substat rarity distribution for each module rarity level...")
+    print("=" * 80)
+    print(f"Using rarity order: {module_lookups['rarity_order']}")
+    print(f"Using drop chances: {module_lookups['subeffect_drop_chance']}")
+    print("=" * 80)
+    
+    # Create a figure with subplots for each module rarity (3 purchased rarities)
+    fig, axes = plt.subplots(1, 3, figsize=(15, 5))
+    fig.suptitle('Substat Rarity Distribution for Purchased Modules', fontsize=16, fontweight='bold')
+    
+    for idx, module_rarity in enumerate(module_rarities):
+        print(f"\nTesting module rarity: {module_rarity}")
+        print("-" * 40)
+        
+        # Run simulation 100 times for this module rarity
+        substat_rarities = []
+        for i in range(100000):
+            substat_rarity = simulate_substat_rarity(module_rarity)
+            substat_rarities.append(substat_rarity)
+        
+        # Count occurrences of each substat rarity
+        rarity_counts = Counter(substat_rarities)
+        
+        # Store results
+        results[module_rarity] = dict(rarity_counts)
+        
+        # Print results for this module rarity
+        total_sims = 100000
+        print(f"Results for {module_rarity} modules ({total_sims:,} simulations):")
+        for substat_rarity, count in sorted(rarity_counts.items()):
+            percentage = (count / total_sims) * 100
+            print(f"  {substat_rarity}: {count:,} ({percentage:.1f}%)")
+        
+        # Create histogram for this module rarity
+        create_histogram(axes[idx], rarity_counts, module_rarity)
+    
+    # Adjust layout and display
+    plt.tight_layout()
+    plt.show()
+    
+    print("\n" + "=" * 80)
+    print("SUMMARY OF ALL RESULTS:")
+    print("=" * 80)
+    
+    # Print summary table
+    all_substat_rarities = set()
+    for counts in results.values():
+        all_substat_rarities.update(counts.keys())
+    
+    # Header
+    header = f"{'Module Rarity':<12}"
+    for substat_rarity in sorted(all_substat_rarities):
+        header += f"{substat_rarity:<10}"
+    print(header)
+    print("-" * len(header))
+    
+    # Data rows
+    for module_rarity in module_rarities:
+        row = f"{module_rarity:<12}"
+        for substat_rarity in sorted(all_substat_rarities):
+            count = results[module_rarity].get(substat_rarity, 0)
+            row += f"{count:<10}"
+        print(row)
+    
+    # Print expected vs actual comparison (accounting for ceiling effect)
+    print("\n" + "=" * 80)
+    print("EXPECTED vs ACTUAL COMPARISON (with ceiling effect):")
+    print("=" * 80)
+    expected_chances = module_lookups['subeffect_drop_chance']
+    print(f"{'Module':<12}{'Substat':<12}{'Expected %':<12}{'Actual %':<12}{'Difference':<12}")
+    print("-" * 60)
+    
+    for module_rarity in module_rarities:
+        if module_rarity in results:
+            # Calculate actual percentages for this module rarity
+            total_sims = 100000
+            actual_percentages = {}
+            for substat_rarity, count in results[module_rarity].items():
+                actual_percentages[substat_rarity] = (count / total_sims) * 100
+            
+            # Get the module's rarity index to determine ceiling
+            module_rarity_index = module_lookups['rarity_order'].index(module_rarity)
+            
+            # Compare with expected (accounting for ceiling)
+            for substat_rarity in sorted(all_substat_rarities):
+                substat_rarity_index = module_lookups['rarity_order'].index(substat_rarity)
+                
+                # Check if this substat rarity is within the module's ceiling
+                if substat_rarity_index <= module_rarity_index:
+                    # Calculate expected percentage with ceiling effect
+                    # Get all valid rarities for this module
+                    valid_rarities = []
+                    valid_weights = []
+                    for i, rarity in enumerate(module_lookups['rarity_order']):
+                        if i <= module_rarity_index:
+                            valid_rarities.append(rarity)
+                            valid_weights.append(expected_chances[rarity])
+                    
+                    # Normalize weights for this module's ceiling
+                    total_weight = sum(valid_weights)
+                    if total_weight > 0:
+                        normalized_weight = expected_chances[substat_rarity] / total_weight
+                        expected_pct = normalized_weight * 100
+                    else:
+                        expected_pct = 0.0
+                else:
+                    # This substat rarity is above the module's ceiling
+                    expected_pct = 0.0
+                
+                actual_pct = actual_percentages.get(substat_rarity, 0)
+                diff = actual_pct - expected_pct
+                print(f"{module_rarity:<12}{substat_rarity:<12}{expected_pct:<12.1f}{actual_pct:<12.1f}{diff:<12.1f}")
+    
+    # Print summary of ceiling effect
+    print("\n" + "=" * 80)
+    print("CEILING EFFECT SUMMARY:")
+    print("=" * 80)
+    print("Each module rarity can only roll substats at or below its own rarity level:")
+    for module_rarity in module_rarities:
+        module_rarity_index = module_lookups['rarity_order'].index(module_rarity)
+        valid_substats = [rarity for i, rarity in enumerate(module_lookups['rarity_order']) if i <= module_rarity_index]
+        print(f"{module_rarity:<12} -> Can roll: {', '.join(valid_substats)}")
+    
+    return results
+
+
+def test_substat_pulling():
+    """Test the new substat pulling functionality."""
+    print("Testing substat pulling functionality...")
+    print("=" * 80)
+    
+    # Test a few module pulls to see the new substat system in action
+    for i in range(5):
+        print(f"\nModule Pull #{i+1}:")
+        print("-" * 30)
+        
+        try:
+            module = simulate_module_pull(0)
+            print(f"Module: {module.module_type} {module.rarity}")
+            print(f"Substats:")
+            for j, (enum_id, rarity) in enumerate(zip(module.substat_enum_ids, module.substat_rarities)):
+                substat_name = module_lookups['substat_values'][enum_id]['name']
+                print(f"  {j+1}. {substat_name} ({rarity})")
+        except Exception as e:
+            print(f"Error: {e}")
+    
+    print("\n" + "=" * 80)
+    print("Substat pulling test completed!")
+    print("=" * 80)
+
+
+def create_histogram(ax, counts, module_rarity):
+    """Create a matplotlib histogram for the given counts."""
+    if not counts:
+        ax.text(0.5, 0.5, 'No data to display', ha='center', va='center', transform=ax.transAxes)
+        return
+    
+    # Get all possible rarities in order
+    all_rarities = module_lookups['rarity_order']
+    
+    # Prepare data for plotting
+    rarities = []
+    values = []
+    colors = []
+    
+    # Define colors for each rarity
+    rarity_colors = {
+        'Common': '#8B8B8B',      # Gray
+        'Rare': '#4A90E2',        # Blue
+        'Epic': '#9B59B6',        # Purple
+        'Legendary': '#F39C12',   # Orange
+        'Mythic': '#E74C3C',      # Red
+        'Ancestral': '#FFD700'    # Gold
+    }
+    
+    for rarity in all_rarities:
+        count = counts.get(rarity, 0)
+        rarities.append(rarity)
+        values.append(count)
+        colors.append(rarity_colors.get(rarity, '#CCCCCC'))
+    
+    # Create bar plot
+    bars = ax.bar(rarities, values, color=colors, alpha=0.8, edgecolor='black', linewidth=0.5)
+    
+    # Customize the plot
+    ax.set_title(f'{module_rarity} Modules', fontweight='bold', fontsize=12)
+    ax.set_xlabel('Substat Rarity')
+    ax.set_ylabel('Count (out of 100)')
+    
+    # Rotate x-axis labels for better readability
+    ax.tick_params(axis='x', rotation=45)
+    
+    # Set y-axis limit to accommodate labels
+    ax.set_ylim(0, max(values) * 1.15 if values else 10)
+    
+    # Add grid for better readability
+    ax.grid(axis='y', alpha=0.3)
+    
+    # Add percentage annotations only
+    total = sum(values)
+    for i, (rarity, value) in enumerate(zip(rarities, values)):
+        if value > 0:
+            percentage = (value / total) * 100
+            ax.text(i, value + 1, f'{percentage:.1f}%', 
+                   ha='center', va='bottom', fontsize=10, fontweight='bold')
+
+# Run the test
+if __name__ == "__main__":
+    test_results = test_substat_rarity_distribution()
+
+
+def simulate_module_pull(current_pity: int) -> Module:
+    """Simulate a module pull and return a Module instance."""
+    level = 1
+    def roll_rarity(current_pity: int) -> str:
+        if current_pity == 150:
+            rarity = "Epic"
+            current_pity = 0
+        else:
+            rarity_roll = random.random()
+            if rarity_roll < 0.025:
+                rarity = "Epic"
+                current_pity = 0
+            elif rarity_roll < 0.315:
+                rarity = "Rare"
+                current_pity += 1
+            else:
+                rarity = "Common"
+                current_pity += 1
+        return rarity
+    def roll_module_type():
+        type_roll = random.randint(1, 4)
+        if type_roll == 1:
+            module_type = "Cannon"
+        elif type_roll == 2:
+            module_type = "Armor"
+        elif type_roll == 3:
+            module_type = "Generator"
+        elif type_roll == 4:
+            module_type = "Core"
+        else:   
+            raise ValueError(f"Invalid module type: {type_roll}")
+        return module_type
+    def roll_substat_rarity(module_rarity: str) -> str:
+        # Validate that this is a purchased module rarity
+        valid_purchased_rarities = ["Common", "Rare", "Epic"]
+        if module_rarity not in valid_purchased_rarities:
+            raise ValueError(
+                f"Invalid module rarity '{module_rarity}'. "
+                f"Purchased modules can only be {', '.join(valid_purchased_rarities)}. "
+                f"Received: {module_rarity}"
+            )
+        
+        RARITY_ORDER = module_lookups['rarity_order']
+        BASE_SUBSTAT_WEIGHTS = module_lookups['subeffect_drop_chance']
+        # Step 1: Filter the probabilities
+        module_rarity_index = RARITY_ORDER.index(module_rarity)
+        valid_rarities = []
+        valid_weights = []
+        for i, rarity in enumerate(RARITY_ORDER):
+            if i <= module_rarity_index:
+                valid_rarities.append(rarity)
+                valid_weights.append(BASE_SUBSTAT_WEIGHTS[rarity])
+
+        # Step 2: Normalize the weights
+        normalized_weights = np.array(valid_weights, dtype=np.float64) / sum(valid_weights)
+
+        # Step 3: Perform the weighted random choice
+        chosen_rarity = np.random.choice(valid_rarities, p=normalized_weights)
+        
+        return chosen_rarity
+    def roll_substat(module_type: str, substat_rarity: str, excluded_substats: Optional[Set[int]] = None) -> int:
+        """
+        Simulate pulling a specific substat based on module type, substat rarity, and excluded substats.
+        
+        Args:
+            module_type: The type of module (Cannon, Armor, Generator, Core)
+            substat_rarity: The rarity of the substat to roll
+            excluded_substats: Set of substat enum IDs that have already been chosen (for Rare/Epic modules)
+            
+        Returns:
+            The enum ID of the chosen substat
+        """
+        if excluded_substats is None:
+            excluded_substats = set()
+        
+        # Get all substats from module_lookups
+        substat_values = module_lookups['substat_values']
+        
+        # Step 1: Filter substats by module type
+        type_filtered_substats = []
+        for enum_id, substat_data in substat_values.items():
+            if substat_data['type'] == module_type:
+                type_filtered_substats.append((enum_id, substat_data))
+        
+        # Step 2: Filter substats that have a value for the specified rarity
+        rarity_filtered_substats = []
+        for enum_id, substat_data in type_filtered_substats:
+            if substat_rarity in substat_data['values']:
+                rarity_filtered_substats.append((enum_id, substat_data))
+        
+        # Step 3: Filter out already chosen substats
+        available_substats = []
+        for enum_id, substat_data in rarity_filtered_substats:
+            if enum_id not in excluded_substats:
+                available_substats.append((enum_id, substat_data))
+        
+        # Check if we have any available substats
+        if not available_substats:
+            raise ValueError(
+                f"No available substats for {module_type} module with {substat_rarity} rarity. "
+                f"Excluded substats: {excluded_substats}"
+            )
+        
+        # Step 4: Randomly choose from available substats
+        # For now, using uniform distribution - could be weighted in the future
+        chosen_enum_id, _ = random.choice(available_substats)
+        
+        return chosen_enum_id
+    
+    # Simulate the module pull
+    rarity = roll_rarity(current_pity)
+    module_type = roll_module_type()
+    
+    # Determine number of substats based on module rarity
+    if rarity == "Common":
+        num_substats = 1
+    elif rarity == "Rare":
+        num_substats = 2
+    elif rarity == "Epic":
+        num_substats = 2
+    else:
+        # This shouldn't happen for purchased modules, but handle it gracefully
+        num_substats = 1
+    
+    # Roll substats
+    substat_enum_ids = []
+    substat_rarities = []
+    excluded_substats = set()
+    
+    for i in range(num_substats):
+        # Roll substat rarity for this slot
+        substat_rarity = roll_substat_rarity(rarity)
+        
+        # Roll specific substat
+        substat_enum_id = roll_substat(module_type, substat_rarity, excluded_substats)
+        
+        # Add to results
+        substat_enum_ids.append(substat_enum_id)
+        substat_rarities.append(substat_rarity)
+        
+        # Add to excluded set for subsequent rolls
+        excluded_substats.add(substat_enum_id)
+    
+    # Create and return the module
+    return Module(
+        guid=f"module_{random.randint(1000, 9999)}",
+        name=f"{module_type} Module",
+        module_type=module_type,
+        rarity=rarity,
+        level=level,
+        substat_enum_ids=substat_enum_ids,
+        substat_rarities=substat_rarities,
+        coins_spent=0,
+        shards_spent=0,
+        is_equipped=False,
+    )
 
 # Initialize logger
 logger = structlog.get_logger()
@@ -553,4 +1013,6 @@ def test_module_class():
         return False
 
 if __name__ == "__main__":
+    test_substat_rarity_distribution()
+    test_substat_pulling()
     test_module_class()

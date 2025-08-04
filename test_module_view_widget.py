@@ -32,95 +32,81 @@ def create_test_modules():
     """Create a variety of test modules to showcase different rarities and types."""
     test_modules = []
     
-    # Test Module 1: Mythic Armor with unique effect
-    test_modules.append(Module(
-        guid="test-001",
-        name="Space Displacer",
-        module_type="Armor",
-        rarity="Mythic",
-        level=142,
-        substat_enum_ids=[18, 19, 20],  # Health Regen, Defense Percent, Defense Absolute
-        substat_rarities=["Mythic", "Epic", "Legendary"],  # Different rarities for each substat
-        coins_spent=5250000,
-        shards_spent=18500,
-        is_equipped=True,
-        is_favorite=True
-    ))
+    # Test Module 1: Mythic Cannon with unique effect
+    test_modules.append({
+        'module': Module(
+            guid="188797fe-cd0c-4483-ab91-32df38747ce8",
+            name="Death Penalty",
+            module_type="Cannon",
+            rarity="MythicPlus",
+            level=94,
+            substat_enum_ids=[13, 1, 14],  # Health Regen, Defense Percent, Defense Absolute
+            substat_rarities=["Mythic", "Mythic", "Mythic"],  # Different rarities for each substat
+            coins_spent=6196440000,
+            shards_spent=18388,
+            is_equipped=True,
+            is_favorite=True
+        ),
+        'frame_name': 'mf_cannon_mythic_plus',
+        'icon_name': 'cannon_epic_2'
+    })
     
-    # Test Module 2: Epic Generator with unique effect
-    test_modules.append(Module(
-        guid="test-002", 
-        name="Galaxy Compressor",
-        module_type="Generator",
-        rarity="Epic",
-        level=45,
-        substat_enum_ids=[35, 36, 39],  # Cash Bonus, Cash Per Wave, Free Attack Upgrade
-        substat_rarities=["Epic", "Rare", "Common"],  # Different rarities for each substat
-        coins_spent=875000,
-        shards_spent=2100,
-        is_equipped=False,
-        is_favorite=True
-    ))
+    # Test Module 2: Legendary Armor with unique effect
+    test_modules.append({
+        'module': Module(
+            guid="test-002", 
+            name="Wormhole Redirector",
+            module_type="Armor",
+            rarity="LegendaryPlus",
+            level=90,
+            substat_enum_ids=[32, 30, 28],  # Death Penalty, Defense Percent, Defense Absolute
+            substat_rarities=["Legendary", "Legendary", "Legendary"],  # Different rarities for each substat
+            coins_spent=4796440000,
+            shards_spent=15588,
+            is_equipped=True,
+            is_favorite=True
+        ),
+        'frame_name': 'mf_armor_legendary_plus',
+        'icon_name': 'armor_epic_1'
+    })
     
-    # Test Module 3: Legendary Cannon with unique effect
-    test_modules.append(Module(
-        guid="test-003",
-        name="Shrink Ray", 
-        module_type="Cannon",
-        rarity="LegendaryPlus",
-        level=87,
-        substat_enum_ids=[1, 2, 3, 6],  # Attack Speed, Critical Chance, Critical Factor, Multishot Chance
-        substat_rarities=["Legendary", "Epic", "Rare", "Mythic"],  # Different rarities for each substat
-        coins_spent=2150000,
-        shards_spent=8750,
-        is_equipped=False,
-        is_favorite=False
-    ))
+    # Test Module 3: Mythic Generator with unique effect
+    test_modules.append({
+        'module': Module(
+            guid="test-003",
+            name="Galaxy Compressor", 
+            module_type="Generator",
+            rarity="MythicPlus",
+            level=92,
+            substat_enum_ids=[43, 47, 44],  # Attack Speed, Critical Chance, Critical Factor, Multishot Chance
+            substat_rarities=["Mythic", "Mythic", "Mythic"],  # Different rarities for each substat
+            coins_spent=2150000,
+            shards_spent=8750,
+            is_equipped=True,
+            is_favorite=True
+        ),
+        'frame_name': 'mf_core_mythic_plus',
+        'icon_name': 'generator_epic_3'
+    })
     
     # Test Module 4: Rare Core module
-    test_modules.append(Module(
-        guid="test-004",
-        name="Magnetic Hook",
-        module_type="Core", 
-        rarity="Rare",
-        level=25,
-        substat_enum_ids=[48, 50],  # Chain Lightning Damage, Chain Lightning Chance
-        substat_rarities=["Rare", "Common"],  # Different rarities for each substat
-        coins_spent=125000,
-        shards_spent=450,
-        is_equipped=False,
-        is_favorite=False
-    ))
-    
-    # Test Module 5: Common Generator for comparison (using an actual unique effect)
-    test_modules.append(Module(
-        guid="test-005",
-        name="Project Funding",
-        module_type="Generator",
-        rarity="Common",
-        level=8,
-        substat_enum_ids=[35],  # Cash Bonus
-        substat_rarities=["Common"],  # Single substat
-        coins_spent=15000,
-        shards_spent=0,
-        is_equipped=False,
-        is_favorite=False
-    ))
-    
-    # Test Module 6: Ancestral tier module
-    test_modules.append(Module(
-        guid="test-006",
-        name="Dimension Core",
-        module_type="Core",
-        rarity="Ancestral",
-        level=195,
-        substat_enum_ids=[48, 49, 50],  # Chain Lightning stats
-        substat_rarities=["Ancestral", "Mythic", "Legendary"],  # Different rarities for each substat
-        coins_spent=15750000,
-        shards_spent=45000,
-        is_equipped=True,
-        is_favorite=True
-    ))
+    test_modules.append({
+        'module': Module(
+            guid="test-004",
+            name="Multiverse Nexus",
+            module_type="Core", 
+            rarity="Rare",
+            level=25,
+            substat_enum_ids=[56, 64, 70],  # Chain Lightning Damage, Chain Lightning Chance
+            substat_rarities=["Legendary", "Legendary", "Legendary"],  # Different rarities for each substat
+            coins_spent=125000,
+            shards_spent=450,
+            is_equipped=True,
+            is_favorite=True
+        ),
+        'frame_name': 'mf_generator_legendary',
+        'icon_name': 'core_epic_1'
+    })
     
     return test_modules
 
@@ -157,9 +143,13 @@ class TestMainWindow(QMainWindow):
         test_modules = create_test_modules()
         
         # Add module widgets horizontally
-        for i, module in enumerate(test_modules):
-            # Create module widget
-            module_widget = ModuleViewWidget(module)
+        for i, test_data in enumerate(test_modules):
+            # Create module widget with frame and icon names
+            module_widget = ModuleViewWidget(
+                module=test_data['module'],
+                frame_name=test_data['frame_name'],
+                icon_name=test_data['icon_name']
+            )
             module_widget.setFixedSize(380, 650)  # Fixed size for consistent display
             
             # Add to horizontal layout
