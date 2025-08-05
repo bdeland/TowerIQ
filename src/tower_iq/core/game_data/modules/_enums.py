@@ -14,23 +14,23 @@ class ModuleType(Enum):
     CORE = "Core"
     GENERATOR = "Generator"
 
-class MaxLevel(Enum):
+class MaxLevel(IntEnum):
     """Enumeration for the maximum level of a module."""
-    Common = 20
-    Rare = 30
-    RarePlus = 40
-    Epic = 60
-    EpicPlus = 80
-    Legendary = 100
-    LegendaryPlus = 120
-    Mythic = 140
-    MythicPlus = 160
-    Ancestral = 200
-    Ancestral1 = 220
-    Ancestral2 = 240
-    Ancestral3 = 260
-    Ancestral4 = 280
-    Ancestral5 = 300
+    COMMON = 20
+    RARE = 30
+    RARE_PLUS = 40
+    EPIC = 60
+    EPIC_PLUS = 80
+    LEGENDARY = 100
+    LEGENDARY_PLUS = 120
+    MYTHIC = 140
+    MYTHIC_PLUS = 160
+    ANCESTRAL = 200
+    ANCESTRAL1 = 220
+    ANCESTRAL2 = 240
+    ANCESTRAL3 = 260
+    ANCESTRAL4 = 280
+    ANCESTRAL5 = 300
 
 class Rarity(Enum):
     """
@@ -52,6 +52,45 @@ class Rarity(Enum):
     ANCESTRAL3 = "Ancestral3"
     ANCESTRAL4 = "Ancestral4"
     ANCESTRAL5 = "Ancestral5"
+
+
+# Rarity hierarchy for comparison and substat rolling
+RARITY_HIERARCHY = {
+    Rarity.COMMON: 1,
+    Rarity.RARE: 2,
+    Rarity.RARE_PLUS: 2,  # Same as RARE for substat purposes
+    Rarity.EPIC: 3,
+    Rarity.EPIC_PLUS: 3,  # Same as EPIC for substat purposes
+    Rarity.LEGENDARY: 4,
+    Rarity.LEGENDARY_PLUS: 4,  # Same as LEGENDARY for substat purposes
+    Rarity.MYTHIC: 5,
+    Rarity.MYTHIC_PLUS: 5,  # Same as MYTHIC for substat purposes
+    Rarity.ANCESTRAL: 6,
+    Rarity.ANCESTRAL1: 6,  # Same as ANCESTRAL for substat purposes
+    Rarity.ANCESTRAL2: 6,  # Same as ANCESTRAL for substat purposes
+    Rarity.ANCESTRAL3: 6,  # Same as ANCESTRAL for substat purposes
+    Rarity.ANCESTRAL4: 6,  # Same as ANCESTRAL for substat purposes
+    Rarity.ANCESTRAL5: 6,  # Same as ANCESTRAL for substat purposes
+}
+
+# Simplified rarity tiers for substat rolling (5 tiers)
+SUBSTAT_RARITY_TIERS = {
+    Rarity.COMMON: 1,
+    Rarity.RARE: 2,
+    Rarity.RARE_PLUS: 2,
+    Rarity.EPIC: 3,
+    Rarity.EPIC_PLUS: 3,
+    Rarity.LEGENDARY: 4,
+    Rarity.LEGENDARY_PLUS: 4,
+    Rarity.MYTHIC: 5,
+    Rarity.MYTHIC_PLUS: 5,
+    Rarity.ANCESTRAL: 6,
+    Rarity.ANCESTRAL1: 6,
+    Rarity.ANCESTRAL2: 6,
+    Rarity.ANCESTRAL3: 6,
+    Rarity.ANCESTRAL4: 6,
+    Rarity.ANCESTRAL5: 6,
+}
 
 class Substat(IntEnum):
     """

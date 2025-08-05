@@ -1004,6 +1004,7 @@ reroll_lock_costs:
   7: 3000
 
 max_module_level:
+  Common: 20
   Rare: 30 
   RarePlus: 40
   Epic: 60

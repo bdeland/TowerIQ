@@ -5,15 +5,41 @@ A reusable widget to display module information in a card format.
 Follows the application's centralized styling approach.
 """
 
-import yaml
 import os
 from typing import Dict, List, Optional, Any
 from PyQt6.QtCore import Qt, QSize
 from PyQt6.QtGui import QPixmap, QPainter
 from PyQt6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel
+from dataclasses import dataclass
 
 from qfluentwidgets import ProgressBar, TitleLabel, CaptionLabel, BodyLabel
 from ..stylesheets.stylesheets import get_themed_stylesheet
+
+
+@dataclass
+class SubstatDisplayInfo:
+    """Information needed to display a substat."""
+    name: str
+    value: float
+    unit: str
+    rarity: str
+    enum_id: int
+
+
+@dataclass
+class ModuleDisplayData:
+    """Complete data needed to display a module."""
+    name: str
+    module_type: str
+    rarity: str
+    level: int
+    max_level: int
+    is_equipped: bool
+    is_favorite: bool
+    frame_name: str
+    icon_name: str
+    substats: List[SubstatDisplayInfo]
+    unique_effect_text: Optional[str] = None
 
 
 class SubstatRowWidget(QWidget):
@@ -70,39 +96,25 @@ class ModuleViewWidget(QWidget):
     A reusable widget to display a single module's details.
     
     Features:
-    - Data-driven UI based on Module object
+    - Data-driven UI based on ModuleDisplayData object
     - Centralized styling via stylesheets.py
     - Proper frame and icon combination
     - Theme-aware components using QFluentWidgets
+    - No knowledge of data sources - pure display component
     """
     
-    def __init__(self, module=None, frame_name=None, icon_name=None, parent=None):
+    def __init__(self, module_data: Optional[ModuleDisplayData] = None, parent=None):
         super().__init__(parent=parent)
         self.setObjectName("ModuleView")
-        self.module = None
-        self.frame_name = frame_name
-        self.icon_name = icon_name
-        self.lookup_data = self._load_lookup_data()
+        self.module_data = None
         
         # Initialize UI components
         self._init_components()
         self._init_layout()
         
         # Set module data if provided
-        if module:
-            self.set_module(module)
-    
-    def _load_lookup_data(self) -> Dict[str, Any]:
-        """Load the module lookup data from YAML file."""
-        try:
-            lookup_path = os.path.join(os.path.dirname(__file__), "../../../..", "resources", "lookups", "module_lookups.yaml")
-            lookup_path = os.path.normpath(lookup_path)
-            
-            with open(lookup_path, 'r', encoding='utf-8') as f:
-                return yaml.safe_load(f)
-        except Exception as e:
-            print(f"Warning: Could not load lookup data: {e}")
-            return {}
+        if module_data:
+            self.set_module_data(module_data)
     
     def _init_components(self):
         """Initialize all UI components."""
@@ -187,55 +199,62 @@ class ModuleViewWidget(QWidget):
         name_layout.addStretch(1)
         info_layout.addLayout(name_layout)
         
+        info_layout.addStretch()
         main_layout.addLayout(info_layout)
-
-        # 3. Level section
+        
+        # 2. Level section
         level_layout = QVBoxLayout()
-        level_layout.setSpacing(5)
         level_layout.addWidget(self.level_label)
         level_layout.addWidget(self.level_progress_bar)
         main_layout.addLayout(level_layout)
-
-        # 4. Effects section
+        
+        # 3. Effects section
         main_layout.addWidget(self.effects_label)
         main_layout.addWidget(self.substats_widget)
         
-        # 5. Unique Effect section
+        # 4. Unique Effect section (if applicable)
         main_layout.addWidget(self.unique_effect_label)
         main_layout.addWidget(self.unique_effect_text)
+        
         main_layout.addStretch()
     
-    def set_module(self, module):
-        """Updates the widget to display data from the given module object."""
-        self.module = module
-        
-        if not module:
+    def set_module_data(self, module_data: ModuleDisplayData):
+        """Set the module data to display."""
+        self.module_data = module_data
+        self._update_display()
+    
+    def _update_display(self):
+        """Update all display elements with current module data."""
+        if not self.module_data:
             return
-        
-        # Update rarity and styling
+            
+        self._update_name()
         self._update_rarity()
-        
-        # Update icon and name
         self._update_icon()
-        self.name_label.setText(module.name)
-        
-        # Update main stat (simplified)
-        self._update_main_stat()
-        
-        # Update unique effect
-        self._update_unique_effect()
-        
-        # Update level information
         self._update_level()
-        
-        # Update substats
         self._update_substats()
+        self._update_unique_effect()
+        self._update_favorite_overlay()
+    
+    def _update_name(self):
+        """Update the module name display."""
+        if not self.module_data:
+            return
+        self.name_label.setText(self.module_data.name)
+    
+    def _update_rarity(self):
+        """Update the rarity display."""
+        if not self.module_data:
+            return
+            
+        display_rarity = self._get_display_rarity(self.module_data.rarity)
+        self.rarity_label.setText(display_rarity)
     
     def _get_display_rarity(self, rarity: str) -> str:
         """Convert rarity to display format."""
         display_map = {
             'common': 'COMMON',
-            'rare': 'RARE   ',
+            'rare': 'RARE',
             'rareplus': 'RARE+',
             'epic': 'EPIC',
             'epicplus': 'EPIC+',
@@ -247,148 +266,174 @@ class ModuleViewWidget(QWidget):
         }
         return display_map.get(rarity.lower(), rarity.upper())
     
-    def _update_rarity(self):
-        """Update rarity display and apply rarity-based styling."""
-        if not self.module:
-            return
-            
-        rarity = self.module.rarity
-        display_rarity = self._get_display_rarity(rarity)
-        self.rarity_label.setText(display_rarity)  # Removed parentheses
-        
-        # Apply rarity property for styling
-        self.setProperty("module_rarity", rarity.lower())
-        self.rarity_label.setProperty("rarity", rarity.lower())
-        self.name_label.setProperty("rarity", rarity.lower())
-        
-        # Force style update
-        style = self.style()
-        if style:
-            style.unpolish(self)
-            style.polish(self)
-        rarity_style = self.rarity_label.style()
-        if rarity_style:
-            rarity_style.unpolish(self.rarity_label)
-            rarity_style.polish(self.rarity_label)
-        name_style = self.name_label.style()
-        if name_style:
-            name_style.unpolish(self.name_label)
-            name_style.polish(self.name_label)
-    
     def _update_icon(self):
-        """Load and combine the frame and icon images using provided filenames."""
-        if not self.module:
+        """Update the module icon display with frame and icon composition."""
+        if not self.module_data:
             return
             
-        # Get base sprites path
+        # Load and display the module icon with frame
         sprites_path = os.path.join(os.path.dirname(__file__), "../../../..", "resources", "assets", "sprites")
         sprites_path = os.path.normpath(sprites_path)
         
-        # Construct full paths from filenames
-        frame_path = os.path.join(sprites_path, f"{self.frame_name}.png") if self.frame_name else None
-        icon_path = os.path.join(sprites_path, f"{self.icon_name}.png") if self.icon_name else None
+        # Create a composite pixmap for frame + icon
+        composite_pixmap = QPixmap(128, 128)
+        composite_pixmap.fill(Qt.GlobalColor.transparent)
         
-        # Load frame
-        frame_pixmap = QPixmap(frame_path) if frame_path else QPixmap()
+        painter = QPainter(composite_pixmap)
+        painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
         
-        if frame_pixmap.isNull():
-            # Fallback: display placeholder
-            self.icon_label.setText("?")
-            self.icon_label.setStyleSheet("font-size: 48px; color: #666666;")
-            return
+        # Load and draw the frame first (background)
+        frame_path = os.path.join(sprites_path, f"{self.module_data.frame_name}.png")
+        if os.path.exists(frame_path):
+            frame_pixmap = QPixmap(frame_path)
+            if not frame_pixmap.isNull():
+                # Scale frame to fit
+                scaled_frame = frame_pixmap.scaled(
+                    128, 128,
+                    Qt.AspectRatioMode.KeepAspectRatio,
+                    Qt.TransformationMode.SmoothTransformation
+                )
+                painter.drawPixmap(0, 0, scaled_frame)
         
-        # Load icon
-        icon_pixmap = QPixmap(icon_path) if icon_path else QPixmap()
-        
-        # Create combined image
-        combined_pixmap = QPixmap(frame_pixmap.size())
-        combined_pixmap.fill(Qt.GlobalColor.transparent)
-        
-        painter = QPainter(combined_pixmap)
-        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        
-        # Draw frame first
-        painter.drawPixmap(0, 0, frame_pixmap)
-        
-        # Draw icon on top if available
-        if not icon_pixmap.isNull():
-            # Center the icon within the frame
-            x = (frame_pixmap.width() - icon_pixmap.width()) // 2
-            y = (frame_pixmap.height() - icon_pixmap.height()) // 2
-            painter.drawPixmap(x, y, icon_pixmap)
+        # Load and draw the icon on top
+        icon_path = os.path.join(sprites_path, f"{self.module_data.icon_name}.png")
+        if os.path.exists(icon_path):
+            icon_pixmap = QPixmap(icon_path)
+            if not icon_pixmap.isNull():
+                # Scale icon to fit within frame (slightly smaller)
+                scaled_icon = icon_pixmap.scaled(
+                    96, 96,  # Slightly smaller than frame
+                    Qt.AspectRatioMode.KeepAspectRatio,
+                    Qt.TransformationMode.SmoothTransformation
+                )
+                # Center the icon
+                x = (128 - scaled_icon.width()) // 2
+                y = (128 - scaled_icon.height()) // 2
+                painter.drawPixmap(x, y, scaled_icon)
         
         painter.end()
         
-        # Scale and set the combined image with better quality
-        # Use device pixel ratio for better quality on high-DPI displays
-        target_size = self.icon_label.size()
-        device_pixel_ratio = self.devicePixelRatio()
-        
-        # Calculate size accounting for device pixel ratio
-        scaled_size = QSize(
-            int(target_size.width() * device_pixel_ratio),
-            int(target_size.height() * device_pixel_ratio)
-        )
-        
-        scaled_pixmap = combined_pixmap.scaled(
-            scaled_size,
-            Qt.AspectRatioMode.KeepAspectRatio,
-            Qt.TransformationMode.SmoothTransformation
-        )
-        
-        # Set the device pixel ratio on the pixmap
-        scaled_pixmap.setDevicePixelRatio(device_pixel_ratio)
-        
-        self.icon_label.setPixmap(scaled_pixmap)
-        
-        # Update favorite overlay if needed
-        self._update_favorite_overlay()
+        # Set the composite pixmap to the icon label
+        if not composite_pixmap.isNull():
+            self.icon_label.setPixmap(composite_pixmap)
+        else:
+            # Fallback: show text if no images found
+            self.icon_label.setText(self.module_data.name[:10])
     
-    def _update_main_stat(self):
-        """Update the main stat description (simplified version)."""
-        if not self.module:
+    def _update_level(self):
+        """Update level display and progress bar."""
+        if not self.module_data:
             return
             
-        # Simple main stat display - just show level and type
-        main_stat_text = f"Level {self.module.level} {self.module.module_type}"
-        self.main_stat_label.setText(main_stat_text)
+        self.level_label.setText(f"Lv. {self.module_data.level} / {self.module_data.max_level}")
+        
+        # Calculate progress percentage
+        progress = min(100, int((self.module_data.level / self.module_data.max_level) * 100))
+        self.level_progress_bar.setValue(progress)
+    
+    def _update_substats(self):
+        """Update the substats display."""
+        # Clear existing substat widgets
+        while self.substats_layout.count():
+            child = self.substats_layout.takeAt(0)
+            if child:
+                widget = child.widget()
+                if widget is not None:
+                    widget.deleteLater()
+        
+        if not self.module_data:
+            return
+        
+        # Add current substats
+        for substat in self.module_data.substats:
+            # Format the substat text
+            if substat.unit:
+                if substat.unit == '%':
+                    substat_text = f"+{substat.value}% {substat.name}"
+                elif substat.unit in ['m', 's']:
+                    if substat.value < 0:
+                        substat_text = f"{substat.value}{substat.unit} {substat.name}"
+                    else:
+                        substat_text = f"+{substat.value}{substat.unit} {substat.name}"
+                elif substat.unit == 'x':
+                    substat_text = f"+{substat.value}{substat.unit} {substat.name}"
+                else:
+                    substat_text = f"+{substat.value} {substat.name} ({substat.unit})"
+            else:
+                substat_text = f"+{substat.value} {substat.name}"
+            
+            row = SubstatRowWidget(substat_text, substat.rarity)
+            self.substats_layout.addWidget(row)
+        
+        # Add locked slots based on current substat count
+        current_substats = len(self.module_data.substats)
+        max_substats = self._get_max_substats_for_rarity(self.module_data.rarity)
+        
+        for i in range(current_substats, max_substats):
+            # Fixed unlock levels: slot 3=41, slot 4=101, slot 5=141, slot 6=161
+            slot_number = i + 1  # Convert 0-based index to 1-based slot number
+            unlock_levels = {
+                3: 41,   # Slot 3 unlocks at level 41
+                4: 101,  # Slot 4 unlocks at level 101
+                5: 141,  # Slot 5 unlocks at level 141
+                6: 161   # Slot 6 unlocks at level 161
+            }
+            unlock_level = unlock_levels.get(slot_number, 200)  # Default fallback
+            
+            # Only show locked slot if module level is below unlock level
+            if self.module_data.level < unlock_level:
+                locked_row = LockedSubstatRowWidget(unlock_level)
+                self.substats_layout.addWidget(locked_row)
+    
+    def _get_max_substats_for_rarity(self, rarity: str) -> int:
+        """Get maximum number of substats for a given rarity."""
+        # Simplified logic - in reality this might be more complex
+        base_rarity = self._get_base_rarity(rarity)
+        max_substats = {
+            'Common': 1,
+            'Rare': 4,
+            'Epic': 6,
+            'Legendary': 6,
+            'Mythic': 6,
+            'Ancestral': 6
+        }
+        return max_substats.get(base_rarity, 2)
+    
+    def _get_base_rarity(self, rarity: str) -> str:
+        """Convert full rarity name to base rarity for lookup."""
+        rarity_map = {
+            'common': 'Common',
+            'rare': 'Rare',
+            'rareplus': 'Rare',
+            'epic': 'Epic',
+            'epicplus': 'Epic',
+            'legendary': 'Legendary',
+            'legendaryplus': 'Legendary',
+            'mythic': 'Mythic',
+            'mythicplus': 'Mythic',
+            'ancestral': 'Ancestral'
+        }
+        return rarity_map.get(rarity.lower(), 'Common')
     
     def _update_unique_effect(self):
-        """Update the unique effect description from unique effects."""
-        if not self.module or not self.lookup_data:
+        """Update the unique effect display."""
+        if not self.module_data:
             return
             
-        # Look for unique effect based on module name
-        unique_effects = self.lookup_data.get('unique_effects', {})
-        
-        unique_effect_text = ""
-        for effect_id, effect_data in unique_effects.items():
-            if effect_data.get('name') == self.module.name:
-                effect_template = effect_data.get('effect', '')
-                values = effect_data.get('values', {})
-                unit = effect_data.get('unit', '')
-                
-                # Get value for current rarity
-                base_rarity = self._get_base_rarity(self.module.rarity)
-                value = values.get(base_rarity, '')
-                
-                if value and effect_template:
-                    # Replace {X} with actual value and add unit
-                    value_str = f"{value}{unit}" if unit else str(value)
-                    unique_effect_text = effect_template.replace('{X}', value_str)
-                break
-        
-        if not unique_effect_text:
-            unique_effect_text = "No unique effect"
-        
-        self.unique_effect_text.setText(unique_effect_text)
+        if self.module_data.unique_effect_text:
+            self.unique_effect_text.setText(self.module_data.unique_effect_text)
+            self.unique_effect_label.show()
+            self.unique_effect_text.show()
+        else:
+            self.unique_effect_label.hide()
+            self.unique_effect_text.hide()
     
     def _update_favorite_overlay(self):
         """Update the favorite star overlay if module is favorited."""
-        if not self.module:
+        if not self.module_data:
             return
             
-        if self.module.is_favorite:
+        if self.module_data.is_favorite:
             # Load favorite icon
             sprites_path = os.path.join(os.path.dirname(__file__), "../../../..", "resources", "assets", "sprites")
             sprites_path = os.path.normpath(sprites_path)
@@ -418,123 +463,10 @@ class ModuleViewWidget(QWidget):
                     self.favorite_label.setPixmap(scaled_favorite)
                     
                     # Position the favorite icon based on module type
-                    module_type = self.module.module_type
+                    module_type = self.module_data.module_type
                     pos = self.FAVORITE_ICON_POSITIONS.get(module_type, {'x': 85, 'y': 15})
                     self.favorite_label.move(pos['x'], pos['y'])
                     self.favorite_label.show()
                     return
         else:
             self.favorite_label.hide()
-    
-    def _update_level(self):
-        """Update level display and progress bar."""
-        if not self.module or not self.lookup_data:
-            return
-            
-        max_levels = self.lookup_data.get('max_module_level', {})
-        max_level = max_levels.get(self.module.rarity, 100)
-        
-        self.level_label.setText(f"Lv. {self.module.level} / {max_level}")
-        
-        # Calculate progress percentage
-        progress = min(100, int((self.module.level / max_level) * 100))
-        self.level_progress_bar.setValue(progress)
-    
-    def _update_substats(self):
-        """Update the substats display."""
-        # Clear existing substat widgets
-        while self.substats_layout.count():
-            child = self.substats_layout.takeAt(0)
-            if child:
-                widget = child.widget()
-                if widget is not None:
-                    widget.deleteLater()
-        
-        if not self.module or not self.lookup_data:
-            return
-        
-        substat_values = self.lookup_data.get('substat_values', {})
-        
-        # Add current substats
-        for i, substat_id in enumerate(self.module.substat_enum_ids):
-            substat_data = substat_values.get(substat_id)
-            if substat_data:
-                # Get the individual substat rarity
-                substat_rarity = self.module.substat_rarities[i] if i < len(self.module.substat_rarities) else self.module.rarity
-                base_rarity = self._get_base_rarity(substat_rarity)
-                values = substat_data.get('values', {})
-                value = values.get(base_rarity)
-                
-                if value is not None:
-                    name = substat_data.get('name', '').replace('_', ' ').title()
-                    unit = substat_data.get('unit', '')
-                    
-                    # Format the substat text
-                    if unit:
-                        if unit == '%':
-                            substat_text = f"+{value}% {name}"
-                        elif unit in ['m', 's']:
-                            if value < 0:
-                                substat_text = f"{value}{unit} {name}"
-                            else:
-                                substat_text = f"+{value}{unit} {name}"
-                        elif unit == 'x':
-                            substat_text = f"x{value} {name}"
-                        else:
-                            substat_text = f"+{value} {name} ({unit})"
-                    else:
-                        substat_text = f"+{value} {name}"
-                    
-                    row = SubstatRowWidget(substat_text, base_rarity)
-                    self.substats_layout.addWidget(row)
-        
-        # Add locked slots based on rarity
-        # Only show locked slots if the module hasn't reached the level to unlock them
-        current_substats = len(self.module.substat_enum_ids)
-        max_substats = self._get_max_substats_for_rarity(self.module.rarity)
-        
-        for i in range(current_substats, max_substats):
-            # Fixed unlock levels: slot 3=41, slot 4=101, slot 5=141, slot 6=161
-            slot_number = i + 1  # Convert 0-based index to 1-based slot number
-            unlock_levels = {
-                3: 41,   # Slot 3 unlocks at level 41
-                4: 101,  # Slot 4 unlocks at level 101
-                5: 141,  # Slot 5 unlocks at level 141
-                6: 161   # Slot 6 unlocks at level 161
-            }
-            unlock_level = unlock_levels.get(slot_number, 200)  # Default fallback
-            
-            # Only show locked slot if module level is below unlock level
-            if self.module.level < unlock_level:
-                locked_row = LockedSubstatRowWidget(unlock_level)
-                self.substats_layout.addWidget(locked_row)
-    
-    def _get_base_rarity(self, rarity: str) -> str:
-        """Convert full rarity name to base rarity for lookup."""
-        rarity_map = {
-            'common': 'Common',
-            'rare': 'Rare',
-            'rareplus': 'Rare',
-            'epic': 'Epic',
-            'epicplus': 'Epic',
-            'legendary': 'Legendary',
-            'legendaryplus': 'Legendary',
-            'mythic': 'Mythic',
-            'mythicplus': 'Mythic',
-            'ancestral': 'Ancestral'
-        }
-        return rarity_map.get(rarity.lower(), 'Common')
-    
-    def _get_max_substats_for_rarity(self, rarity: str) -> int:
-        """Get maximum number of substats for a given rarity."""
-        # Simplified logic - in reality this might be more complex
-        base_rarity = self._get_base_rarity(rarity)
-        max_substats = {
-            'Common': 1,
-            'Rare': 4,
-            'Epic': 6,
-            'Legendary': 6,
-            'Mythic': 6,
-            'Ancestral': 6
-        }
-        return max_substats.get(base_rarity, 2)

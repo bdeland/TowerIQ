@@ -11,7 +11,6 @@ class RarityInfo:
     light_color: str
     dark_color: str
     max_level: int
-    unlocks_at: List[int] = field(default_factory=list)
 
 @dataclass(frozen=True)
 class SubstatInfo:
@@ -44,5 +43,4 @@ class ModuleDefinition:
     @property
     def max_level(self) -> MaxLevel:
         """Get the max level for this module's rarity."""
-        # Direct mapping: Rarity.EPIC -> MaxLevel.Epic, etc.
         return getattr(MaxLevel, self.rarity.value)

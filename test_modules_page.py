@@ -12,6 +12,8 @@ Usage: python test_modules_page.py
 import sys
 import os
 from pathlib import Path
+from dataclasses import dataclass
+from typing import List, Optional
 
 # Add the source directory to the Python path
 project_root = Path(__file__).parent
@@ -21,168 +23,158 @@ sys.path.insert(0, str(src_path))
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QVBoxLayout, QHBoxLayout, QWidget, 
     QTableWidget, QTableWidgetItem, QHeaderView, QSplitter, QLabel,
-    QLineEdit, QComboBox, QListWidget, QCheckBox
+    QLineEdit, QComboBox, QListWidget, QCheckBox, QPushButton, QSpinBox
 )
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QFont, QColor
-from qfluentwidgets import setTheme, Theme, isDarkTheme, TableWidget, BodyLabel, LineEdit, ComboBox, ListWidget
+from qfluentwidgets import setTheme, Theme, isDarkTheme, TableWidget, BodyLabel, LineEdit, ComboBox, ListWidget, PushButton, SpinBox
 
 # Import our module components
-from tower_iq.core.module_simulator import Module
-from tower_iq.gui.utils.module_view_widget import ModuleViewWidget
+from tower_iq.core.game_data.modules.module_blueprints import (
+    ModuleBlueprint, get_blueprint_by_name, ALL_MODULE_BLUEPRINTS
+)
+from tower_iq.core.game_data.modules._enums import ModuleType, Rarity, MaxLevel
+from tower_iq.core.game_data.modules.module_simulator import ModuleSimulator, GeneratedModule
+from tower_iq.gui.utils.module_view_widget import ModuleViewWidget, ModuleDisplayData, SubstatDisplayInfo
 from tower_iq.gui.stylesheets.stylesheets import get_themed_stylesheet
 
 
-def create_test_modules():
-    """Create a variety of test modules to showcase different rarities and types."""
-    test_modules = []
+@dataclass
+class Module:
+    """
+    Module instance class that represents an actual module with its current state.
+    This is what gets displayed in the UI and stored in the database.
+    """
+    guid: str
+    name: str
+    module_type: str
+    rarity: str
+    level: int
+    substat_enum_ids: List[int]
+    substat_rarities: List[str]
+    coins_spent: int
+    shards_spent: int
+    is_equipped: bool
+    is_favorite: bool
+
+
+def convert_generated_module_to_module(generated_module: GeneratedModule, guid: str) -> Module:
+    """Convert a GeneratedModule to a Module for display in the UI."""
+    # Convert substats to enum IDs and rarities
+    substat_enum_ids = [substat.enum_id for substat in generated_module.substats]
+    substat_rarities = [substat.rarity.value for substat in generated_module.substats]
     
-    # Test Module 1: Mythic Cannon with unique effect
-    test_modules.append(Module(
-        guid="188797fe-cd0c-4483-ab91-32df38747ce8",
-        name="Death Penalty",
-        module_type="Cannon",
-        rarity="MythicPlus",
-        level=94,
-        substat_enum_ids=[13, 1, 14],  # Health Regen, Defense Percent, Defense Absolute
-        substat_rarities=["Mythic", "Mythic", "Mythic"],  # Different rarities for each substat
-        coins_spent=6196440000,
-        shards_spent=18388,
-        is_equipped=True,
-        is_favorite=True
-    ))
+    # Generate random level based on rarity (1 to max_level)
+    level = 1  # Default level for new modules
     
-    # Test Module 2: Legendary Armor with unique effect
-    test_modules.append(Module(
-        guid="test-002", 
-        name="Wormhole Redirector",
-        module_type="Armor",
-        rarity="LegendaryPlus",
-        level=90,
-        substat_enum_ids=[32, 30, 28],  # Death Penalty, Defense Percent, Defense Absolute
-        substat_rarities=["Legendary", "Legendary", "Legendary"],  # Different rarities for each substat
-        coins_spent=4796440000,
-        shards_spent=15588,
-        is_equipped=True,
-        is_favorite=True
-    ))
+    # Generate random coins and shards spent (placeholder values)
+    coins_spent = 0
+    shards_spent = 0
     
-    # Test Module 3: Mythic Generator with unique effect
-    test_modules.append(Module(
-        guid="test-003",
-        name="Galaxy Compressor", 
-        module_type="Generator",
-        rarity="MythicPlus",
-        level=92,
-        substat_enum_ids=[43, 47, 44],  # Attack Speed, Critical Chance, Critical Factor, Multishot Chance
-        substat_rarities=["Mythic", "Mythic", "Mythic"],  # Different rarities for each substat
-        coins_spent=2150000,
-        shards_spent=8750,
-        is_equipped=True,
-        is_favorite=True
-    ))
-    
-    # Test Module 4: Rare Core module
-    test_modules.append(Module(
-        guid="test-004",
-        name="Multiverse Nexus",
-        module_type="Core", 
-        rarity="Rare",
-        level=25,
-        substat_enum_ids=[56, 64, 70],  # Chain Lightning Damage, Chain Lightning Chance
-        substat_rarities=["Legendary", "Legendary", "Legendary"],  # Different rarities for each substat
-        coins_spent=125000,
-        shards_spent=450,
-        is_equipped=True,
-        is_favorite=True
-    ))
-    
-    # Test Module 5: Common Armor
-    test_modules.append(Module(
-        guid="test-005",
-        name="Basic Shield",
-        module_type="Armor",
-        rarity="Common",
-        level=15,
-        substat_enum_ids=[1, 2],  # Defense Percent, Defense Absolute
-        substat_rarities=["Common", "Common"],
-        coins_spent=50000,
-        shards_spent=100,
+    return Module(
+        guid=guid,
+        name=generated_module.name,
+        module_type=generated_module.module_type.value,
+        rarity=generated_module.rarity.value,
+        level=level,
+        substat_enum_ids=substat_enum_ids,
+        substat_rarities=substat_rarities,
+        coins_spent=coins_spent,
+        shards_spent=shards_spent,
         is_equipped=False,
         is_favorite=False
-    ))
-    
-    # Test Module 6: Epic Cannon
-    test_modules.append(Module(
-        guid="test-006",
-        name="Plasma Cannon",
-        module_type="Cannon",
-        rarity="Epic",
-        level=45,
-        substat_enum_ids=[10, 11, 12],  # Attack Speed, Critical Chance, Critical Factor
-        substat_rarities=["Epic", "Epic", "Epic"],
-        coins_spent=500000,
-        shards_spent=2000,
-        is_equipped=False,
-        is_favorite=True
-    ))
-    
-    return test_modules
+    )
 
 
-def get_frame_name_for_module(module):
-    """Get the appropriate frame name based on module type and rarity."""
-    rarity_mapping = {
-        "Common": "common",
-        "Rare": "rare", 
-        "Epic": "epic",
-        "Legendary": "legendary",
-        "LegendaryPlus": "legendary_plus",
-        "Mythic": "mythic",
-        "MythicPlus": "mythic_plus",
-        "Ancestral": "ancestral"
-    }
-    
-    type_mapping = {
-        "Armor": "armor",
-        "Cannon": "cannon", 
-        "Core": "core",
-        "Generator": "generator"
-    }
-    
-    rarity = rarity_mapping.get(module.rarity, "common")
-    module_type = type_mapping.get(module.module_type, "core")
-    
-    return f"mf_{module_type}_{rarity}"
+def create_test_modules():
+    """Create an empty list of modules."""
+    return []
+
+
+
 
 
 def get_icon_name_for_module(module):
-    """Get the appropriate icon name based on module type and rarity."""
-    rarity_mapping = {
-        "Common": "common",
-        "Rare": "rare",
-        "Epic": "epic", 
-        "Legendary": "epic",  # Use epic icons for legendary
-        "LegendaryPlus": "epic",
-        "Mythic": "epic",
-        "MythicPlus": "epic",
-        "Ancestral": "epic"
+    """Get the appropriate icon name based on module type and rarity using blueprints."""
+    # Get the blueprint for this module
+    blueprint = get_blueprint_by_name(module.name)
+    if blueprint:
+        # Use the blueprint's icon name
+        return blueprint.icon_name
+    
+    # If no blueprint found, raise an error to help identify missing data
+    raise ValueError(f"No blueprint found for module: {module.name}")
+
+
+def convert_module_to_display_data(module: Module, generated_module: Optional[GeneratedModule] = None) -> ModuleDisplayData:
+    """Convert a Module object to ModuleDisplayData for the widget."""
+    # Get the blueprint for this module
+    blueprint = get_blueprint_by_name(module.name)
+    if not blueprint:
+        raise ValueError(f"No blueprint found for module: {module.name}")
+    
+    # Get max level for this rarity
+    rarity_to_maxlevel = {
+        'Common': MaxLevel.COMMON.value,
+        'Rare': MaxLevel.RARE.value,
+        'RarePlus': MaxLevel.RARE_PLUS.value,
+        'Epic': MaxLevel.EPIC.value,
+        'EpicPlus': MaxLevel.EPIC_PLUS.value,
+        'Legendary': MaxLevel.LEGENDARY.value,
+        'LegendaryPlus': MaxLevel.LEGENDARY_PLUS.value,
+        'Mythic': MaxLevel.MYTHIC.value,
+        'MythicPlus': MaxLevel.MYTHIC_PLUS.value,
+        'Ancestral': MaxLevel.ANCESTRAL.value,
+        'Ancestral1': MaxLevel.ANCESTRAL1.value,
+        'Ancestral2': MaxLevel.ANCESTRAL2.value,
+        'Ancestral3': MaxLevel.ANCESTRAL3.value,
+        'Ancestral4': MaxLevel.ANCESTRAL4.value,
+        'Ancestral5': MaxLevel.ANCESTRAL5.value,
     }
+    max_level = rarity_to_maxlevel.get(module.rarity, 20)
     
-    type_mapping = {
-        "Armor": "armor",
-        "Cannon": "cannon",
-        "Core": "core", 
-        "Generator": "generator"
-    }
+    # Convert substats to display format
+    substats = []
+    for i, substat_id in enumerate(module.substat_enum_ids):
+        if generated_module and i < len(generated_module.substats):
+            # Use the actual substat data from the generated module
+            gen_substat = generated_module.substats[i]
+            substats.append(SubstatDisplayInfo(
+                name=gen_substat.name,
+                value=gen_substat.value,
+                unit=gen_substat.unit,
+                rarity=gen_substat.rarity.value,
+                enum_id=gen_substat.enum_id
+            ))
+        else:
+            # Fallback to placeholder if we can't find the generated data
+            substat_rarity = module.substat_rarities[i] if i < len(module.substat_rarities) else module.rarity
+            substats.append(SubstatDisplayInfo(
+                name=f"Substat {i+1}",
+                value=1.0,  # Placeholder value
+                unit="%",
+                rarity=substat_rarity,
+                enum_id=substat_id
+            ))
     
-    rarity = rarity_mapping.get(module.rarity, "common")
-    module_type = type_mapping.get(module.module_type, "core")
+    # Get unique effect text if this is a natural epic
+    unique_effect_text = None
+    if blueprint.is_natural_epic and blueprint.unique_effect:
+        unique_effect_text = f"{blueprint.unique_effect.name}: {blueprint.unique_effect.effect_template}"
     
-    # For now, use a simple naming convention - in real implementation,
-    # you might want to cycle through different icons based on module name hash
-    icon_number = hash(module.name) % 4 + 1  # 1-4
-    return f"{module_type}_{rarity}_{icon_number}"
+    return ModuleDisplayData(
+        name=module.name,
+        module_type=module.module_type,
+        rarity=module.rarity,
+        level=module.level,
+        max_level=max_level,
+        is_equipped=module.is_equipped,
+        is_favorite=module.is_favorite,
+        frame_name=blueprint.frame_pattern,
+        icon_name=blueprint.icon_name,
+        substats=substats,
+        unique_effect_text=unique_effect_text
+    )
 
 
 def get_display_rarity(rarity: str) -> str:
@@ -404,6 +396,16 @@ class ModulesTableWidget(TableWidget):
         if self.filtered_modules and self.rowCount() > 0:
             self.selectRow(0)
     
+    def update_modules(self, new_modules):
+        """Update the modules list and refresh the table."""
+        self.modules = new_modules
+        self.filtered_modules = new_modules.copy()
+        self.populate_table()
+        
+        # Select first row if available
+        if self.filtered_modules and self.rowCount() > 0:
+            self.selectRow(0)
+    
     def on_selection_changed(self):
         """Handle table selection changes."""
         current_row = self.currentRow()
@@ -415,16 +417,41 @@ class ModulesTableWidget(TableWidget):
 class FilterWidget(QWidget):
     """Widget containing filter controls for the modules table."""
     
-    def __init__(self, modules_table):
+    def __init__(self, modules_table, parent_window=None):
         super().__init__()
         self.modules_table = modules_table
+        self.parent_window = parent_window  # Reference to the main window
         self.setup_filters()
         
     def setup_filters(self):
         """Setup the filter controls."""
-        layout = QHBoxLayout(self)
+        layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 10, 0, 10)
         layout.setSpacing(10)
+        
+        # Simulation controls row
+        sim_layout = QHBoxLayout()
+        sim_layout.setSpacing(10)
+        
+        # Quantity input
+        quantity_label = BodyLabel("Quantity:")
+        self.quantity_spinbox = SpinBox()
+        self.quantity_spinbox.setRange(1, 1000)
+        self.quantity_spinbox.setValue(10)
+        self.quantity_spinbox.setMinimumWidth(80)
+        
+        # Simulate button
+        self.simulate_button = PushButton("Simulate")
+        self.simulate_button.clicked.connect(self.simulate_modules)
+        
+        sim_layout.addWidget(quantity_label)
+        sim_layout.addWidget(self.quantity_spinbox)
+        sim_layout.addWidget(self.simulate_button)
+        sim_layout.addStretch()
+        
+        # Filter controls row
+        filter_layout = QHBoxLayout()
+        filter_layout.setSpacing(10)
         
         # Name filter
         name_label = BodyLabel("Name:")
@@ -460,27 +487,68 @@ class FilterWidget(QWidget):
         self.favorite_filter.addItems(["All", "Yes", "No"])
         self.favorite_filter.currentTextChanged.connect(self.apply_filters)
         
-        # Add widgets to layout
-        layout.addWidget(name_label)
-        layout.addWidget(self.name_filter)
+        # Add widgets to filter layout
+        filter_layout.addWidget(name_label)
+        filter_layout.addWidget(self.name_filter)
         
         # Type filter with label
         type_label = BodyLabel("Type:")
-        layout.addWidget(type_label)
-        layout.addWidget(self.type_filter)
+        filter_layout.addWidget(type_label)
+        filter_layout.addWidget(self.type_filter)
         
         # Rarity filter with label
         rarity_label = BodyLabel("Rarity:")
-        layout.addWidget(rarity_label)
-        layout.addWidget(self.rarity_filter)
+        filter_layout.addWidget(rarity_label)
+        filter_layout.addWidget(self.rarity_filter)
         
-        layout.addWidget(level_label)
-        layout.addWidget(self.level_filter)
-        layout.addWidget(equipped_label)
-        layout.addWidget(self.equipped_filter)
-        layout.addWidget(favorite_label)
-        layout.addWidget(self.favorite_filter)
-        layout.addStretch()
+        filter_layout.addWidget(level_label)
+        filter_layout.addWidget(self.level_filter)
+        filter_layout.addWidget(equipped_label)
+        filter_layout.addWidget(self.equipped_filter)
+        filter_layout.addWidget(favorite_label)
+        filter_layout.addWidget(self.favorite_filter)
+        filter_layout.addStretch()
+        
+        # Add both layouts to main layout
+        layout.addLayout(sim_layout)
+        layout.addLayout(filter_layout)
+        
+    def simulate_modules(self):
+        """Simulate the specified number of modules."""
+        quantity = self.quantity_spinbox.value()
+        
+        print(f"\n=== Simulating {quantity} modules ===")
+        
+        # Create simulator and generate modules
+        simulator = ModuleSimulator()
+        generated_modules = simulator.simulate_multiple_pulls(quantity)
+        
+        # Convert to Module objects
+        modules = []
+        for i, generated_module in enumerate(generated_modules):
+            guid = f"simulated-{i+1:04d}"
+            module = convert_generated_module_to_module(generated_module, guid)
+            modules.append(module)
+            
+            # Print module details to terminal
+            print(f"{i+1:3d}. {module.name} ({module.rarity}) - {module.module_type}")
+            for j, substat in enumerate(generated_module.substats):
+                print(f"     Substat {j+1}: {substat.name} = {substat.value}{substat.unit} ({substat.rarity.value})")
+            if generated_module.has_unique_effect and generated_module.unique_effect:
+                print(f"     Unique Effect: {generated_module.unique_effect.name}")
+            print()
+        
+        # Store the generated modules for substat data access
+        if self.parent_window:
+            self.parent_window.generated_modules = generated_modules
+        
+        print(f"=== Generated {len(modules)} modules ===")
+        
+        # Update the modules table
+        self.modules_table.update_modules(modules)
+        
+        # Apply current filters
+        self.apply_filters()
         
     def apply_filters(self):
         """Apply all current filters to the table."""
@@ -527,10 +595,11 @@ class TestModulesPage(QMainWindow):
         
         # Create modules table
         self.test_modules = create_test_modules()
+        self.generated_modules = []  # Store generated modules for substat data
         self.modules_table = ModulesTableWidget(self.test_modules)
         
         # Create filter widget
-        self.filter_widget = FilterWidget(self.modules_table)
+        self.filter_widget = FilterWidget(self.modules_table, self)
         left_layout.addWidget(self.filter_widget)
         
         left_layout.addWidget(self.modules_table)
@@ -565,9 +634,7 @@ class TestModulesPage(QMainWindow):
         # Apply application stylesheet
         self.apply_stylesheet()
         
-        # Select first module by default
-        if self.test_modules:
-            self.modules_table.selectRow(0)
+        # No modules initially, so no selection
     
     def on_module_selected(self, module):
         """Handle module selection from table."""
@@ -582,15 +649,17 @@ class TestModulesPage(QMainWindow):
                 if child:
                     child.deleteLater()
         
-        # Create new module view widget
-        frame_name = get_frame_name_for_module(module)
-        icon_name = get_icon_name_for_module(module)
+        # Convert module to display data and create widget
+        # We need to find the corresponding generated module to get actual substat data
+        generated_module = None
+        for gen_module in self.generated_modules:
+            if gen_module.name == module.name:
+                generated_module = gen_module
+                break
         
-        module_widget = ModuleViewWidget(
-            module=module,
-            frame_name=frame_name,
-            icon_name=icon_name
-        )
+        module_display_data = convert_module_to_display_data(module, generated_module)
+        
+        module_widget = ModuleViewWidget(module_data=module_display_data)
         
         # Add to layout
         self.module_view_layout.addWidget(module_widget)
@@ -629,13 +698,14 @@ def main():
     print("• Left side: Table showing list of modules")
     print("• Right side: Module view widget for selected module")
     print("• Splitter for resizable panels")
-    print("• Different module rarities and types")
+    print("• Module simulation controls")
     print("\nTest features:")
+    print("• Enter a quantity and click 'Simulate' to generate modules")
     print("• Click on different modules in the table")
     print("• Verify module details update on the right")
     print("• Check that sprites load correctly")
     print("• Verify colors match rarity scheme")
-    print("• Test resizing the splitter")
+    print("• Test filtering and resizing the splitter")
     print("="*60)
     
     window.show()
