@@ -200,126 +200,107 @@ def run_simulation_cupy(num_sims: int, target_module: str, target_copies: int = 
     return gems_spent
 
 def run_simulation_fixed_pulls_numpy(num_sims: int, num_pulls: int, total_epics: int = 16, pity_limit: int = 150, show_progress: bool = True) -> dict:
-    """
-    Simulates a fixed number of pulls and tracks all epic modules obtained.
-    
-    Args:
-        num_sims: The number of simulations to run.
-        num_pulls: Number of pulls to simulate per simulation.
-        total_epics: Total number of natural epic modules in the pool.
-        pity_limit: The number of pulls to guarantee an epic.
-        show_progress: Whether to show progress updates.
-        
-    Returns:
-        Dictionary containing simulation results including gems spent, epics obtained, and module counts.
-    """
-    # --- State Arrays ---
-    gems_spent = np.full(num_sims, num_pulls * 20, dtype=np.int32)  # Fixed gem cost
-    pity_counter = np.zeros(num_sims, dtype=np.int16)
-    epics_obtained = np.zeros(num_sims, dtype=np.int16)  # Total epics obtained
-    module_counts = np.zeros((num_sims, total_epics), dtype=np.int16)  # Count of each module
-    
+    """Fully vectorized simulation of a fixed number of pulls using NumPy."""
     # --- Constants ---
-    EPIC_CHANCE = 0.025  # 2.5% base chance for epic
+    EPIC_CHANCE = 0.025
     
-    # Progress tracking
-    start_time = time.perf_counter()
-    last_progress_time = start_time
-    progress_interval = 0.5  # Update progress every 0.5 seconds
+    # --- Generate ALL random numbers for ALL pulls at once ---
+    # Shape: (num_simulations, num_pulls)
+    pull_rolls = np.random.rand(num_sims, num_pulls)
     
-    # Simulate each pull
-    for pull in range(num_pulls):
-        # Generate random numbers for each simulation
-        pull_rolls = np.random.rand(num_sims)
-        is_natural_epic = pull_rolls < EPIC_CHANCE
-        
-        # --- Pity Check ---
-        pity_hits = pity_counter >= pity_limit
-        
-        is_epic_pull = np.logical_or(is_natural_epic, pity_hits)
-        
-        # --- Track Epic Modules ---
-        sims_with_epics_mask = is_epic_pull
-        if np.any(sims_with_epics_mask):
-            # Increment total epic count
-            epics_obtained[sims_with_epics_mask] += 1
-            
-            # Determine which epic module was obtained
-            epic_module_rolls = np.random.rand(num_sims)
-            module_indices = (epic_module_rolls * total_epics).astype(np.int16)
-            
-            # Update module counts for simulations that got epics
-            for sim_idx in np.where(sims_with_epics_mask)[0]:
-                module_counts[sim_idx, module_indices[sim_idx]] += 1
-        
-        # --- Update Pity Counters ---
-        pity_counter += 1
-        # Reset pity for those that pulled an epic
-        pity_counter[sims_with_epics_mask] = 0
-        
-        # Progress tracking
-        if show_progress and (time.perf_counter() - last_progress_time) >= progress_interval:
-            print_progress(pull + 1, num_pulls, start_time, "Pulls")
-            last_progress_time = time.perf_counter()
+    # --- Simulate Pity ---
+    # Create a boolean array for natural epics
+    is_natural_epic = pull_rolls < EPIC_CHANCE
+    
+    # Calculate pulls since last epic for every single pull
+    # This is a clever vectorized way to handle pity
+    cum_epics = np.cumsum(is_natural_epic, axis=1)
+    # Create a trigger that resets the count after each epic
+    reset_mask = np.diff(np.c_[np.zeros(num_sims), cum_epics], axis=1) > 0
+    # A running count of pulls since the last epic
+    pity_tracker = np.arange(num_pulls) - np.maximum.accumulate(reset_mask * np.arange(num_pulls), axis=1) + 1
+    
+    pity_hits = pity_tracker >= pity_limit
+    is_epic_pull = np.logical_or(is_natural_epic, pity_hits)
+    
+    # --- Track Results ---
+    epics_obtained = is_epic_pull.sum(axis=1).astype(np.int16)
+    
+    # --- Module Distribution ---
+    num_epics_total = int(is_epic_pull.sum())
+    # Generate one random number for every epic that was pulled
+    epic_module_rolls = np.random.randint(0, total_epics, size=num_epics_total, dtype=np.int16)
+    
+    # Find the coordinates of every epic pull in the main array
+    sim_indices, pull_indices = np.where(is_epic_pull)
+    
+    # Create the final module counts array and populate it
+    module_counts = np.zeros((num_sims, total_epics), dtype=np.int16)
+    # Use advanced indexing to add 1 to the module count for each epic
+    np.add.at(module_counts, (sim_indices, epic_module_rolls), 1)
     
     return {
-        'gems_spent': gems_spent,
+        'gems_spent': np.full(num_sims, num_pulls * 20, dtype=np.int32),
         'epics_obtained': epics_obtained,
         'module_counts': module_counts,
         'total_pulls': num_pulls
     }
 
 def run_simulation_fixed_pulls_cupy(num_sims: int, num_pulls: int, total_epics: int = 16, pity_limit: int = 150, show_progress: bool = True) -> dict:
-    """
-    GPU version of fixed pulls simulation.
-    """
+    """Fully vectorized simulation of a fixed number of pulls using CuPy."""
     import cupy as cp
-    
-    # --- State Arrays ---
-    gems_spent = cp.full(num_sims, num_pulls * 20, dtype=cp.int32)
-    pity_counter = cp.zeros(num_sims, dtype=cp.int16)
-    epics_obtained = cp.zeros(num_sims, dtype=cp.int16)
-    module_counts = cp.zeros((num_sims, total_epics), dtype=cp.int16)
     
     # --- Constants ---
     EPIC_CHANCE = 0.025
     
-    # Progress tracking
-    start_time = time.perf_counter()
-    last_progress_time = start_time
-    progress_interval = 0.5  # Update progress every 0.5 seconds
+    # --- Generate ALL random numbers for ALL pulls at once on the GPU ---
+    pull_rolls = cp.random.rand(num_sims, num_pulls)
     
-    # Simulate each pull
-    for pull in range(num_pulls):
-        pull_rolls = cp.random.rand(num_sims)
-        is_natural_epic = pull_rolls < EPIC_CHANCE
-        
-        pity_hits = pity_counter >= pity_limit
-        is_epic_pull = cp.logical_or(is_natural_epic, pity_hits)
-        
-        sims_with_epics_mask = is_epic_pull
-        if cp.any(sims_with_epics_mask):
-            epics_obtained[sims_with_epics_mask] += 1
-            
-            epic_module_rolls = cp.random.rand(num_sims)
-            module_indices = (epic_module_rolls * total_epics).astype(cp.int16)
-            
-            # Vectorized module counting - no CPU loops!
-            # Create a mask for each simulation that got an epic
-            epic_sim_indices = cp.where(sims_with_epics_mask)[0]
-            epic_module_indices = module_indices[sims_with_epics_mask]
-            
-            # Use advanced indexing to update module counts
-            module_counts[epic_sim_indices, epic_module_indices] += 1
-        
-        pity_counter += 1
-        pity_counter[sims_with_epics_mask] = 0
-        
-        # Progress tracking (disabled for GPU to maintain performance)
-        # GPU-CPU synchronization kills performance, so we skip progress updates
+    # --- Simulate Pity ---
+    is_natural_epic = pull_rolls < EPIC_CHANCE
+    cum_epics = cp.cumsum(is_natural_epic, axis=1)
+    reset_mask = cp.diff(cp.c_[cp.zeros(num_sims), cum_epics], axis=1) > 0
+    
+    # CuPy doesn't support maximum.accumulate, so we implement it manually
+    # Create the array to accumulate
+    reset_times = reset_mask * cp.arange(num_pulls)
+    # Manual implementation of maximum.accumulate
+    max_accumulate = cp.zeros_like(reset_times)
+    for i in range(num_pulls):
+        if i == 0:
+            max_accumulate[:, i] = reset_times[:, i]
+        else:
+            max_accumulate[:, i] = cp.maximum(max_accumulate[:, i-1], reset_times[:, i])
+    
+    pity_tracker = cp.arange(num_pulls) - max_accumulate + 1
+    
+    pity_hits = pity_tracker >= pity_limit
+    is_epic_pull = cp.logical_or(is_natural_epic, pity_hits)
+    
+    # --- Track Results ---
+    epics_obtained = is_epic_pull.sum(axis=1).astype(cp.int16)
+    
+    # --- Module Distribution (Optimized GPU Implementation) ---
+    num_epics_total = int(is_epic_pull.sum())
+    epic_module_rolls = cp.random.randint(0, total_epics, size=num_epics_total, dtype='int16')
+    
+    sim_indices, pull_indices = cp.where(is_epic_pull)
+    
+    # Create module counts array on GPU
+    module_counts = cp.zeros((num_sims, total_epics), dtype=cp.int16)
+    
+    # Use scatter_add for atomic operations on GPU (more efficient than CPU transfer)
+    # This is a more GPU-friendly approach
+    if num_epics_total > 0:
+        # Create a linear index for the 2D array
+        linear_indices = sim_indices * total_epics + epic_module_rolls
+        # Use bincount to count occurrences
+        counts = cp.bincount(linear_indices, minlength=num_sims * total_epics)
+        # Reshape back to 2D
+        module_counts = counts.reshape(num_sims, total_epics).astype(cp.int16)
     
     return {
-        'gems_spent': gems_spent,
+        'gems_spent': cp.full(num_sims, num_pulls * 20, dtype=cp.int32),
         'epics_obtained': epics_obtained,
         'module_counts': module_counts,
         'total_pulls': num_pulls
@@ -476,49 +457,10 @@ def main():
             cp.cuda.Stream.null.synchronize()
             results_array = results_array.get()
         else:
-            # Apply numba compilation for CPU (without progress tracking for compilation)
-            from numba import njit
-            # Create a version without progress tracking for Numba compilation
-            def run_simulation_numpy_compiled(num_sims: int, target_module: str, target_copies: int = 1, 
-                                            total_epics: int = 16, pity_limit: int = 150) -> np.ndarray:
-                # Same logic as run_simulation_numpy but without progress tracking
-                gems_spent = np.zeros(num_sims, dtype=np.int32)
-                pity_counter = np.zeros(num_sims, dtype=np.int16)
-                copies_obtained = np.zeros(num_sims, dtype=np.int16)
-                sims_finished = np.zeros(num_sims, dtype=np.bool_)
-                
-                EPIC_CHANCE = 0.025
-                PROB_OF_TARGET_IF_EPIC = 1 / total_epics
-                
-                while not np.all(sims_finished):
-                    active_mask = ~sims_finished
-                    num_active = int(active_mask.sum())
-                    
-                    gems_spent[active_mask] += 20
-                    pull_rolls = np.random.rand(num_active)
-                    is_natural_epic = pull_rolls < EPIC_CHANCE
-                    pity_hits = pity_counter[active_mask] >= pity_limit
-                    is_epic_pull = np.logical_or(is_natural_epic, pity_hits)
-                    
-                    sims_with_epics_mask = is_epic_pull
-                    if np.any(sims_with_epics_mask):
-                        epic_target_rolls = np.random.rand(num_active)
-                        active_indices = np.where(active_mask)[0]
-                        sims_with_epics_indices = active_indices[sims_with_epics_mask]
-                        target_hits = epic_target_rolls[sims_with_epics_mask] < PROB_OF_TARGET_IF_EPIC
-                        target_hits_indices = sims_with_epics_indices[target_hits]
-                        copies_obtained[target_hits_indices] += 1
-                        completed_mask = copies_obtained[target_hits_indices] >= target_copies
-                        completed_sim_indices = target_hits_indices[completed_mask]
-                        sims_finished[completed_sim_indices] = True
-                    
-                    pity_counter[active_mask] += 1
-                    pity_counter[active_mask][sims_with_epics_mask] = 0
-                
-                return gems_spent
-            
-            compiled_func = njit(run_simulation_numpy_compiled)
-            results_array = compiled_func(args.simulations, args.module, args.copies)
+            # Use the original function directly with progress setting
+            results_array = run_simulation_numpy(
+                args.simulations, args.module, args.copies, show_progress=show_progress
+            )
 
         end_time = time.perf_counter()
         total_time = end_time - start_time

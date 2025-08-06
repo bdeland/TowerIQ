@@ -4,7 +4,5 @@ numpy
 # For Just-In-Time (JIT) compilation on the CPU
 numba
 
-# For GPU-based array processing on NVIDIA GPUs with CUDA 11.x
-# Note: The exact version may depend on the user's CUDA toolkit.
-# See CuPy installation guide for details.
-cupy-cuda11x
+# For plotting and visualization
+matplotlib
