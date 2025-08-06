@@ -1,0 +1,5 @@
+# Profiling dependencies for module simulator
+pyinstrument>=4.0.0
+
+# Optional: for enhanced profiling visualization
+# snakeviz>=2.1.0  # For .prof file visualization 

@@ -7,10 +7,24 @@ the limitations and requirements for module pulls.
 """
 
 import random
-from typing import List, Dict, Optional, Tuple
+import time
+import cProfile
+import pstats
+import io
+import numpy as np
+from functools import wraps
+from typing import List, Dict, Optional, Tuple, Callable, Any
 from dataclasses import dataclass
 
-from ._enums import ModuleType, Rarity, Substat, MaxLevel, RARITY_HIERARCHY, SUBSTAT_RARITY_TIERS
+# Try to import pyinstrument for flame graphs
+try:
+    from pyinstrument import Profiler
+    PYINSTRUMENT_AVAILABLE = True
+except ImportError:
+    PYINSTRUMENT_AVAILABLE = False
+    Profiler = None
+
+from ._enums import ModuleType, Rarity, Substat, RARITY_TO_MAX_LEVEL
 from ._probabilities import MODULE_PULL_CHANCES, SUBSTAT_PULL_CHANCES
 from ._substats import ALL_SUBSTATS
 from .module_blueprints import (
@@ -19,6 +33,21 @@ from .module_blueprints import (
     BLUEPRINTS_BY_TYPE
 )
 from .module_dataclass import SubstatInfo, UniqueEffectInfo, ModuleDefinition
+from .game_data_manager import GameDataManager
+
+
+def timing_decorator(func: Callable) -> Callable:
+    """Decorator to measure execution time of functions."""
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        start_time = time.perf_counter()
+        result = func(*args, **kwargs)
+        end_time = time.perf_counter()
+        execution_time = end_time - start_time
+        wrapper.execution_times = getattr(wrapper, 'execution_times', [])
+        wrapper.execution_times.append(execution_time)
+        return result
+    return wrapper
 
 
 @dataclass
@@ -87,15 +116,114 @@ class ModuleSimulator:
     - Ensuring all constraints and limitations are respected
     """
     
-    def __init__(self, seed: Optional[int] = None):
+    def __init__(self, data_manager: GameDataManager, seed: Optional[int] = None, enable_profiling: bool = False):
         """
         Initialize the module simulator.
         
         Args:
+            data_manager: The GameDataManager instance for optimized lookups
             seed: Optional random seed for reproducible results
+            enable_profiling: Whether to enable detailed profiling
         """
+        # Store the data manager
+        self.data_manager = data_manager
+        
         if seed is not None:
             random.seed(seed)
+        
+        self.enable_profiling = enable_profiling
+        self.profiler = None
+        self.pyinstrument_profiler = None
+        self.profiling_stats = {}
+        
+        if enable_profiling:
+            self.profiler = cProfile.Profile()
+            if PYINSTRUMENT_AVAILABLE and Profiler is not None:
+                self.pyinstrument_profiler = Profiler()
+    
+    def start_profiling(self):
+        """Start profiling if enabled."""
+        if self.enable_profiling and self.profiler:
+            self.profiler.enable()
+        if self.enable_profiling and self.pyinstrument_profiler:
+            self.pyinstrument_profiler.start()
+    
+    def stop_profiling(self) -> Dict[str, Any]:
+        """Stop profiling and return statistics if enabled."""
+        if not self.enable_profiling or not self.profiler:
+            return {}
+        
+        self.profiler.disable()
+        
+        # Get profiling statistics
+        s = io.StringIO()
+        ps = pstats.Stats(self.profiler, stream=s).sort_stats('cumulative')
+        ps.print_stats(20)  # Top 20 functions by cumulative time
+        
+        stats_output = s.getvalue()
+        
+        # Return the raw profiling output
+        stats = {
+            'raw_output': stats_output,
+            'profiler_stats': ps
+        }
+        
+        return stats
+    
+    def stop_pyinstrument_profiling(self) -> Dict[str, Any]:
+        """Stop pyinstrument profiling and return HTML flame graph if enabled."""
+        if not self.enable_profiling or not self.pyinstrument_profiler:
+            return {}
+        
+        self.pyinstrument_profiler.stop()
+        
+        # Generate HTML flame graph
+        html_output = self.pyinstrument_profiler.output_html()
+        
+        # Get text output as well
+        text_output = self.pyinstrument_profiler.output_text()
+        
+        stats = {
+            'html_output': html_output,
+            'text_output': text_output,
+            'pyinstrument_profiler': self.pyinstrument_profiler
+        }
+        
+        return stats
+    
+    def profile_with_pyinstrument(self, func: Callable, *args, **kwargs) -> Dict[str, Any]:
+        """
+        Profile a function using pyinstrument and return HTML flame graph.
+        
+        Args:
+            func: Function to profile
+            *args: Arguments to pass to the function
+            **kwargs: Keyword arguments to pass to the function
+            
+        Returns:
+            Dictionary with profiling results including HTML flame graph
+        """
+        if not PYINSTRUMENT_AVAILABLE or Profiler is None:
+            return {'error': 'pyinstrument not available'}
+        
+        profiler = Profiler()
+        profiler.start()
+        
+        try:
+            result = func(*args, **kwargs)
+        finally:
+            profiler.stop()
+        
+        # Generate HTML flame graph
+        html_output = profiler.output_html()
+        text_output = profiler.output_text()
+        
+        return {
+            'result': result,
+            'html_output': html_output,
+            'text_output': text_output,
+            'profiler': profiler
+        }
     
     def simulate_module_pull(self) -> GeneratedModule:
         """
@@ -114,7 +242,7 @@ class ModuleSimulator:
         valid_blueprints = get_blueprints_for_pull(rarity, module_type)
         
         if not valid_blueprints:
-            raise ValueError(f"No valid blueprints found for {module_type.value} at {rarity.value}")
+            raise ValueError(f"No valid blueprints found for {module_type.value} at {rarity.display_name}")
         
         # Select a random blueprint
         blueprint = random.choice(valid_blueprints)
@@ -124,24 +252,7 @@ class ModuleSimulator:
         
         # Get the correct max level for this rarity
         # Map from Rarity enum to MaxLevel enum
-        rarity_to_maxlevel = {
-            Rarity.COMMON: MaxLevel.COMMON,
-            Rarity.RARE: MaxLevel.RARE,
-            Rarity.RARE_PLUS: MaxLevel.RARE_PLUS,
-            Rarity.EPIC: MaxLevel.EPIC,
-            Rarity.EPIC_PLUS: MaxLevel.EPIC_PLUS,
-            Rarity.LEGENDARY: MaxLevel.LEGENDARY,
-            Rarity.LEGENDARY_PLUS: MaxLevel.LEGENDARY_PLUS,
-            Rarity.MYTHIC: MaxLevel.MYTHIC,
-            Rarity.MYTHIC_PLUS: MaxLevel.MYTHIC_PLUS,
-            Rarity.ANCESTRAL: MaxLevel.ANCESTRAL,
-            Rarity.ANCESTRAL1: MaxLevel.ANCESTRAL1,
-            Rarity.ANCESTRAL2: MaxLevel.ANCESTRAL2,
-            Rarity.ANCESTRAL3: MaxLevel.ANCESTRAL3,
-            Rarity.ANCESTRAL4: MaxLevel.ANCESTRAL4,
-            Rarity.ANCESTRAL5: MaxLevel.ANCESTRAL5,
-        }
-        max_level = rarity_to_maxlevel[rarity].value
+        max_level = RARITY_TO_MAX_LEVEL[rarity]
         
         # Create the generated module
         return GeneratedModule(
@@ -172,6 +283,7 @@ class ModuleSimulator:
             modules.append(module)
         return modules
     
+    @timing_decorator
     def _select_rarity_by_probability(self) -> Rarity:
         """
         Select a rarity based on the pull probabilities.
@@ -190,7 +302,7 @@ class ModuleSimulator:
                                     blueprint, 
                                     rarity: Rarity) -> List[GeneratedSubstat]:
         """
-        Generate appropriate substats for a module.
+        Generate appropriate substats for a module using an optimized selection method.
         
         Args:
             blueprint: The module blueprint
@@ -199,100 +311,61 @@ class ModuleSimulator:
         Returns:
             List of generated substats
         """
-        # Get the number of substats for this rarity
         substat_count = blueprint.get_substat_count(rarity)
         
-        # Get all possible substats for this module type
-        all_possible_substats = [s for s in blueprint.possible_substats if s.applies_to == blueprint.module_type]
+        # --- OPTIMIZATION 1: Use the pre-computed map for an instant lookup ---
+        # This gets all possible SubstatInfo objects for the module's type.
+        possible_substats_for_type = self.data_manager.valid_substats_map[blueprint.module_type]
         
-        if not all_possible_substats:
-            raise ValueError(f"No valid substats found for {blueprint.module_type.value}")
-        
-        # Filter out substats that are higher than the module's rarity
-        # A substat is valid if it has at least one value at or below the module's rarity
-        # Use the simplified 5-tier system for comparison
-        module_tier = SUBSTAT_RARITY_TIERS.get(rarity, 1)
-        valid_substats = []
-        for substat in all_possible_substats:
-            # Check if this substat has any values at or below the module's tier
-            available_rarities = []
-            for r in substat.values.keys():
-                rarity_tier = SUBSTAT_RARITY_TIERS.get(r, 1)
-                if rarity_tier <= module_tier:
-                    available_rarities.append(r)
-            if available_rarities:
-                valid_substats.append(substat)
-        
-        if not valid_substats:
-            raise ValueError(f"No substats available for {blueprint.module_type.value} at {rarity.value} rarity")
-        
-        # Generate substat instances
+        # Create a flat, de-duplicated list of all possible substat info objects
+        unique_possible_substats = []
+        seen_substats = set()
+        for rarity_list in possible_substats_for_type.values():
+            for sub_info in rarity_list:
+                # Use enum_id for deduplication since SubstatInfo objects aren't hashable
+                if sub_info.enum_id not in seen_substats:
+                    unique_possible_substats.append(sub_info)
+                    seen_substats.add(sub_info.enum_id)
+
+        if not unique_possible_substats:
+            return [] # No possible substats for this module type
+
+        # --- OPTIMIZATION 2: Use random.sample for efficient unique selection ---
+        # This replaces the slow loop with list.remove().
+        if len(unique_possible_substats) <= substat_count:
+            # If we don't have enough unique substats, just take all of them
+            chosen_substats = unique_possible_substats
+        else:
+            # Select N unique substats efficiently
+            chosen_substats = random.sample(unique_possible_substats, k=substat_count)
+
+        # --- Generate the final substat objects ---
         generated_substats = []
-        remaining_substats = valid_substats.copy()
-        
-        for _ in range(substat_count):
-            if not remaining_substats:
-                break
-                
-            # Step 1: Roll for substat rarity (constrained to module rarity or lower)
+        for substat_info in chosen_substats:
+            # For each chosen substat, now determine its specific rarity
             substat_rarity = self._select_substat_rarity(rarity)
-            
-            # Step 2: Filter substats to only those that have a value for the selected rarity
-            available_substats = [s for s in remaining_substats if substat_rarity in s.values]
-            
-            # If no substats available at this rarity, try the next lower rarity
-            if not available_substats:
-                # Find the next lower rarity that has available substats
-                # Use the simplified 5-tier system for comparison
-                module_tier = SUBSTAT_RARITY_TIERS.get(rarity, 1)
-                available_rarities = [r for r in SUBSTAT_PULL_CHANCES.keys() 
-                                    if SUBSTAT_RARITY_TIERS.get(r, 1) <= module_tier]
-                # Sort by tier in descending order
-                available_rarities.sort(key=lambda r: SUBSTAT_RARITY_TIERS.get(r, 1), reverse=True)
+
+            # CRITICAL VALIDATION: The rolled rarity might not be valid for this specific substat.
+            # Example: We chose "Multishot Targets" but rolled a "Common" rarity.
+            # We must find a valid rarity to use as a fallback.
+            if substat_rarity not in substat_info.values:
+                # Find the highest possible rarity this substat supports that is AT or BELOW the module's rarity
+                valid_rarities = [r for r in substat_info.values if r <= rarity]
+                if not valid_rarities:
+                    continue # This substat cannot exist on this module, skip it. Should be rare.
                 
-                for test_rarity in available_rarities:
-                    if test_rarity == substat_rarity:
-                        continue
-                    available_substats = [s for s in remaining_substats if test_rarity in s.values]
-                    if available_substats:
-                        substat_rarity = test_rarity
-                        break
+                # Use the best possible rarity as a fallback
+                substat_rarity = max(valid_rarities)
+
+            # Get the value for the final, valid rarity
+            value = substat_info.values[substat_rarity]
             
-            # If still no substats available, use the module's rarity as fallback
-            if not available_substats:
-                available_substats = [s for s in remaining_substats if rarity in s.values]
-                if available_substats:
-                    substat_rarity = rarity
-                else:
-                    # Last resort: use any available substat with its highest available rarity
-                    for substat in remaining_substats:
-                        available_rarities = []
-                        for r in substat.values.keys():
-                            rarity_tier = SUBSTAT_RARITY_TIERS.get(r, 1)
-                            if rarity_tier <= module_tier:
-                                available_rarities.append(r)
-                        if available_rarities:
-                            # Find the highest tier rarity
-                            substat_rarity = max(available_rarities, 
-                                               key=lambda r: SUBSTAT_RARITY_TIERS.get(r, 1))
-                            available_substats = [substat]
-                            break
+            generated_substats.append(GeneratedSubstat(
+                substat_info=substat_info,
+                rarity=substat_rarity,
+                value=value
+            ))
             
-            # Step 3: Choose a random substat from the available ones
-            if available_substats:
-                selected_substat = random.choice(available_substats)
-                value = selected_substat.values[substat_rarity]
-                
-                generated_substat = GeneratedSubstat(
-                    substat_info=selected_substat,
-                    rarity=substat_rarity,
-                    value=value
-                )
-                generated_substats.append(generated_substat)
-                
-                # Remove the selected substat from the remaining list
-                remaining_substats.remove(selected_substat)
-        
         return generated_substats
     
     def _select_substat_rarity(self, module_rarity: Rarity) -> Rarity:
@@ -300,8 +373,7 @@ class ModuleSimulator:
         Select a substat rarity based on the substat pull probabilities,
         but constrained to the module's rarity level or lower.
         
-        Uses the simplified 5-tier system: Common, Rare, Epic, Legendary, Ancestral.
-        Rarity+ variants are treated the same as their base rarity for substat purposes.
+        Now using optimized NumPy operations for speed.
         
         Args:
             module_rarity: The rarity of the module
@@ -309,33 +381,13 @@ class ModuleSimulator:
         Returns:
             Selected substat rarity (will be <= module_rarity)
         """
-        # Get the module's tier in the simplified 5-tier system
-        module_tier = SUBSTAT_RARITY_TIERS.get(module_rarity, 1)
+        max_rarity_idx = module_rarity.value - 1  # Get IntEnum value (e.g., EPIC = 4)
         
-        # Filter rarities to only those at or below the module's tier
-        available_rarities = []
-        available_probabilities = []
+        weights = self.data_manager.substat_rarity_weights[:max_rarity_idx + 1]
+        normalized_weights = weights / weights.sum()
         
-        for rarity, probability in SUBSTAT_PULL_CHANCES.items():
-            rarity_tier = SUBSTAT_RARITY_TIERS.get(rarity, 1)
-            if rarity_tier <= module_tier:
-                available_rarities.append(rarity)
-                available_probabilities.append(probability)
-        
-        # If no rarities available, fall back to the module's rarity
-        if not available_rarities:
-            return module_rarity
-        
-        # Normalize probabilities to sum to 1
-        total_probability = sum(available_probabilities)
-        if total_probability > 0:
-            normalized_probabilities = [p / total_probability for p in available_probabilities]
-        else:
-            # If all probabilities are 0, use equal weights
-            normalized_probabilities = [1.0 / len(available_rarities)] * len(available_rarities)
-        
-        # Select based on normalized probability from available rarities
-        return random.choices(available_rarities, weights=normalized_probabilities)[0]
+        chosen_idx = np.random.choice(max_rarity_idx + 1, p=normalized_weights)
+        return self.data_manager.rarity_enums[chosen_idx]
     
     def simulate_epic_pity_pull(self) -> GeneratedModule:
         """
@@ -362,7 +414,7 @@ class ModuleSimulator:
         substats = self._generate_substats_for_module(blueprint, Rarity.EPIC)
         
         # Get the correct max level for epic rarity
-        max_level = MaxLevel.EPIC.value
+        max_level = RARITY_TO_MAX_LEVEL[Rarity.EPIC]
         
         # Create the generated module
         return GeneratedModule(
@@ -398,7 +450,7 @@ class ModuleSimulator:
         # Calculate percentages
         stats = {}
         for rarity, count in rarity_counts.items():
-            stats[f"{rarity.value}_percentage"] = (count / pull_count) * 100
+            stats[f"{rarity.display_name}_percentage"] = (count / pull_count) * 100
         
         for module_type, count in type_counts.items():
             stats[f"{module_type.value}_percentage"] = (count / pull_count) * 100
@@ -419,7 +471,8 @@ def simulate_single_pull(seed: Optional[int] = None) -> GeneratedModule:
     Returns:
         Generated module
     """
-    simulator = ModuleSimulator(seed)
+    data_manager = GameDataManager()
+    simulator = ModuleSimulator(data_manager, seed)
     return simulator.simulate_module_pull()
 
 
@@ -434,7 +487,8 @@ def simulate_multiple_pulls(count: int, seed: Optional[int] = None) -> List[Gene
     Returns:
         List of generated modules
     """
-    simulator = ModuleSimulator(seed)
+    data_manager = GameDataManager()
+    simulator = ModuleSimulator(data_manager, seed)
     return simulator.simulate_multiple_pulls(count)
 
 
@@ -449,8 +503,91 @@ def get_pull_statistics(pull_count: int = 10000, seed: Optional[int] = None) -> 
     Returns:
         Dictionary with pull statistics
     """
-    simulator = ModuleSimulator(seed)
+    data_manager = GameDataManager()
+    simulator = ModuleSimulator(data_manager, seed)
     return simulator.get_pull_statistics(pull_count)
+
+
+def profile_module_simulation(count: int = 100, seed: Optional[int] = None, 
+                            save_html: bool = True, html_filename: str = "module_simulation_profile.html") -> Dict[str, Any]:
+    """
+    Profile module simulation with both cProfile and pyinstrument.
+    
+    Args:
+        count: Number of modules to simulate
+        seed: Optional random seed
+        save_html: Whether to save the HTML flame graph to a file
+        html_filename: Filename for the HTML output
+        
+    Returns:
+        Dictionary with profiling results
+    """
+    data_manager = GameDataManager()
+    simulator = ModuleSimulator(data_manager, seed=seed, enable_profiling=True)
+    
+    # Start profiling
+    simulator.start_profiling()
+    
+    # Run the simulation
+    modules = simulator.simulate_multiple_pulls(count)
+    
+    # Stop profiling and get results
+    cprofile_stats = simulator.stop_profiling()
+    pyinstrument_stats = simulator.stop_pyinstrument_profiling()
+    
+    # Get timing statistics from decorators
+    timing_stats = {}
+    for method_name in ['simulate_module_pull', 'simulate_multiple_pulls', 
+                       '_select_rarity_by_probability', '_generate_substats_for_module', 
+                       '_select_substat_rarity']:
+        method = getattr(simulator, method_name, None)
+        if method is not None and hasattr(method, 'execution_times'):
+            times = method.execution_times
+            if times:
+                timing_stats[method_name] = {
+                    'total_time': sum(times),
+                    'avg_time': sum(times) / len(times),
+                    'min_time': min(times),
+                    'max_time': max(times),
+                    'call_count': len(times)
+                }
+    
+    # Save HTML flame graph if requested
+    if save_html and 'html_output' in pyinstrument_stats:
+        try:
+            with open(html_filename, 'w', encoding='utf-8') as f:
+                f.write(pyinstrument_stats['html_output'])
+            pyinstrument_stats['html_file_saved'] = html_filename
+        except Exception as e:
+            pyinstrument_stats['html_save_error'] = str(e)
+    
+    return {
+        'modules_generated': len(modules),
+        'cprofile_stats': cprofile_stats,
+        'pyinstrument_stats': pyinstrument_stats,
+        'timing_stats': timing_stats,
+        'modules': modules
+    }
+
+
+def quick_profile_pull(count: int = 100, seed: Optional[int] = None) -> Dict[str, Any]:
+    """
+    Quick profiling of module pulls using pyinstrument only.
+    
+    Args:
+        count: Number of modules to simulate
+        seed: Optional random seed
+        
+    Returns:
+        Dictionary with profiling results
+    """
+    data_manager = GameDataManager()
+    simulator = ModuleSimulator(data_manager, seed=seed)
+    
+    def run_simulation():
+        return simulator.simulate_multiple_pulls(count)
+    
+    return simulator.profile_with_pyinstrument(run_simulation)
 
 
 # Example usage and testing
@@ -459,15 +596,16 @@ if __name__ == "__main__":
     print("Testing Module Simulator...")
     
     # Create simulator
-    simulator = ModuleSimulator(seed=42)
+    data_manager = GameDataManager()
+    simulator = ModuleSimulator(data_manager, seed=42)
     
     # Simulate some pulls
     print("\n=== Single Pull Examples ===")
     for i in range(5):
         module = simulator.simulate_module_pull()
-        print(f"Pull {i+1}: {module.name} ({module.rarity.value}) - {module.substat_count} substats")
+        print(f"Pull {i+1}: {module.name} ({module.rarity.display_name}) - {module.substat_count} substats")
         for substat in module.substats:
-            print(f"  - {substat.name}: {substat.value}{substat.unit} ({substat.rarity.value})")
+            print(f"  - {substat.name}: {substat.value}{substat.unit} ({substat.rarity.display_name})")
     
     print("\n=== Epic Pull Example ===")
     epic_module = simulator.simulate_epic_pity_pull()
@@ -481,4 +619,38 @@ if __name__ == "__main__":
         if "percentage" in key:
             print(f"{key}: {value:.2f}%")
         else:
-            print(f"{key}: {value}") 
+            print(f"{key}: {value}")
+    
+    print("\n=== Profiling Example ===")
+    print("Profiling 100 module pulls...")
+    
+    # Profile with pyinstrument
+    if PYINSTRUMENT_AVAILABLE:
+        print("Using pyinstrument for flame graph...")
+        profile_result = quick_profile_pull(100, seed=42)
+        
+        if 'html_output' in profile_result:
+            print("HTML flame graph generated!")
+            print("Text output preview:")
+            print(profile_result['text_output'][:500] + "...")
+            
+            # Save HTML file
+            with open("module_pull_flamegraph.html", "w", encoding="utf-8") as f:
+                f.write(profile_result['html_output'])
+            print("HTML flame graph saved to: module_pull_flamegraph.html")
+        else:
+            print("Error generating flame graph:", profile_result.get('error', 'Unknown error'))
+    else:
+        print("pyinstrument not available. Install with: pip install pyinstrument")
+    
+    # Profile with timing decorators
+    print("\n=== Timing Analysis ===")
+    timing_result = profile_module_simulation(100, seed=42, save_html=False)
+    
+    print("Method timing statistics:")
+    for method_name, stats in timing_result['timing_stats'].items():
+        print(f"  {method_name}:")
+        print(f"    Total time: {stats['total_time']:.6f}s")
+        print(f"    Average time: {stats['avg_time']:.6f}s")
+        print(f"    Calls: {stats['call_count']}")
+        print(f"    Min/Max: {stats['min_time']:.6f}s / {stats['max_time']:.6f}s") 

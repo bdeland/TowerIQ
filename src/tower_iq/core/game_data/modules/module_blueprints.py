@@ -15,7 +15,7 @@ from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Set
 from enum import Enum
 
-from ._enums import ModuleType, Rarity, MaxLevel
+from ._enums import ModuleType, Rarity, RARITY_TO_MAX_LEVEL
 from .module_dataclass import UniqueEffectInfo, SubstatInfo
 from . import _substats as substats
 from . import _unique_effects as u_effects
@@ -73,32 +73,14 @@ class ModuleBlueprint:
             return self.natural_rarity
     
     @property
-    def max_level(self) -> MaxLevel:
+    def max_level(self) -> int:
         """Get the max level for this module's max rarity."""
-        # Handle the mapping between Rarity and MaxLevel enums
-        rarity_to_max_level = {
-            Rarity.COMMON: MaxLevel.COMMON,
-            Rarity.RARE: MaxLevel.RARE,
-            Rarity.RARE_PLUS: MaxLevel.RARE_PLUS,
-            Rarity.EPIC: MaxLevel.EPIC,
-            Rarity.EPIC_PLUS: MaxLevel.EPIC_PLUS,
-            Rarity.LEGENDARY: MaxLevel.LEGENDARY,
-            Rarity.LEGENDARY_PLUS: MaxLevel.LEGENDARY_PLUS,
-            Rarity.MYTHIC: MaxLevel.MYTHIC,
-            Rarity.MYTHIC_PLUS: MaxLevel.MYTHIC_PLUS,
-            Rarity.ANCESTRAL: MaxLevel.ANCESTRAL,
-            Rarity.ANCESTRAL1: MaxLevel.ANCESTRAL1,
-            Rarity.ANCESTRAL2: MaxLevel.ANCESTRAL2,
-            Rarity.ANCESTRAL3: MaxLevel.ANCESTRAL3,
-            Rarity.ANCESTRAL4: MaxLevel.ANCESTRAL4,
-            Rarity.ANCESTRAL5: MaxLevel.ANCESTRAL5,
-        }
-        return rarity_to_max_level.get(self.max_rarity, MaxLevel.COMMON)
+        return RARITY_TO_MAX_LEVEL.get(self.max_rarity, 20)
     
     @property
     def frame_pattern(self) -> str:
         """Generate frame pattern based on module type and natural rarity."""
-        return f"mf_{self.module_type.value}_{self.natural_rarity.value}"
+        return f"mf_{self.module_type.value}_{self.natural_rarity.display_name}"
     
     @property
     def substat_count_for_rarity(self) -> Dict[Rarity, int]:
@@ -523,7 +505,7 @@ def get_natural_epic_blueprints(module_type: ModuleType) -> List[ModuleBlueprint
 
 def get_frame_name(module_type: ModuleType, rarity: Rarity) -> str:
     """Generate frame name for a module type and rarity."""
-    return f"mf_{module_type.value}_{rarity.value}"
+    return f"mf_{module_type.value}_{rarity.display_name}"
 
 def get_all_possible_frames() -> List[str]:
     """Get all possible frame names."""

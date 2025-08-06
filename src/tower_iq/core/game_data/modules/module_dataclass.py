@@ -1,7 +1,7 @@
 
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional
-from ._enums import Rarity, ModuleType, MaxLevel # Assuming your enums are in core/enums.py
+from ._enums import Rarity, ModuleType, RARITY_TO_MAX_LEVEL
 
 @dataclass(frozen=True)
 class RarityInfo:
@@ -41,6 +41,6 @@ class ModuleDefinition:
     possible_substats: List[SubstatInfo] = field(default_factory=list)
     
     @property
-    def max_level(self) -> MaxLevel:
+    def max_level(self) -> int:
         """Get the max level for this module's rarity."""
-        return getattr(MaxLevel, self.rarity.value)
+        return RARITY_TO_MAX_LEVEL.get(self.rarity, 20)

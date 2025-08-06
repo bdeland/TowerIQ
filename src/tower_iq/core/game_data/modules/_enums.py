@@ -14,82 +14,66 @@ class ModuleType(Enum):
     CORE = "Core"
     GENERATOR = "Generator"
 
-class MaxLevel(IntEnum):
-    """Enumeration for the maximum level of a module."""
-    COMMON = 20
-    RARE = 30
-    RARE_PLUS = 40
-    EPIC = 60
-    EPIC_PLUS = 80
-    LEGENDARY = 100
-    LEGENDARY_PLUS = 120
-    MYTHIC = 140
-    MYTHIC_PLUS = 160
-    ANCESTRAL = 200
-    ANCESTRAL1 = 220
-    ANCESTRAL2 = 240
-    ANCESTRAL3 = 260
-    ANCESTRAL4 = 280
-    ANCESTRAL5 = 300
-
-class Rarity(Enum):
+class Rarity(IntEnum):
     """
     Enumeration for all module rarity tiers.
-    The string value should match what's used in data lookups.
+    Using IntEnum provides a natural hierarchy for comparisons.
     """
-    COMMON = "Common"
-    RARE = "Rare"
-    RARE_PLUS = "RarePlus"
-    EPIC = "Epic"
-    EPIC_PLUS = "EpicPlus"
-    LEGENDARY = "Legendary"
-    LEGENDARY_PLUS = "LegendaryPlus"
-    MYTHIC = "Mythic"
-    MYTHIC_PLUS = "MythicPlus"
-    ANCESTRAL = "Ancestral"
-    ANCESTRAL1 = "Ancestral1"
-    ANCESTRAL2 = "Ancestral2"
-    ANCESTRAL3 = "Ancestral3"
-    ANCESTRAL4 = "Ancestral4"
-    ANCESTRAL5 = "Ancestral5"
+    COMMON = 1
+    RARE = 2
+    RARE_PLUS = 3
+    EPIC = 4
+    EPIC_PLUS = 5
+    LEGENDARY = 6
+    LEGENDARY_PLUS = 7
+    MYTHIC = 8
+    MYTHIC_PLUS = 9
+    ANCESTRAL = 10
+    ANCESTRAL1 = 11
+    ANCESTRAL2 = 12
+    ANCESTRAL3 = 13
+    ANCESTRAL4 = 14
+    ANCESTRAL5 = 15
 
+    @property
+    def display_name(self) -> str:
+        """Get the display name for the rarity (for backward compatibility)."""
+        rarity_names = {
+            Rarity.COMMON: "Common",
+            Rarity.RARE: "Rare", 
+            Rarity.RARE_PLUS: "RarePlus",
+            Rarity.EPIC: "Epic",
+            Rarity.EPIC_PLUS: "EpicPlus",
+            Rarity.LEGENDARY: "Legendary",
+            Rarity.LEGENDARY_PLUS: "LegendaryPlus",
+            Rarity.MYTHIC: "Mythic",
+            Rarity.MYTHIC_PLUS: "MythicPlus",
+            Rarity.ANCESTRAL: "Ancestral",
+            Rarity.ANCESTRAL1: "Ancestral1",
+            Rarity.ANCESTRAL2: "Ancestral2",
+            Rarity.ANCESTRAL3: "Ancestral3",
+            Rarity.ANCESTRAL4: "Ancestral4",
+            Rarity.ANCESTRAL5: "Ancestral5",
+        }
+        return rarity_names.get(self, str(self.value))
 
-# Rarity hierarchy for comparison and substat rolling
-RARITY_HIERARCHY = {
-    Rarity.COMMON: 1,
-    Rarity.RARE: 2,
-    Rarity.RARE_PLUS: 2,  # Same as RARE for substat purposes
-    Rarity.EPIC: 3,
-    Rarity.EPIC_PLUS: 3,  # Same as EPIC for substat purposes
-    Rarity.LEGENDARY: 4,
-    Rarity.LEGENDARY_PLUS: 4,  # Same as LEGENDARY for substat purposes
-    Rarity.MYTHIC: 5,
-    Rarity.MYTHIC_PLUS: 5,  # Same as MYTHIC for substat purposes
-    Rarity.ANCESTRAL: 6,
-    Rarity.ANCESTRAL1: 6,  # Same as ANCESTRAL for substat purposes
-    Rarity.ANCESTRAL2: 6,  # Same as ANCESTRAL for substat purposes
-    Rarity.ANCESTRAL3: 6,  # Same as ANCESTRAL for substat purposes
-    Rarity.ANCESTRAL4: 6,  # Same as ANCESTRAL for substat purposes
-    Rarity.ANCESTRAL5: 6,  # Same as ANCESTRAL for substat purposes
-}
-
-# Simplified rarity tiers for substat rolling (5 tiers)
-SUBSTAT_RARITY_TIERS = {
-    Rarity.COMMON: 1,
-    Rarity.RARE: 2,
-    Rarity.RARE_PLUS: 2,
-    Rarity.EPIC: 3,
-    Rarity.EPIC_PLUS: 3,
-    Rarity.LEGENDARY: 4,
-    Rarity.LEGENDARY_PLUS: 4,
-    Rarity.MYTHIC: 5,
-    Rarity.MYTHIC_PLUS: 5,
-    Rarity.ANCESTRAL: 6,
-    Rarity.ANCESTRAL1: 6,
-    Rarity.ANCESTRAL2: 6,
-    Rarity.ANCESTRAL3: 6,
-    Rarity.ANCESTRAL4: 6,
-    Rarity.ANCESTRAL5: 6,
+# Mapping for max levels (moved from MaxLevel enum)
+RARITY_TO_MAX_LEVEL = {
+    Rarity.COMMON: 20,
+    Rarity.RARE: 30,
+    Rarity.RARE_PLUS: 40,
+    Rarity.EPIC: 60,
+    Rarity.EPIC_PLUS: 80,
+    Rarity.LEGENDARY: 100,
+    Rarity.LEGENDARY_PLUS: 120,
+    Rarity.MYTHIC: 140,
+    Rarity.MYTHIC_PLUS: 160,
+    Rarity.ANCESTRAL: 200,
+    Rarity.ANCESTRAL1: 220,
+    Rarity.ANCESTRAL2: 240,
+    Rarity.ANCESTRAL3: 260,
+    Rarity.ANCESTRAL4: 280,
+    Rarity.ANCESTRAL5: 300,
 }
 
 class Substat(IntEnum):
