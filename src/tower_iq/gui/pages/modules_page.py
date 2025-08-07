@@ -11,8 +11,7 @@ from PyQt6.QtWidgets import (
     QHeaderView, QTableWidgetItem, QSizePolicy
 )
 from PyQt6.QtCore import Qt, pyqtSignal
-from PyQt6.QtGui import QColor, QPixmap, QIcon, QPainter
-from PyQt6.QtSvg import QSvgRenderer
+from PyQt6.QtGui import QColor
 from qfluentwidgets import (
     TableWidget, TableItemDelegate, SearchLineEdit, ComboBox, 
     BodyLabel, CaptionLabel, CardWidget, CheckBox, PushButton
@@ -187,6 +186,7 @@ class ModulesPage(ContentPage):
         self.level_slider.setRange(0, 300)
         self.level_slider.setValue((0, 300))  # Set range values as tuple
         self.level_slider.setEdgeLabelMode(QLabeledRangeSlider.EdgeLabelMode.NoLabel)  # Remove edge labels
+        self.level_slider.setHandleLabelPosition(QLabeledRangeSlider.LabelPosition.LabelsAbove)
         self.level_slider.setObjectName("LevelSlider")
         level_layout.addWidget(level_label)
         level_layout.addWidget(self.level_slider)
@@ -286,56 +286,22 @@ class ModulesPage(ContentPage):
         self.table.itemSelectionChanged.connect(self._on_module_selected)
         
     def _get_module_type_icon(self, module_type: str) -> str:
-        """Get the SVG icon for the module type."""
+        """Get the Unicode character for the module type."""
         icon_map = {
-            "Core": """
-                <svg width="16" height="16" viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg">
-                    <polygon points="8,2 12,6 8,10 4,6" fill="currentColor"/>
-                </svg>
-            """,
-            "Cannon": """
-                <svg width="16" height="16" viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg">
-                    <circle cx="8" cy="8" r="6" fill="currentColor"/>
-                </svg>
-            """,
-            "Generator": """
-                <svg width="16" height="16" viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg">
-                    <polygon points="8,2 14,14 2,14" fill="currentColor"/>
-                </svg>
-            """,
-            "Armor": """
-                <svg width="16" height="16" viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg">
-                    <rect x="2" y="2" width="12" height="12" fill="currentColor"/>
-                </svg>
-            """
+            "Core": "⯁",      # Black Diamond
+            "Cannon": "⬤",     # Black Circle
+            "Generator": "▲",  # Black Triangle
+            "Armor": "■"       # Black Square
         }
         return icon_map.get(module_type, icon_map["Core"])
         
     def _create_type_item_with_icon(self, module_type: str) -> QTableWidgetItem:
         """Create a table item with module type icon and text."""
-        # Get the SVG icon
-        svg_content = self._get_module_type_icon(module_type)
+        # Get the Unicode character
+        icon_char = self._get_module_type_icon(module_type)
         
-        # Create a QIcon from SVG
-        icon = QIcon()
-        pixmap = QPixmap(16, 16)
-        pixmap.fill(Qt.GlobalColor.transparent)
-        
-        # Create SVG renderer and painter
-        renderer = QSvgRenderer()
-        renderer.load(bytearray(svg_content, 'utf-8'))
-        
-        painter = QPainter(pixmap)
-        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        renderer.render(painter)
-        painter.end()
-        
-        # Load SVG into QIcon
-        icon.addPixmap(pixmap)
-        
-        # Create item with icon and text
-        item = QTableWidgetItem(f"  {module_type}")  # Add space for icon
-        item.setIcon(icon)
+        # Create item with icon character and text (more space between icon and text)
+        item = QTableWidgetItem(f"{icon_char}  {module_type}")
         return item
         
     def _populate_type_combo_with_icons(self):
@@ -346,27 +312,9 @@ class ModulesPage(ContentPage):
         # Add module types with icons
         module_types = ["Armor", "Cannon", "Generator", "Core"]
         for module_type in module_types:
-            # Get the SVG icon
-            svg_content = self._get_module_type_icon(module_type)
-            
-            # Create a QIcon from SVG
-            icon = QIcon()
-            pixmap = QPixmap(16, 16)
-            pixmap.fill(Qt.GlobalColor.transparent)
-            
-            # Create SVG renderer and painter
-            renderer = QSvgRenderer()
-            renderer.load(bytearray(svg_content, 'utf-8'))
-            
-            painter = QPainter(pixmap)
-            painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-            renderer.render(painter)
-            painter.end()
-            
-            # Load SVG into QIcon
-            icon.addPixmap(pixmap)
-            
-            self.type_combo.addItem(f"  {module_type}", icon)
+            # Get the Unicode character
+            icon_char = self._get_module_type_icon(module_type)
+            self.type_combo.addItem(f"{icon_char}  {module_type}")
         
     def _on_generate_modules(self):
         """Generate modules using the ModuleSimulator and update the table."""

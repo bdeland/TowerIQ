@@ -8,8 +8,8 @@ Follows the application's centralized styling approach.
 import os
 from typing import Dict, List, Optional, Any
 from PyQt6.QtCore import Qt, QSize
-from PyQt6.QtGui import QPixmap, QPainter
-from PyQt6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel
+from PyQt6.QtGui import QPixmap, QPainter, QPainterPath, QColor, QFont
+from PyQt6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QGraphicsDropShadowEffect
 from dataclasses import dataclass
 
 from qfluentwidgets import ProgressBar, TitleLabel, CaptionLabel, BodyLabel
@@ -42,6 +42,118 @@ class ModuleDisplayData:
     unique_effect_text: Optional[str] = None
 
 
+class RarityPillWidget(QWidget):
+    """Custom widget for displaying rarity pills with proper rounded corners."""
+    
+    def __init__(self, rarity: str, parent=None):
+        super().__init__(parent=parent)
+        self.rarity = rarity.lower()
+        self.setFixedHeight(24)  # Back to original size since we don't need extra space for manual glow
+        self.setMinimumWidth(70)
+        self.setMaximumWidth(80)
+        
+        # Set up the widget properties
+        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        self.setProperty("rarity", self.rarity)
+        
+        # Create layout for the text
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(8, 4, 8, 4)  # Back to original margins
+        layout.setSpacing(0)
+        
+        # Create the text label
+        self.text_label = QLabel(self._get_display_rarity(rarity))
+        self.text_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.text_label.setStyleSheet("background-color: transparent; border: none;")
+        
+        # Set text color based on rarity
+        _, text_color, _ = self._get_colors()
+        self.text_label.setStyleSheet(f"background-color: transparent; border: none; color: {text_color};")
+        
+        # Set font
+        font = QFont()
+        font.setPointSize(9)
+        font.setWeight(QFont.Weight.DemiBold)
+        self.text_label.setFont(font)
+        
+        layout.addWidget(self.text_label)
+        
+        # Set up the glow effect
+        self._setup_glow_effect()
+    
+    def _setup_glow_effect(self):
+        """Set up the glow effect using QGraphicsDropShadowEffect."""
+        # Get the colors based on rarity
+        bg_color, _, _ = self._get_colors()
+        
+        # Create the glow effect
+        glow_effect = QGraphicsDropShadowEffect()
+        glow_effect.setOffset(0, 0)  # No offset
+        glow_effect.setBlurRadius(12)  # Adjust for desired glow intensity
+        glow_effect.setColor(QColor(bg_color))  # Set the glow color to match rarity
+        
+        # Apply the effect to the widget
+        self.setGraphicsEffect(glow_effect)
+    
+    def _get_display_rarity(self, rarity: str) -> str:
+        """Convert rarity to display format."""
+        display_map = {
+            'common': 'COMMON',
+            'rare': 'RARE',
+            'rareplus': 'RARE+',
+            'epic': 'EPIC',
+            'epicplus': 'EPIC+',
+            'legendary': 'LEGENDARY',
+            'legendaryplus': 'LEGENDARY+',
+            'mythic': 'MYTHIC',
+            'mythicplus': 'MYTHIC+',
+            'ancestral': 'ANCESTRAL'
+        }
+        return display_map.get(rarity.lower(), rarity.upper())
+    
+    def paintEvent(self, event):
+        """Custom paint event to draw the rounded pill with proper styling."""
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        
+        # Get the colors based on rarity
+        bg_color, _, border_color = self._get_colors()
+        
+        # Create rounded rectangle path for the pill
+        rect = self.rect()
+        radius = 8  # Border radius
+        
+        path = QPainterPath()
+        path.addRoundedRect(rect.toRectF(), radius, radius)
+        
+        # Fill background
+        painter.fillPath(path, QColor(bg_color))
+        
+        # Draw border
+        painter.setPen(QColor(border_color))
+        painter.drawPath(path)
+        
+        # Let the layout handle the text positioning
+        super().paintEvent(event)
+    
+    def _get_colors(self) -> tuple[str, str, str]:
+        """Get the colors for the current rarity."""
+        color_map = {
+            'common': ('#a0a0a0', '#ffffff', '#808080'),
+            'rare': ('#47dbff', '#000000', '#3bb8e6'),
+            'rareplus': ('#47dbff', '#000000', '#3bb8e6'),
+            'epic': ('#ff4ccf', '#ffffff', '#e644b8'),
+            'epicplus': ('#ff4ccf', '#ffffff', '#e644b8'),
+            'legendary': ('#ff9c3d', '#000000', '#e68a36'),
+            'legendaryplus': ('#ff9c3d', '#000000', '#e68a36'),
+            'mythic': ('#ff4040', '#ffffff', '#e63939'),
+            'mythicplus': ('#ff4040', '#ffffff', '#e63939'),
+            'ancestral': ('#79f369', '#000000', '#6ad95a'),
+        }
+        
+        return color_map.get(self.rarity, ('#6c757d', '#ffffff', '#495057'))
+
+
 class SubstatRowWidget(QWidget):
     """Widget representing a single substat row with rarity pill and description."""
     
@@ -53,10 +165,8 @@ class SubstatRowWidget(QWidget):
         layout.setContentsMargins(10, 5, 10, 5)
         layout.setSpacing(10)
 
-        # Rarity Pill - using BodyLabel for theme consistency
-        self.rarity_pill = BodyLabel(rarity.upper())
-        self.rarity_pill.setObjectName("RarityPill")
-        self.rarity_pill.setProperty("rarity", rarity.lower())
+        # Rarity Pill - using custom RarityPillWidget
+        self.rarity_pill = RarityPillWidget(rarity)
         
         # Effect Text - using BodyLabel for theme consistency
         self.effect_label = BodyLabel(substat_text)

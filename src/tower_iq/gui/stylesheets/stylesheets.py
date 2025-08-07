@@ -374,46 +374,7 @@ QWidget#SubstatRow {{
     margin: 2px 0px;
 }}
 
-QWidget#SubstatRow BodyLabel#RarityPill {{
-    background-color: {rarity_pill_bg};
-    color: {rarity_pill_text};
-    padding: 3px 8px;
-    border-radius: 6px;
-    font-size: 11px;
-    font-weight: 600;
-    min-width: 50px;
-    max-width: 60px;
-}}
-
-QWidget#SubstatRow BodyLabel#RarityPill[rarity="common"] {{
-    background-color: #a0a0a0;
-    color: #ffffff;
-}}
-
-QWidget#SubstatRow BodyLabel#RarityPill[rarity="rare"] {{
-    background-color: #47dbff;
-    color: #000000;
-}}
-
-QWidget#SubstatRow BodyLabel#RarityPill[rarity="epic"] {{
-    background-color: #ff4ccf;
-    color: #ffffff;
-}}
-
-QWidget#SubstatRow BodyLabel#RarityPill[rarity="legendary"] {{
-    background-color: #ff9c3d;
-    color: #000000;
-}}
-
-QWidget#SubstatRow BodyLabel#RarityPill[rarity="mythic"] {{
-    background-color: #ff4040;
-    color: #ffffff;
-}}
-
-QWidget#SubstatRow BodyLabel#RarityPill[rarity="ancestral"] {{
-    background-color: #79f369;
-    color: #000000;
-}}
+/* RarityPillWidget styling - handled by custom paint event */
 
 QWidget#SubstatRow BodyLabel#SubstatText {{
     background-color: transparent;
@@ -458,6 +419,7 @@ MODULES_PAGE_QSS = """
 
 #LevelSlider {{
     background-color: transparent;
+    qproperty-barColor: {accent_color};
 }}
 
 #LevelSlider::groove:horizontal {{
@@ -525,6 +487,7 @@ THEME_COLORS = {
         'substat_row_border': '#e9ecef',
         'rarity_pill_bg': '#6c757d',
         'rarity_pill_text': '#ffffff',
+        'rarity_pill_border': '#495057',
         'locked_substat_bg': '#f1f3f4',
         'locked_substat_border': '#dadce0',
         'unique_effect_bg': '#fff3cd',
@@ -560,6 +523,7 @@ THEME_COLORS = {
         'substat_row_border': '#505050',
         'rarity_pill_bg': '#555555',
         'rarity_pill_text': '#ffffff',
+        'rarity_pill_border': '#404040',
         'locked_substat_bg': '#2a2a2a',
         'locked_substat_border': '#404040',
         'unique_effect_bg': '#3a2f1a',
