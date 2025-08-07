@@ -300,9 +300,9 @@ class ModuleViewWidget(QWidget):
         if os.path.exists(icon_path):
             icon_pixmap = QPixmap(icon_path)
             if not icon_pixmap.isNull():
-                # Scale icon to fit within frame (slightly smaller)
+                # Scale icon to fit within frame (smaller)
                 scaled_icon = icon_pixmap.scaled(
-                    96, 96,  # Slightly smaller than frame
+                    92, 92,  # Smaller than frame
                     Qt.AspectRatioMode.KeepAspectRatio,
                     Qt.TransformationMode.SmoothTransformation
                 )
@@ -370,15 +370,22 @@ class ModuleViewWidget(QWidget):
         max_substats = self._get_max_substats_for_rarity(self.module_data.rarity)
         
         for i in range(current_substats, max_substats):
-            # Fixed unlock levels: slot 3=41, slot 4=101, slot 5=141, slot 6=161
+            # Use the correct unlock levels for each slot
             slot_number = i + 1  # Convert 0-based index to 1-based slot number
+            
+            # Fixed unlock levels for each slot
             unlock_levels = {
+                1: 1,    # Slot 1 unlocks at level 1
+                2: 1,    # Slot 2 unlocks at level 1
                 3: 41,   # Slot 3 unlocks at level 41
                 4: 101,  # Slot 4 unlocks at level 101
                 5: 141,  # Slot 5 unlocks at level 141
-                6: 161   # Slot 6 unlocks at level 161
+                6: 161,  # Slot 6 unlocks at level 161
+                7: 201,  # Slot 7 unlocks at level 201
+                8: 241   # Slot 8 unlocks at level 241
             }
-            unlock_level = unlock_levels.get(slot_number, 200)  # Default fallback
+            
+            unlock_level = unlock_levels.get(slot_number, 300)  # Default fallback
             
             # Only show locked slot if module level is below unlock level
             if self.module_data.level < unlock_level:
@@ -387,17 +394,35 @@ class ModuleViewWidget(QWidget):
     
     def _get_max_substats_for_rarity(self, rarity: str) -> int:
         """Get maximum number of substats for a given rarity."""
-        # Simplified logic - in reality this might be more complex
+        # This should match the blueprint's substat_count_for_rarity logic
+        # but also consider progression - higher rarities can have more substats
         base_rarity = self._get_base_rarity(rarity)
-        max_substats = {
+        
+        # Base substat counts from blueprint
+        base_substats = {
             'Common': 1,
-            'Rare': 4,
-            'Epic': 6,
-            'Legendary': 6,
-            'Mythic': 6,
-            'Ancestral': 6
+            'Rare': 2,
+            'Epic': 2,
+            'Legendary': 2,
+            'Mythic': 2,
+            'Ancestral': 2
         }
-        return max_substats.get(base_rarity, 2)
+        
+        # For progression, higher rarities can unlock more substats
+        # This is based on the progression system where modules can level up
+        progression_bonus = {
+            'Common': 0,      # Common modules can't progress
+            'Rare': 2,        # Rare can progress to Legendary+, so +2 more substats
+            'Epic': 4,        # Epic can progress to Ancestral5, so +4 more substats
+            'Legendary': 2,   # Legendary can progress to Legendary+, so +2 more
+            'Mythic': 2,      # Mythic can progress to Mythic+, so +2 more
+            'Ancestral': 0    # Ancestral is max, no more progression
+        }
+        
+        base_count = base_substats.get(base_rarity, 1)
+        bonus = progression_bonus.get(base_rarity, 0)
+        
+        return base_count + bonus
     
     def _get_base_rarity(self, rarity: str) -> str:
         """Convert full rarity name to base rarity for lookup."""

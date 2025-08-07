@@ -436,6 +436,79 @@ QWidget#LockedSubstatRow BodyLabel#LockedText {{
 }}
 """
 
+# Styles for the modules page
+MODULES_PAGE_QSS = """
+#FiltersSection, #TableSection {{
+    background-color: transparent;
+    border: none;
+    padding: 0px;
+}}
+
+#ModuleSearch {{
+    background-color: {sub_card_bg};
+    border: 1px solid {sub_card_border};
+    border-radius: 6px;
+    padding: 8px 12px;
+    font-size: 14px;
+}}
+
+#ModuleSearch:focus {{
+    border: 2px solid {accent_color};
+}}
+
+#LevelSlider {{
+    background-color: transparent;
+}}
+
+#LevelSlider::groove:horizontal {{
+    background-color: {sub_card_bg};
+    border: 1px solid {sub_card_border};
+    border-radius: 4px;
+    height: 6px;
+}}
+
+#LevelSlider::handle:horizontal {{
+    background-color: {accent_color};
+    border: 1px solid {accent_color};
+    border-radius: 8px;
+    width: 16px;
+    height: 16px;
+    margin: -5px 0px;
+}}
+
+#ModulesTable {{
+    background-color: {sub_card_bg};
+    border: 1px solid {sub_card_border};
+    border-radius: 6px;
+    gridline-color: {card_border};
+}}
+
+#ModulesTable::item {{
+    padding: 8px;
+    border: none;
+}}
+
+#ModulesTable::item:selected {{
+    background-color: {accent_color};
+    color: white;
+}}
+
+#ModulesTable QHeaderView::section {{
+    background-color: {card_bg};
+    border: 1px solid {card_border};
+    padding: 8px;
+    font-weight: 600;
+    color: {text_color};
+}}
+
+#ModuleViewWidget {{
+    background-color: {card_bg};
+    border: 1px solid {card_border};
+    border-radius: 8px;
+    padding: 15px;
+}}
+"""
+
 # --- Theme Color Definitions ---
 # This dictionary structure is correct.
 THEME_COLORS = {
@@ -471,6 +544,8 @@ THEME_COLORS = {
         'pivot_item_selected_hover_border': '#004085',
         'pivot_item_selected_hover_text': '#ffffff',
         'divider_color': '#e0e0e0',
+        'text_color': '#212529',
+        'accent_color': '#007bff',
     },
     'dark': {
         'card_bg': '#2d2d2d',
@@ -504,6 +579,8 @@ THEME_COLORS = {
         'pivot_item_selected_hover_border': '#084298',
         'pivot_item_selected_hover_text': '#ffffff',
         'divider_color': '#404040',
+        'text_color': '#e0e0e0',
+        'accent_color': '#0d6efd',
     }
 }
 
@@ -526,5 +603,6 @@ def get_themed_stylesheet() -> str:
         PAGE_HEADER_QSS.format(**theme_palette) +
         CONTENT_PAGE_QSS.format(**theme_palette) +
         PIVOT_QSS.format(**theme_palette) +
-        MODULE_VIEW_QSS.format(**theme_palette)
+        MODULE_VIEW_QSS.format(**theme_palette) +
+        MODULES_PAGE_QSS.format(**theme_palette)
     )

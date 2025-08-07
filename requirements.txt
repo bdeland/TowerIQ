@@ -6,3 +6,6 @@ numba
 
 # For plotting and visualization
 matplotlib
+
+# For enhanced Qt widgets including QLabeledRangeSlider
+superqt

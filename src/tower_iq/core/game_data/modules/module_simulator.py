@@ -16,14 +16,6 @@ from functools import wraps
 from typing import List, Dict, Optional, Tuple, Callable, Any
 from dataclasses import dataclass
 
-# Try to import pyinstrument for flame graphs
-try:
-    from pyinstrument import Profiler
-    PYINSTRUMENT_AVAILABLE = True
-except ImportError:
-    PYINSTRUMENT_AVAILABLE = False
-    Profiler = None
-
 from ._enums import ModuleType, Rarity, Substat, RARITY_TO_MAX_LEVEL
 from ._probabilities import MODULE_PULL_CHANCES, SUBSTAT_PULL_CHANCES
 from ._substats import ALL_SUBSTATS
@@ -34,21 +26,6 @@ from .module_blueprints import (
 )
 from .module_dataclass import SubstatInfo, UniqueEffectInfo, ModuleDefinition
 from .game_data_manager import GameDataManager
-
-
-def timing_decorator(func: Callable) -> Callable:
-    """Decorator to measure execution time of functions."""
-    @wraps(func)
-    def wrapper(*args, **kwargs):
-        start_time = time.perf_counter()
-        result = func(*args, **kwargs)
-        end_time = time.perf_counter()
-        execution_time = end_time - start_time
-        wrapper.execution_times = getattr(wrapper, 'execution_times', [])
-        wrapper.execution_times.append(execution_time)
-        return result
-    return wrapper
-
 
 @dataclass
 class GeneratedSubstat:
@@ -82,6 +59,9 @@ class GeneratedModule:
     icon_name: str
     frame_pattern: str
     max_level: int
+    level: int = 1  # Current level of the module (starts at 1 for generated modules)
+    is_equipped: bool = False  # Whether the module is currently equipped
+    is_favorite: bool = False  # Whether the module is favorited
     
     @property
     def substat_count(self) -> int:
@@ -130,100 +110,6 @@ class ModuleSimulator:
         
         if seed is not None:
             random.seed(seed)
-        
-        self.enable_profiling = enable_profiling
-        self.profiler = None
-        self.pyinstrument_profiler = None
-        self.profiling_stats = {}
-        
-        if enable_profiling:
-            self.profiler = cProfile.Profile()
-            if PYINSTRUMENT_AVAILABLE and Profiler is not None:
-                self.pyinstrument_profiler = Profiler()
-    
-    def start_profiling(self):
-        """Start profiling if enabled."""
-        if self.enable_profiling and self.profiler:
-            self.profiler.enable()
-        if self.enable_profiling and self.pyinstrument_profiler:
-            self.pyinstrument_profiler.start()
-    
-    def stop_profiling(self) -> Dict[str, Any]:
-        """Stop profiling and return statistics if enabled."""
-        if not self.enable_profiling or not self.profiler:
-            return {}
-        
-        self.profiler.disable()
-        
-        # Get profiling statistics
-        s = io.StringIO()
-        ps = pstats.Stats(self.profiler, stream=s).sort_stats('cumulative')
-        ps.print_stats(20)  # Top 20 functions by cumulative time
-        
-        stats_output = s.getvalue()
-        
-        # Return the raw profiling output
-        stats = {
-            'raw_output': stats_output,
-            'profiler_stats': ps
-        }
-        
-        return stats
-    
-    def stop_pyinstrument_profiling(self) -> Dict[str, Any]:
-        """Stop pyinstrument profiling and return HTML flame graph if enabled."""
-        if not self.enable_profiling or not self.pyinstrument_profiler:
-            return {}
-        
-        self.pyinstrument_profiler.stop()
-        
-        # Generate HTML flame graph
-        html_output = self.pyinstrument_profiler.output_html()
-        
-        # Get text output as well
-        text_output = self.pyinstrument_profiler.output_text()
-        
-        stats = {
-            'html_output': html_output,
-            'text_output': text_output,
-            'pyinstrument_profiler': self.pyinstrument_profiler
-        }
-        
-        return stats
-    
-    def profile_with_pyinstrument(self, func: Callable, *args, **kwargs) -> Dict[str, Any]:
-        """
-        Profile a function using pyinstrument and return HTML flame graph.
-        
-        Args:
-            func: Function to profile
-            *args: Arguments to pass to the function
-            **kwargs: Keyword arguments to pass to the function
-            
-        Returns:
-            Dictionary with profiling results including HTML flame graph
-        """
-        if not PYINSTRUMENT_AVAILABLE or Profiler is None:
-            return {'error': 'pyinstrument not available'}
-        
-        profiler = Profiler()
-        profiler.start()
-        
-        try:
-            result = func(*args, **kwargs)
-        finally:
-            profiler.stop()
-        
-        # Generate HTML flame graph
-        html_output = profiler.output_html()
-        text_output = profiler.output_text()
-        
-        return {
-            'result': result,
-            'html_output': html_output,
-            'text_output': text_output,
-            'profiler': profiler
-        }
     
     def simulate_module_pull(self) -> GeneratedModule:
         """
@@ -264,7 +150,10 @@ class ModuleSimulator:
             substats=substats,
             icon_name=blueprint.icon_name,
             frame_pattern=blueprint.frame_pattern,
-            max_level=max_level
+            max_level=max_level,
+            level=1,  # Generated modules start at level 1
+            is_equipped=False,  # Generated modules start as unequipped
+            is_favorite=False  # Generated modules start as unfavorited
         )
     
     def simulate_multiple_pulls(self, count: int) -> List[GeneratedModule]:
@@ -283,7 +172,6 @@ class ModuleSimulator:
             modules.append(module)
         return modules
     
-    @timing_decorator
     def _select_rarity_by_probability(self) -> Rarity:
         """
         Select a rarity based on the pull probabilities.
@@ -318,14 +206,29 @@ class ModuleSimulator:
         possible_substats_for_type = self.data_manager.valid_substats_map[blueprint.module_type]
         
         # Create a flat, de-duplicated list of all possible substat info objects
+        # that are valid for this module's rarity
         unique_possible_substats = []
         seen_substats = set()
-        for rarity_list in possible_substats_for_type.values():
-            for sub_info in rarity_list:
-                # Use enum_id for deduplication since SubstatInfo objects aren't hashable
+        
+        # First, try to get substats that are valid for this specific rarity
+        if rarity in possible_substats_for_type:
+            for sub_info in possible_substats_for_type[rarity]:
                 if sub_info.enum_id not in seen_substats:
                     unique_possible_substats.append(sub_info)
                     seen_substats.add(sub_info.enum_id)
+        
+        # If we don't have enough substats for this rarity, add substats from lower rarities
+        if len(unique_possible_substats) < substat_count:
+            for r in possible_substats_for_type.keys():
+                if r < rarity:  # Only consider lower rarities
+                    for sub_info in possible_substats_for_type[r]:
+                        if sub_info.enum_id not in seen_substats:
+                            unique_possible_substats.append(sub_info)
+                            seen_substats.add(sub_info.enum_id)
+                            if len(unique_possible_substats) >= substat_count:
+                                break
+                    if len(unique_possible_substats) >= substat_count:
+                        break
 
         if not unique_possible_substats:
             return [] # No possible substats for this module type
@@ -352,10 +255,16 @@ class ModuleSimulator:
                 # Find the highest possible rarity this substat supports that is AT or BELOW the module's rarity
                 valid_rarities = [r for r in substat_info.values if r <= rarity]
                 if not valid_rarities:
-                    continue # This substat cannot exist on this module, skip it. Should be rare.
-                
-                # Use the best possible rarity as a fallback
-                substat_rarity = max(valid_rarities)
+                    # If no valid rarities, try to find the lowest possible rarity for this substat
+                    valid_rarities = list(substat_info.values.keys())
+                    if not valid_rarities:
+                        continue  # This substat has no values at all, skip it
+                    
+                    # Use the lowest available rarity as a fallback
+                    substat_rarity = min(valid_rarities)
+                else:
+                    # Use the best possible rarity as a fallback
+                    substat_rarity = max(valid_rarities)
 
             # Get the value for the final, valid rarity
             value = substat_info.values[substat_rarity]
@@ -426,7 +335,10 @@ class ModuleSimulator:
             substats=substats,
             icon_name=blueprint.icon_name,
             frame_pattern=blueprint.frame_pattern,
-            max_level=max_level
+            max_level=max_level,
+            level=1,  # Generated modules start at level 1
+            is_equipped=False,  # Generated modules start as unequipped
+            is_favorite=False  # Generated modules start as unfavorited
         )
     
     def get_pull_statistics(self, pull_count: int = 10000) -> Dict[str, float]:
@@ -490,167 +402,3 @@ def simulate_multiple_pulls(count: int, seed: Optional[int] = None) -> List[Gene
     data_manager = GameDataManager()
     simulator = ModuleSimulator(data_manager, seed)
     return simulator.simulate_multiple_pulls(count)
-
-
-def get_pull_statistics(pull_count: int = 10000, seed: Optional[int] = None) -> Dict[str, float]:
-    """
-    Convenience function to get pull statistics.
-    
-    Args:
-        pull_count: Number of pulls to simulate
-        seed: Optional random seed
-        
-    Returns:
-        Dictionary with pull statistics
-    """
-    data_manager = GameDataManager()
-    simulator = ModuleSimulator(data_manager, seed)
-    return simulator.get_pull_statistics(pull_count)
-
-
-def profile_module_simulation(count: int = 100, seed: Optional[int] = None, 
-                            save_html: bool = True, html_filename: str = "module_simulation_profile.html") -> Dict[str, Any]:
-    """
-    Profile module simulation with both cProfile and pyinstrument.
-    
-    Args:
-        count: Number of modules to simulate
-        seed: Optional random seed
-        save_html: Whether to save the HTML flame graph to a file
-        html_filename: Filename for the HTML output
-        
-    Returns:
-        Dictionary with profiling results
-    """
-    data_manager = GameDataManager()
-    simulator = ModuleSimulator(data_manager, seed=seed, enable_profiling=True)
-    
-    # Start profiling
-    simulator.start_profiling()
-    
-    # Run the simulation
-    modules = simulator.simulate_multiple_pulls(count)
-    
-    # Stop profiling and get results
-    cprofile_stats = simulator.stop_profiling()
-    pyinstrument_stats = simulator.stop_pyinstrument_profiling()
-    
-    # Get timing statistics from decorators
-    timing_stats = {}
-    for method_name in ['simulate_module_pull', 'simulate_multiple_pulls', 
-                       '_select_rarity_by_probability', '_generate_substats_for_module', 
-                       '_select_substat_rarity']:
-        method = getattr(simulator, method_name, None)
-        if method is not None and hasattr(method, 'execution_times'):
-            times = method.execution_times
-            if times:
-                timing_stats[method_name] = {
-                    'total_time': sum(times),
-                    'avg_time': sum(times) / len(times),
-                    'min_time': min(times),
-                    'max_time': max(times),
-                    'call_count': len(times)
-                }
-    
-    # Save HTML flame graph if requested
-    if save_html and 'html_output' in pyinstrument_stats:
-        try:
-            with open(html_filename, 'w', encoding='utf-8') as f:
-                f.write(pyinstrument_stats['html_output'])
-            pyinstrument_stats['html_file_saved'] = html_filename
-        except Exception as e:
-            pyinstrument_stats['html_save_error'] = str(e)
-    
-    return {
-        'modules_generated': len(modules),
-        'cprofile_stats': cprofile_stats,
-        'pyinstrument_stats': pyinstrument_stats,
-        'timing_stats': timing_stats,
-        'modules': modules
-    }
-
-
-def quick_profile_pull(count: int = 100, seed: Optional[int] = None) -> Dict[str, Any]:
-    """
-    Quick profiling of module pulls using pyinstrument only.
-    
-    Args:
-        count: Number of modules to simulate
-        seed: Optional random seed
-        
-    Returns:
-        Dictionary with profiling results
-    """
-    data_manager = GameDataManager()
-    simulator = ModuleSimulator(data_manager, seed=seed)
-    
-    def run_simulation():
-        return simulator.simulate_multiple_pulls(count)
-    
-    return simulator.profile_with_pyinstrument(run_simulation)
-
-
-# Example usage and testing
-if __name__ == "__main__":
-    # Test the simulator
-    print("Testing Module Simulator...")
-    
-    # Create simulator
-    data_manager = GameDataManager()
-    simulator = ModuleSimulator(data_manager, seed=42)
-    
-    # Simulate some pulls
-    print("\n=== Single Pull Examples ===")
-    for i in range(5):
-        module = simulator.simulate_module_pull()
-        print(f"Pull {i+1}: {module.name} ({module.rarity.display_name}) - {module.substat_count} substats")
-        for substat in module.substats:
-            print(f"  - {substat.name}: {substat.value}{substat.unit} ({substat.rarity.display_name})")
-    
-    print("\n=== Epic Pull Example ===")
-    epic_module = simulator.simulate_epic_pity_pull()
-    print(f"Epic: {epic_module.name} - {epic_module.substat_count} substats")
-    if epic_module.has_unique_effect and epic_module.unique_effect:
-        print(f"Unique Effect: {epic_module.unique_effect.name}")
-    
-    print("\n=== Pull Statistics ===")
-    stats = simulator.get_pull_statistics(1000)
-    for key, value in stats.items():
-        if "percentage" in key:
-            print(f"{key}: {value:.2f}%")
-        else:
-            print(f"{key}: {value}")
-    
-    print("\n=== Profiling Example ===")
-    print("Profiling 100 module pulls...")
-    
-    # Profile with pyinstrument
-    if PYINSTRUMENT_AVAILABLE:
-        print("Using pyinstrument for flame graph...")
-        profile_result = quick_profile_pull(100, seed=42)
-        
-        if 'html_output' in profile_result:
-            print("HTML flame graph generated!")
-            print("Text output preview:")
-            print(profile_result['text_output'][:500] + "...")
-            
-            # Save HTML file
-            with open("module_pull_flamegraph.html", "w", encoding="utf-8") as f:
-                f.write(profile_result['html_output'])
-            print("HTML flame graph saved to: module_pull_flamegraph.html")
-        else:
-            print("Error generating flame graph:", profile_result.get('error', 'Unknown error'))
-    else:
-        print("pyinstrument not available. Install with: pip install pyinstrument")
-    
-    # Profile with timing decorators
-    print("\n=== Timing Analysis ===")
-    timing_result = profile_module_simulation(100, seed=42, save_html=False)
-    
-    print("Method timing statistics:")
-    for method_name, stats in timing_result['timing_stats'].items():
-        print(f"  {method_name}:")
-        print(f"    Total time: {stats['total_time']:.6f}s")
-        print(f"    Average time: {stats['avg_time']:.6f}s")
-        print(f"    Calls: {stats['call_count']}")
-        print(f"    Min/Max: {stats['min_time']:.6f}s / {stats['max_time']:.6f}s") 
