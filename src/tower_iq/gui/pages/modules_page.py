@@ -401,8 +401,29 @@ class ModulesPage(ContentPage):
             "frame_name": generated_module.frame_pattern,
             "icon_name": generated_module.icon_name,
             "substats": substats,
-            "unique_effect_text": unique_effect_text
+            "unique_effect_text": unique_effect_text,
+            # New: formatted main effect text based on module type
+            "main_effect_text": self._format_main_effect_text(generated_module)
         }
+
+    def _format_main_effect_text(self, generated_module: GeneratedModule) -> str:
+        """Create the display text for the module's main effect.
+        For sample generation, the multiplier is fixed at x1.105 as requested.
+        """
+        # Determine the primary stat name by module type
+        type_to_stat = {
+            "Generator": "Coin Bonus",
+            "Cannon": "Tower Damage",
+            "Armor": "Tower Health",
+            "Core": "Ultimate Weapon Damage",
+        }
+        stat_name = type_to_stat.get(generated_module.module_type.value, "")
+        # Use module property if present, otherwise the requested fixed sample value
+        try:
+            multiplier = getattr(generated_module, "main_effect_multiplier", 1.105)
+        except Exception:
+            multiplier = 1.105
+        return f"x{multiplier} {stat_name}" if stat_name else f"x{multiplier}"
     
 
     def _populate_table(self):
@@ -500,7 +521,8 @@ class ModulesPage(ContentPage):
                 frame_name=module_data["frame_name"],
                 icon_name=module_data["icon_name"],
                 substats=module_data["substats"],
-                unique_effect_text=module_data.get("unique_effect_text")
+                unique_effect_text=module_data.get("unique_effect_text"),
+                main_effect_text=module_data.get("main_effect_text")
             )
             
             # Update module view

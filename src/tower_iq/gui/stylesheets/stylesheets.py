@@ -326,6 +326,31 @@ QWidget#ModuleView BodyLabel#ModuleMainStat {{
     color: {secondary_text};
 }}
 
+/* Main effect split styling */
+/* Container for consistent spacing */
+QWidget#MainEffectContainer {{
+    background-color: transparent;
+    border: none;
+    padding: 0px;
+    margin: 0px;
+}}
+
+/* Use descendant selector (no QWidget# prefix) to ensure QSS applies to BodyLabel subclass */
+BodyLabel#MainEffectValue {{
+    background-color: transparent;
+    font-size: 18px;
+    font-weight: 700;
+    qproperty-lightColor: #4cedff;
+    qproperty-darkColor: #4cedff;
+}}
+BodyLabel#MainEffectName {{
+    background-color: transparent;
+    font-size: 14px;
+    font-weight: 500;
+    qproperty-lightColor: #e0e0e0;
+    qproperty-darkColor: #e0e0e0;
+}}
+
 QWidget#ModuleView QWidget#ModuleIconContainer {{
     background-color: transparent;
     border: none;

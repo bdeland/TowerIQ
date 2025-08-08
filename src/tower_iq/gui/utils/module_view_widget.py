@@ -40,6 +40,8 @@ class ModuleDisplayData:
     icon_name: str
     substats: List[SubstatDisplayInfo]
     unique_effect_text: Optional[str] = None
+    # New: formatted main effect text (e.g., "x1.105 Coin Bonus")
+    main_effect_text: Optional[str] = None
 
 
 class RarityPillWidget(QWidget):
@@ -278,6 +280,24 @@ class ModuleViewWidget(QWidget):
         
         self.main_stat_label = BodyLabel()
         self.main_stat_label.setObjectName("ModuleMainStat")
+        # Main effect split into value and name for independent styling
+        self.main_effect_value_label = BodyLabel()
+        self.main_effect_value_label.setObjectName("MainEffectValue")
+        self.main_effect_name_label = BodyLabel()
+        self.main_effect_name_label.setObjectName("MainEffectName")
+        # Ensure stylesheet can target them
+        self.main_effect_value_label.setProperty("class", "MainEffectValue")
+        self.main_effect_name_label.setProperty("class", "MainEffectName")
+        
+        # Create a container widget for the main effect to control spacing
+        self.main_effect_container = QWidget()
+        self.main_effect_container.setObjectName("MainEffectContainer")
+        self.main_effect_layout = QHBoxLayout(self.main_effect_container)
+        self.main_effect_layout.setContentsMargins(0, 0, 0, 0)
+        self.main_effect_layout.setSpacing(8)
+        self.main_effect_layout.addWidget(self.main_effect_value_label)
+        self.main_effect_layout.addWidget(self.main_effect_name_label)
+        self.main_effect_layout.addStretch()  # Push widgets to the left
         
         # Icon container (holds frame, icon, and favorite overlay)
         self.icon_container = QWidget()
@@ -345,7 +365,9 @@ class ModuleViewWidget(QWidget):
         # Name second
         name_layout.addWidget(self.name_label)
         
-        # Main stat third
+        # Main effect just under the name row
+        name_layout.addWidget(self.main_effect_container)
+        # Main stat third (kept for future use)
         name_layout.addWidget(self.main_stat_label)
         name_layout.addStretch(1)
         info_layout.addLayout(name_layout)
@@ -386,6 +408,7 @@ class ModuleViewWidget(QWidget):
         self._update_substats()
         self._update_unique_effect()
         self._update_favorite_overlay()
+        self._update_main_effect()
     
     def _update_name(self):
         """Update the module name display."""
@@ -615,6 +638,25 @@ class ModuleViewWidget(QWidget):
         else:
             self.unique_effect_label.hide()
             self.unique_effect_text.hide()
+
+    def _update_main_effect(self):
+        """Update the main effect line shown under the title."""
+        if not self.module_data:
+            return
+        if self.module_data.main_effect_text:
+            text = self.module_data.main_effect_text.strip()
+            # Split into value and name at first space
+            parts = text.split(" ", 1)
+            value_part = parts[0] if parts else text
+            name_part = parts[1] if len(parts) > 1 else ""
+            self.main_effect_value_label.setText(value_part)
+            # Set the name part without manual spacing - let the layout handle it
+            self.main_effect_name_label.setText(name_part if name_part else "")
+            self.main_effect_value_label.show()
+            self.main_effect_name_label.show()
+        else:
+            self.main_effect_value_label.hide()
+            self.main_effect_name_label.hide()
     
     def _update_favorite_overlay(self):
         """Update the favorite star overlay if module is favorited."""
