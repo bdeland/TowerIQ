@@ -7,7 +7,7 @@ Follows the application's centralized styling approach.
 
 import os
 from typing import Dict, List, Optional, Any
-from PyQt6.QtCore import Qt, QSize
+from PyQt6.QtCore import Qt, QSize, QEvent
 from PyQt6.QtGui import QPixmap, QPainter, QPainterPath, QColor, QFont
 from PyQt6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QGraphicsDropShadowEffect
 from dataclasses import dataclass
@@ -155,9 +155,9 @@ class RarityPillWidget(QWidget):
 
 
 class SubstatRowWidget(QWidget):
-    """Widget representing a single substat row with rarity pill and description."""
+    """Widget representing a single substat row with rarity pill and two-part text."""
     
-    def __init__(self, substat_text: str, rarity: str, parent=None):
+    def __init__(self, value_text: str, name_text: str, rarity: str, parent=None):
         super().__init__(parent=parent)
         self.setObjectName("SubstatRow")
         
@@ -168,13 +168,54 @@ class SubstatRowWidget(QWidget):
         # Rarity Pill - using custom RarityPillWidget
         self.rarity_pill = RarityPillWidget(rarity)
         
-        # Effect Text - using BodyLabel for theme consistency
-        self.effect_label = BodyLabel(substat_text)
-        self.effect_label.setObjectName("SubstatText")
+        # Split labels for value and name so we can style them independently via QSS
+        self.value_label = BodyLabel(value_text)
+        self.value_label.setObjectName("SubstatValue")
+        self.value_label.setProperty("rarity", rarity.lower())
+
+        self.name_label = BodyLabel(name_text)
+        self.name_label.setObjectName("SubstatName")
+        self.name_label.setProperty("rarity", rarity.lower())
 
         layout.addWidget(self.rarity_pill)
-        layout.addWidget(self.effect_label)
+
+        # Nested layout to control spacing specifically between value and name
+        self._text_layout = QHBoxLayout()
+        self._text_layout.setContentsMargins(0, 0, 0, 0)
+        # spacing will be set dynamically based on space width in current font
+        self._text_layout.setSpacing(0)
+        self._text_layout.addWidget(self.value_label)
+        self._text_layout.addWidget(self.name_label)
+
+        layout.addLayout(self._text_layout)
         layout.addStretch()
+
+        # Initialize spacing to match the width of a single space character
+        self._update_spacing_from_font()
+
+    def _update_spacing_from_font(self):
+        """Set spacing between value and name equal to the width of a space in current font."""
+        try:
+            space_px = self.name_label.fontMetrics().horizontalAdvance(' ')
+        except Exception:
+            space_px = 2
+        if not isinstance(space_px, int):
+            try:
+                space_px = int(space_px)
+            except Exception:
+                space_px = 2
+        # Guard minimum spacing
+        self._text_layout.setSpacing(max(0, space_px))
+
+    def event(self, e):
+        # Recalculate spacing when fonts/styles might change
+        if e.type() in (
+            QEvent.Type.FontChange,
+            QEvent.Type.ApplicationFontChange,
+            QEvent.Type.StyleChange,
+        ):
+            self._update_spacing_from_font()
+        return super().event(e)
 
 
 class LockedSubstatRowWidget(QWidget):
@@ -456,23 +497,35 @@ class ModuleViewWidget(QWidget):
         
         # Add current substats
         for substat in self.module_data.substats:
-            # Format the substat text
+            # Split the substat into value and name parts for styling
+            value_text = ""
+            name_text = ""
+
             if substat.unit:
                 if substat.unit == '%':
-                    substat_text = f"+{substat.value}% {substat.name}"
+                    # Percent always shows sign
+                    sign = "+" if substat.value >= 0 else ""
+                    value_text = f"{sign}{substat.value}%"
+                    name_text = f"{substat.name}"
                 elif substat.unit in ['m', 's']:
-                    if substat.value < 0:
-                        substat_text = f"{substat.value}{substat.unit} {substat.name}"
-                    else:
-                        substat_text = f"+{substat.value}{substat.unit} {substat.name}"
+                    # Time/distance can be negative
+                    sign = "" if substat.value < 0 else "+"
+                    value_text = f"{sign}{substat.value}{substat.unit}"
+                    name_text = f"{substat.name}"
                 elif substat.unit == 'x':
-                    substat_text = f"+{substat.value}{substat.unit} {substat.name}"
+                    sign = "+" if substat.value >= 0 else ""
+                    value_text = f"{sign}{substat.value}{substat.unit}"
+                    name_text = f"{substat.name}"
                 else:
-                    substat_text = f"+{substat.value} {substat.name} ({substat.unit})"
+                    sign = "+" if substat.value >= 0 else ""
+                    value_text = f"{sign}{substat.value}"
+                    name_text = f"{substat.name} ({substat.unit})"
             else:
-                substat_text = f"+{substat.value} {substat.name}"
-            
-            row = SubstatRowWidget(substat_text, substat.rarity)
+                sign = "+" if substat.value >= 0 else ""
+                value_text = f"{sign}{substat.value}"
+                name_text = f"{substat.name}"
+
+            row = SubstatRowWidget(value_text, name_text, substat.rarity)
             self.substats_layout.addWidget(row)
         
         # Add locked slots based on current substat count

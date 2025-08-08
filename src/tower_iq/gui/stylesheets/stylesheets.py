@@ -256,8 +256,6 @@ QWidget#ModuleView TitleLabel#ModuleRarity {{
     padding: 5px 0px;
 }}
 
-
-
 QWidget#ModuleView TitleLabel#ModuleName {{
     background-color: transparent;
     font-size: 16px;
@@ -265,43 +263,53 @@ QWidget#ModuleView TitleLabel#ModuleName {{
 }}
 
 QWidget#ModuleView TitleLabel#ModuleName[rarity="common"] {{
-    color: #e4e4e5;
+    qproperty-lightColor: {rc_common_primary};
+    qproperty-darkColor: {rc_common_primary};
 }}
 
 QWidget#ModuleView TitleLabel#ModuleName[rarity="rare"] {{
-    color: #47dbff;
+    qproperty-lightColor: {rc_rare_primary};
+    qproperty-darkColor: {rc_rare_primary};
 }}
 
 QWidget#ModuleView TitleLabel#ModuleName[rarity="rareplus"] {{
-    color: #47dbff;
+    qproperty-lightColor: {rc_rareplus_primary};
+    qproperty-darkColor: {rc_rareplus_primary};
 }}
 
 QWidget#ModuleView TitleLabel#ModuleName[rarity="epic"] {{
-    color: #ff4ccf;
+    qproperty-lightColor: {rc_epic_primary};
+    qproperty-darkColor: {rc_epic_primary};
 }}
 
 QWidget#ModuleView TitleLabel#ModuleName[rarity="epicplus"] {{
-    color: #ff4ccf;
+    qproperty-lightColor: {rc_epicplus_primary};
+    qproperty-darkColor: {rc_epicplus_primary};
 }}
 
 QWidget#ModuleView TitleLabel#ModuleName[rarity="legendary"] {{
-    color: #ff9c3d;
+    qproperty-lightColor: {rc_legendary_primary};
+    qproperty-darkColor: {rc_legendary_primary};
 }}
 
 QWidget#ModuleView TitleLabel#ModuleName[rarity="legendaryplus"] {{
-    color: #ff9c3d;
+    qproperty-lightColor: {rc_legendaryplus_primary};
+    qproperty-darkColor: {rc_legendaryplus_primary};
 }}
 
 QWidget#ModuleView TitleLabel#ModuleName[rarity="mythic"] {{
-    color: #ff4040;
+    qproperty-lightColor: {rc_mythic_primary};
+    qproperty-darkColor: {rc_mythic_primary};
 }}
 
 QWidget#ModuleView TitleLabel#ModuleName[rarity="mythicplus"] {{
-    color: #ff4040;
+    qproperty-lightColor: {rc_mythicplus_primary};
+    qproperty-darkColor: {rc_mythicplus_primary};
 }}
 
 QWidget#ModuleView TitleLabel#ModuleName[rarity="ancestral"] {{
-    color: #79f369;
+    qproperty-lightColor: {rc_ancestral_primary};
+    qproperty-darkColor: {rc_ancestral_primary};
 }}
 
 QWidget#ModuleView BodyLabel#ModuleRarity {{
@@ -381,6 +389,43 @@ QWidget#SubstatRow BodyLabel#SubstatText {{
     font-size: 12px;
     font-weight: 400;
 }}
+
+/* New: Two-part substat styling */
+QWidget#SubstatRow BodyLabel#SubstatValue {{
+    background-color: transparent;
+    font-size: 12px;
+    font-weight: 800;
+}}
+QWidget#SubstatRow BodyLabel#SubstatName {{
+    background-color: transparent;
+    font-size: 12px;
+    font-weight: 400;
+    margin-left: 0px;
+}}
+
+/* Value colors per rarity - use qproperty to cooperate with qfluentwidgets color management */
+QWidget#SubstatRow BodyLabel#SubstatValue[rarity="common"] {{ qproperty-lightColor: {rc_common_primary}; qproperty-darkColor: {rc_common_primary}; }}
+QWidget#SubstatRow BodyLabel#SubstatValue[rarity="rare"] {{ qproperty-lightColor: {rc_rare_primary}; qproperty-darkColor: {rc_rare_primary}; }}
+QWidget#SubstatRow BodyLabel#SubstatValue[rarity="rareplus"] {{ qproperty-lightColor: {rc_rareplus_primary}; qproperty-darkColor: {rc_rareplus_primary}; }}
+QWidget#SubstatRow BodyLabel#SubstatValue[rarity="epic"] {{ qproperty-lightColor: {rc_epic_primary}; qproperty-darkColor: {rc_epic_primary}; }}
+QWidget#SubstatRow BodyLabel#SubstatValue[rarity="epicplus"] {{ qproperty-lightColor: {rc_epicplus_primary}; qproperty-darkColor: {rc_epicplus_primary}; }}
+QWidget#SubstatRow BodyLabel#SubstatValue[rarity="legendary"] {{ qproperty-lightColor: {rc_legendary_primary}; qproperty-darkColor: {rc_legendary_primary}; }}
+QWidget#SubstatRow BodyLabel#SubstatValue[rarity="legendaryplus"] {{ qproperty-lightColor: {rc_legendaryplus_primary}; qproperty-darkColor: {rc_legendaryplus_primary}; }}
+QWidget#SubstatRow BodyLabel#SubstatValue[rarity="mythic"] {{ qproperty-lightColor: {rc_mythic_primary}; qproperty-darkColor: {rc_mythic_primary}; }}
+QWidget#SubstatRow BodyLabel#SubstatValue[rarity="mythicplus"] {{ qproperty-lightColor: {rc_mythicplus_primary}; qproperty-darkColor: {rc_mythicplus_primary}; }}
+QWidget#SubstatRow BodyLabel#SubstatValue[rarity="ancestral"] {{ qproperty-lightColor: {rc_ancestral_primary}; qproperty-darkColor: {rc_ancestral_primary}; }}
+
+/* Name colors per rarity (slightly softer than value) - via qproperty */
+QWidget#SubstatRow BodyLabel#SubstatName[rarity="common"] {{ qproperty-lightColor: {rc_common_soft}; qproperty-darkColor: {rc_common_soft}; }}
+QWidget#SubstatRow BodyLabel#SubstatName[rarity="rare"] {{ qproperty-lightColor: {rc_rare_soft}; qproperty-darkColor: {rc_rare_soft}; }}
+QWidget#SubstatRow BodyLabel#SubstatName[rarity="rareplus"] {{ qproperty-lightColor: {rc_rareplus_soft}; qproperty-darkColor: {rc_rareplus_soft}; }}
+QWidget#SubstatRow BodyLabel#SubstatName[rarity="epic"] {{ qproperty-lightColor: {rc_epic_soft}; qproperty-darkColor: {rc_epic_soft}; }}
+QWidget#SubstatRow BodyLabel#SubstatName[rarity="epicplus"] {{ qproperty-lightColor: {rc_epicplus_soft}; qproperty-darkColor: {rc_epicplus_soft}; }}
+QWidget#SubstatRow BodyLabel#SubstatName[rarity="legendary"] {{ qproperty-lightColor: {rc_legendary_soft}; qproperty-darkColor: {rc_legendary_soft}; }}
+QWidget#SubstatRow BodyLabel#SubstatName[rarity="legendaryplus"] {{ qproperty-lightColor: {rc_legendaryplus_soft}; qproperty-darkColor: {rc_legendaryplus_soft}; }}
+QWidget#SubstatRow BodyLabel#SubstatName[rarity="mythic"] {{ qproperty-lightColor: {rc_mythic_soft}; qproperty-darkColor: {rc_mythic_soft}; }}
+QWidget#SubstatRow BodyLabel#SubstatName[rarity="mythicplus"] {{ qproperty-lightColor: {rc_mythicplus_soft}; qproperty-darkColor: {rc_mythicplus_soft}; }}
+QWidget#SubstatRow BodyLabel#SubstatName[rarity="ancestral"] {{ qproperty-lightColor: {rc_ancestral_soft}; qproperty-darkColor: {rc_ancestral_soft}; }}
 
 QWidget#LockedSubstatRow {{
     background-color: {locked_substat_bg};
@@ -548,6 +593,29 @@ THEME_COLORS = {
     }
 }
 
+# --- Centralized Rarity Color Palette ---
+# Use these to avoid repeating hex codes across multiple rarity-based rules.
+# 'primary' is the strong/primary color for the rarity, 'soft' is a softer companion.
+RARITY_COLORS = {
+    'common':       {'primary': '#ffffff', 'soft': '#e3e3e4'},
+    'rare':         {'primary': '#47d8fd', 'soft': '#47dbff'},
+    'rareplus':     {'primary': '#47d8fd', 'soft': '#47dbff'},
+    'epic':         {'primary': '#fd4bce', 'soft': '#ff7cdc'},
+    'epicplus':     {'primary': '#fd4bce', 'soft': '#ff7cdc'},
+    'legendary':    {'primary': '#ff9c3d', 'soft': '#f8b26f'},
+    'legendaryplus':{'primary': '#ff9c3d', 'soft': '#f8b26f'},
+    'mythic':       {'primary': '#ff4040', 'soft': '#f35d6e'},
+    'mythicplus':   {'primary': '#ff4040', 'soft': '#f35d6e'},
+    'ancestral':    {'primary': '#83e879', 'soft': '#c0f1c1'},
+}
+
+def _flatten_rarity_colors() -> dict:
+    flat: dict[str, str] = {}
+    for rarity_key, tones in RARITY_COLORS.items():
+        flat[f'rc_{rarity_key}_primary'] = tones['primary']
+        flat[f'rc_{rarity_key}_soft'] = tones['soft']
+    return flat
+
 def get_themed_stylesheet() -> str:
     """
     Generates the full application stylesheet based on the current theme.
@@ -556,17 +624,19 @@ def get_themed_stylesheet() -> str:
     from qfluentwidgets import isDarkTheme
     theme_name = 'dark' if isDarkTheme() else 'light'
     theme_palette = THEME_COLORS[theme_name]
+    rarity_palette = _flatten_rarity_colors()
+    merged = {**theme_palette, **rarity_palette}
     
     # --- CORRECTED: Unpack the dictionary with ** ---
     return (
-        SETTINGS_CATEGORY_CARD_QSS.format(**theme_palette) +
-        SETTINGS_ITEM_CARD_QSS.format(**theme_palette) +
-        EXPANDABLE_CARD_GROUP_QSS.format(**theme_palette) +
-        SUBSETTING_ITEM_QSS.format(**theme_palette) +
-        SETTINGS_CATEGORY_PAGE_QSS.format(**theme_palette) +
-        PAGE_HEADER_QSS.format(**theme_palette) +
-        CONTENT_PAGE_QSS.format(**theme_palette) +
-        PIVOT_QSS.format(**theme_palette) +
-        MODULE_VIEW_QSS.format(**theme_palette) +
-        MODULES_PAGE_QSS.format(**theme_palette)
+        SETTINGS_CATEGORY_CARD_QSS.format(**merged) +
+        SETTINGS_ITEM_CARD_QSS.format(**merged) +
+        EXPANDABLE_CARD_GROUP_QSS.format(**merged) +
+        SUBSETTING_ITEM_QSS.format(**merged) +
+        SETTINGS_CATEGORY_PAGE_QSS.format(**merged) +
+        PAGE_HEADER_QSS.format(**merged) +
+        CONTENT_PAGE_QSS.format(**merged) +
+        PIVOT_QSS.format(**merged) +
+        MODULE_VIEW_QSS.format(**merged) +
+        MODULES_PAGE_QSS.format(**merged)
     )
