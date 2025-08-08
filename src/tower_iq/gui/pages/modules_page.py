@@ -5,7 +5,7 @@ This module provides the modules page widget for the application.
 """
 
 import os
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict, Any, cast
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, 
     QHeaderView, QTableWidgetItem, QSizePolicy
@@ -20,6 +20,7 @@ from superqt import QLabeledRangeSlider
 
 from ..utils.content_page import ContentPage
 from ..utils.module_view_widget import ModuleViewWidget, ModuleDisplayData, SubstatDisplayInfo
+from ..stylesheets.stylesheets import RARITY_COLORS
 
 # Import ModuleSimulator and related classes
 from ...core.game_data.modules.module_simulator import ModuleSimulator, GeneratedModule
@@ -35,21 +36,18 @@ class ModuleTableItemDelegate(TableItemDelegate):
         if index.column() == 2:  # Rarity column
             rarity = index.data()
             if rarity:
-                # Set color based on rarity
-                color_map = {
-                    "Common": "#95a5a6",
-                    "Rare": "#3498db", 
-                    "Rare+": "#2980b9",
-                    "Epic": "#9b59b6",
-                    "Epic+": "#8e44ad",
-                    "Legendary": "#f39c12",
-                    "Legendary+": "#e67e22",
-                    "Mythic": "#e74c3c",
-                    "Mythic+": "#c0392b",
-                    "Ancestral": "#f1c40f"
-                }
-                color = color_map.get(rarity, "#95a5a6")
-                option.palette.setColor(option.palette.ColorRole.Text, QColor(color))
+                # Normalize rarity to match RARITY_COLORS keys
+                normalized_key = (
+                    str(rarity).lower().replace("+", "plus").replace(" ", "").strip()
+                )
+                color_hex = RARITY_COLORS.get(normalized_key, RARITY_COLORS["common"]["primary"])
+                # If the lookup returned a dict (expected), extract primary; if already a str, use directly
+                if isinstance(color_hex, dict):
+                    color_hex = color_hex.get("primary", RARITY_COLORS["common"]["primary"])
+                # Unselected text color
+                option.palette.setColor(option.palette.ColorRole.Text, QColor(color_hex))
+                # Selected text color should remain the same as unselected
+                option.palette.setColor(option.palette.ColorRole.HighlightedText, QColor(color_hex))
 
 
 class ModulesPage(ContentPage):
@@ -182,14 +180,15 @@ class ModulesPage(ContentPage):
         level_layout.setContentsMargins(10, 0, 15, 0)  # Add padding to prevent label cutoff
         level_layout.setSpacing(10)
         level_label = CaptionLabel("Level Range")
-        self.level_slider = QLabeledRangeSlider(Qt.Orientation.Horizontal)
+        self.level_slider = QLabeledRangeSlider()
+        self.level_slider.setOrientation(Qt.Orientation.Horizontal)  # type: ignore[arg-type]
         self.level_slider.setRange(0, 300)
         self.level_slider.setValue((0, 300))  # Set range values as tuple
         self.level_slider.setEdgeLabelMode(QLabeledRangeSlider.EdgeLabelMode.NoLabel)  # Remove edge labels
         self.level_slider.setHandleLabelPosition(QLabeledRangeSlider.LabelPosition.LabelsAbove)
         self.level_slider.setObjectName("LevelSlider")
         level_layout.addWidget(level_label)
-        level_layout.addWidget(self.level_slider)
+        level_layout.addWidget(cast(QWidget, self.level_slider))
         filters_layout.addWidget(level_widget)
         
         # Checkboxes
