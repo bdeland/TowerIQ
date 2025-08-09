@@ -397,15 +397,11 @@ QWidget#ModuleView BodyLabel#UniqueEffectText {{
     padding: 12px;
     font-size: 12px;
     font-weight: 400;
-    color: {unique_effect_text};
+    qproperty-lightColor: {unique_effect_text};
+    qproperty-darkColor: {unique_effect_text};
 }}
 
-QWidget#SubstatRow {{
-    background-color: {substat_row_bg};
-    border: 1px solid {substat_row_border};
-    border-radius: 8px;
-    margin: 2px 0px;
-}}
+
 
 /* RarityPillWidget styling - handled by custom paint event */
 
@@ -452,12 +448,7 @@ QWidget#SubstatRow BodyLabel#SubstatName[rarity="mythic"] {{ qproperty-lightColo
 QWidget#SubstatRow BodyLabel#SubstatName[rarity="mythicplus"] {{ qproperty-lightColor: {rc_mythicplus_soft}; qproperty-darkColor: {rc_mythicplus_soft}; }}
 QWidget#SubstatRow BodyLabel#SubstatName[rarity="ancestral"] {{ qproperty-lightColor: {rc_ancestral_soft}; qproperty-darkColor: {rc_ancestral_soft}; }}
 
-QWidget#LockedSubstatRow {{
-    background-color: {locked_substat_bg};
-    border: 1px solid {locked_substat_border};
-    border-radius: 8px;
-    margin: 2px 0px;
-}}
+
 
 QWidget#LockedSubstatRow BodyLabel#LockedText {{
     background-color: transparent;
@@ -516,7 +507,7 @@ MODULES_PAGE_QSS = """
 }}
 
 #ModulesTable::item {{
-    padding: 8px;
+    padding: 4px;
     border: none;
 }}
 
@@ -539,6 +530,10 @@ MODULES_PAGE_QSS = """
     border-radius: 8px;
     padding: 15px;
 }}
+
+#GenerateModulesButton {{
+    /* Keep default button styling to avoid clashes with theme */
+}}
 """
 
 # --- Theme Color Definitions ---
@@ -553,16 +548,16 @@ THEME_COLORS = {
         'sub_card_border': '#e0e0e0',
         # Module view colors
         'secondary_text': '#666666',
-        'substat_row_bg': '#f8f9fa',
-        'substat_row_border': '#e9ecef',
+        #'substat_row_bg': '#292929',
+        #'substat_row_border': 'transparent',
         'rarity_pill_bg': '#6c757d',
         'rarity_pill_text': '#ffffff',
         'rarity_pill_border': '#495057',
-        'locked_substat_bg': '#f1f3f4',
-        'locked_substat_border': '#dadce0',
+        #'locked_substat_bg': '#f1f3f4',
+        #'locked_substat_border': '#dadce0',
         'unique_effect_bg': '#fff3cd',
         'unique_effect_border': '#ffeaa7',
-        'unique_effect_text': '#856404',
+        'unique_effect_text': '#ffae00',
         # Pivot colors
         'pivot_item_bg': '#f8f9fa',
         'pivot_item_border': '#303030',
@@ -588,17 +583,17 @@ THEME_COLORS = {
         'sub_card_bg': '#2d2d2d',
         'sub_card_border': '#404040',
         # Module view colors
-        'secondary_text': '#a0a0a0',
-        'substat_row_bg': '#3a3a3a',
-        'substat_row_border': '#505050',
+        'secondary_text': '#565656',
+        #'substat_row_bg': '#292929',
+        #'substat_row_border': '#505050',
         'rarity_pill_bg': '#555555',
         'rarity_pill_text': '#ffffff',
         'rarity_pill_border': '#404040',
-        'locked_substat_bg': '#2a2a2a',
-        'locked_substat_border': '#404040',
+        #'locked_substat_bg': '#2a2a2a',
+        #'locked_substat_border': '#404040',
         'unique_effect_bg': '#3a2f1a',
         'unique_effect_border': '#5a4a2a',
-        'unique_effect_text': '#ffd700',
+        'unique_effect_text': '#ffae00',
         # Pivot colors
         'pivot_item_bg': '#3a3a3a',
         'pivot_item_border': '#11a8cd',

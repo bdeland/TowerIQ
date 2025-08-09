@@ -8,7 +8,7 @@ import matplotlib.pyplot as plt
 from matplotlib.ticker import FuncFormatter
 
 # We will import the high-performance simulation function directly
-from enhanced_fast_simulator import run_simulation_numpy
+from tower_iq.core.game_data.modules.enhanced_fast_simulator import run_simulation_numpy
 
 # --- Plotting Functions ---
 

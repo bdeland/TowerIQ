@@ -9,3 +9,6 @@ matplotlib
 
 # For enhanced Qt widgets including QLabeledRangeSlider
 superqt
+
+# For image processing (PIL/Pillow)
+Pillow

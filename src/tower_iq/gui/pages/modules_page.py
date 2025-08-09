@@ -3,20 +3,22 @@ TowerIQ Modules Page
 
 This module provides the modules page widget for the application.
 """
-
 import os
 from typing import List, Optional, Dict, Any, cast
 from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel, 
-    QHeaderView, QTableWidgetItem, QSizePolicy
+    QWidget, QVBoxLayout, QHBoxLayout, QLabel,
+    QHeaderView, QTableWidgetItem, QSizePolicy, QStackedWidget
 )
-from PyQt6.QtCore import Qt, pyqtSignal
-from PyQt6.QtGui import QColor
+from PyQt6.QtCore import Qt, pyqtSignal, QSize, QRect, QPoint
+from PyQt6.QtGui import QColor, QPixmap, QPainter, QIcon, QImage
 from qfluentwidgets import (
     TableWidget, TableItemDelegate, SearchLineEdit, ComboBox, 
     BodyLabel, CaptionLabel, CardWidget, CheckBox, PushButton
 )
+from qfluentwidgets.components.navigation.pivot import Pivot
+from qfluentwidgets import FluentIcon
 from superqt import QLabeledRangeSlider
+from PIL import Image
 
 from ..utils.content_page import ContentPage
 from ..utils.module_view_widget import ModuleViewWidget, ModuleDisplayData, SubstatDisplayInfo
@@ -28,50 +30,51 @@ from ...core.game_data.modules.game_data_manager import GameDataManager
 
 
 class ModuleTableItemDelegate(TableItemDelegate):
-    """Custom delegate for module table items with theme-aware styling."""
-    
+    """Custom delegate for module table items with theme-aware styling and module icons.
+
+    Stores the table's icon size once to avoid dynamic QObject attribute lookups that
+    confuse static linters, and sets decoration alignment so icons are centered
+    vertically and left-aligned.
+    """
+
+    def __init__(self, table: TableWidget):  # type: ignore[name-defined]
+        super().__init__(table)
+        # Cache the icon size at construction time
+        self._decoration_size: QSize = table.iconSize()
+
     def initStyleOption(self, option, index):
         super().initStyleOption(option, index)
-        # Apply custom styling for specific columns if needed
+        
+        # For the Name column, ensure the icon is sized and aligned correctly.
+        if index.column() == 0:
+            option.decorationSize = self._decoration_size
+            # Ensure proper vertical centering and left alignment
+            option.decorationAlignment = Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft
+        
+        # Apply custom styling for the Rarity column.
         if index.column() == 2:  # Rarity column
             rarity = index.data()
             if rarity:
-                # Normalize rarity to match RARITY_COLORS keys
                 normalized_key = (
                     str(rarity).lower().replace("+", "plus").replace(" ", "").strip()
                 )
                 color_hex = RARITY_COLORS.get(normalized_key, RARITY_COLORS["common"]["primary"])
-                # If the lookup returned a dict (expected), extract primary; if already a str, use directly
                 if isinstance(color_hex, dict):
                     color_hex = color_hex.get("primary", RARITY_COLORS["common"]["primary"])
-                # Unselected text color
                 option.palette.setColor(option.palette.ColorRole.Text, QColor(color_hex))
-                # Selected text color should remain the same as unselected
                 option.palette.setColor(option.palette.ColorRole.HighlightedText, QColor(color_hex))
 
 
-class ModulesPage(ContentPage):
+class ModulesTabWidget(QWidget):
     """
-    The modules page of the application.
-
-    Features:
-    - Filterable and sortable module table
-    - Search functionality
-    - Type and rarity filters
-    - Level range slider
-    - Equipped and favorited checkboxes
-    - Module preview widget
+    The main modules tab widget containing the original modules functionality.
     """
     
     # Signals
     module_selected = pyqtSignal(dict)  # Emitted when a module is selected in the table
     
     def __init__(self, parent: QWidget | None = None):
-        super().__init__(
-            title="Modules",
-            description="Manage and view your game modules",
-            parent=parent
-        )
+        super().__init__(parent)
         
         # Initialize ModuleSimulator
         self.data_manager = GameDataManager()
@@ -87,10 +90,12 @@ class ModulesPage(ContentPage):
         
     def _init_ui(self):
         """Initialize the user interface."""
-        content_container = self.get_content_container()
+        layout = QVBoxLayout(self)
+        layout.setSpacing(20)
+        layout.setContentsMargins(0, 0, 0, 0)
         
         # Main layout with left and right panels
-        main_layout = QHBoxLayout(content_container)
+        main_layout = QHBoxLayout()
         main_layout.setSpacing(20)
         
         # Left panel: Filters and Table
@@ -101,9 +106,12 @@ class ModulesPage(ContentPage):
         right_panel = self._create_right_panel()
         main_layout.addWidget(right_panel, 1)  # Takes 1/3 of the space
         
+        layout.addLayout(main_layout)
+        
     def _create_left_panel(self) -> QWidget:
         """Create the left panel with filters and table."""
         panel = QWidget()
+        panel.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         layout = QVBoxLayout(panel)
         layout.setSpacing(15)
         layout.setContentsMargins(0, 0, 0, 0)  # Remove margins to align with page title
@@ -223,6 +231,9 @@ class ModulesPage(ContentPage):
         widget = QWidget()
         widget.setObjectName("TableSection")
         
+        # Set size policy to expand and fill available space
+        widget.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        
         layout = QVBoxLayout(widget)
         layout.setSpacing(10)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -240,18 +251,28 @@ class ModulesPage(ContentPage):
         self.table.setSelectionBehavior(TableWidget.SelectionBehavior.SelectRows)
         self.table.setSelectionMode(TableWidget.SelectionMode.SingleSelection)
         
+        # Set size policy to expand and fill available space
+        self.table.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
+        
+        # Set a fixed row height and icon size for consistent layout
+        vh = self.table.verticalHeader()
+        if vh is not None:
+            vh.setDefaultSectionSize(40)  # Increased height for better icon spacing
+        self.table.setIconSize(QSize(32, 32))
+
         # Set up headers
         header = self.table.horizontalHeader()
         if header:
-            header.setStretchLastSection(False)
-            header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)  # Name column stretches
-            header.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
-            header.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
-            header.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
-            header.setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)
-            header.setSectionResizeMode(5, QHeaderView.ResizeMode.ResizeToContents)
-        
-        # Set custom delegate
+            header.setStretchLastSection(True)  # Make last column stretch to fill remaining space
+            # Set fixed widths for all columns except the last one
+            header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)  # Name
+            header.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)  # Type
+            header.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)  # Rarity
+            header.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)  # Level
+            header.setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)  # Equipped
+            header.setSectionResizeMode(5, QHeaderView.ResizeMode.ResizeToContents)  # Favorited
+            
+        # Set custom delegate for styling
         self.table.setItemDelegate(ModuleTableItemDelegate(self.table))
         
         layout.addWidget(self.table)
@@ -431,9 +452,48 @@ class ModulesPage(ContentPage):
         self.table.setRowCount(len(self.filtered_modules))
         
         for row, module in enumerate(self.filtered_modules):
-            # Name
+            # Name - text + decoration icon (composite of frame + icon)
             name_item = QTableWidgetItem(module["name"])
+            # attach full module dict for selection handling
             name_item.setData(Qt.ItemDataRole.UserRole, module)
+            
+            try:
+                sprites_path = os.path.join(os.path.dirname(__file__), "../../../..", "resources", "assets", "sprites")
+                sprites_path = os.path.normpath(sprites_path)
+
+                # Final icon size in table
+                icon_size = self.table.iconSize()  # QSize(width, height)
+
+                # Load original images using PIL
+                frame_path = os.path.join(sprites_path, f"{module['frame_name']}.png")
+                icon_path = os.path.join(sprites_path, f"{module['icon_name']}.png")
+
+                frame_img = Image.open(frame_path).convert("RGBA")
+                icon_img = Image.open(icon_path).convert("RGBA")
+
+                # Resize using high-quality Lanczos
+                frame_resized = frame_img.resize((icon_size.width(), icon_size.height()), Image.Resampling.LANCZOS)
+
+                margin = int(icon_size.width() * 0.22)
+                icon_resized = icon_img.resize(
+                    (icon_size.width() - 2 * margin, icon_size.height() - 2 * margin),
+                    Image.Resampling.LANCZOS
+                )
+
+                # Paste icon onto frame (centered)
+                frame_resized.paste(icon_resized, (margin, margin), icon_resized)
+
+                # Convert PIL image to QPixmap
+                data = frame_resized.tobytes("raw", "RGBA")
+                qimage = QImage(data, frame_resized.width, frame_resized.height, QImage.Format.Format_RGBA8888)
+                qpixmap = QPixmap.fromImage(qimage)
+
+                name_item.setIcon(QIcon(qpixmap))
+
+            except Exception as e:
+                print(f"Error creating icon: {e}")
+
+            
             self.table.setItem(row, 0, name_item)
             
             # Type with icon
@@ -457,6 +517,8 @@ class ModulesPage(ContentPage):
             favorited_item = QTableWidgetItem("★" if module["is_favorite"] else "")
             favorited_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
             self.table.setItem(row, 5, favorited_item)
+        
+
             
     def _apply_filters(self):
         """Apply all active filters to the module list."""
@@ -478,7 +540,7 @@ class ModulesPage(ContentPage):
             # Type filter (handle icons in text)
             if type_filter != "All":
                 # Remove icon from filter text for comparison
-                filter_text = type_filter.strip()
+                filter_text = type_filter.strip().split("  ")[-1]
                 if module["type"] != filter_text:
                     continue
                 
@@ -552,4 +614,205 @@ class ModulesPage(ContentPage):
             icon_name="",
             substats=[]
         )
-        self.module_view.set_module_data(empty_data) 
+        self.module_view.set_module_data(empty_data)
+
+
+class AnalysisTabWidget(QWidget):
+    """
+    The analysis tab widget for module analysis and statistics.
+    """
+    
+    def __init__(self, parent: QWidget | None = None):
+        super().__init__(parent)
+        self._init_ui()
+        
+    def _init_ui(self):
+        """Initialize the user interface."""
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(24, 24, 24, 24)
+        layout.setSpacing(16)
+        
+        # Header
+        header_label = BodyLabel("Module Analysis")
+        header_label.setObjectName("AnalysisHeader")
+        layout.addWidget(header_label)
+        
+        # Description
+        description_label = CaptionLabel("Analyze your modules for optimal builds and performance insights.")
+        layout.addWidget(description_label)
+        
+        # Placeholder content
+        placeholder = CardWidget()
+        placeholder_layout = QVBoxLayout(placeholder)
+        placeholder_layout.setContentsMargins(24, 24, 24, 24)
+        
+        placeholder_label = BodyLabel("Module Analysis features coming soon!")
+        placeholder_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        placeholder_layout.addWidget(placeholder_label)
+        
+        layout.addWidget(placeholder)
+        layout.addStretch()
+
+
+class ModulesPage(ContentPage):
+    """
+    The modules page of the application with tabbed interface.
+
+    Features:
+    - Tabbed interface with Modules and Analysis tabs
+    - Filterable and sortable module table
+    - Search functionality
+    - Type and rarity filters
+    - Level range slider
+    - Equipped and favorited checkboxes
+    - Module preview widget
+    """
+    
+    # Signals
+    module_selected = pyqtSignal(dict)  # Emitted when a module is selected in the table
+    category_navigated = pyqtSignal(str)  # Emits the category name
+    
+    def __init__(self, parent: QWidget | None = None):
+        super().__init__(
+            title="Modules",
+            description="Manage and analyze your game modules",
+            parent=parent
+        )
+        
+        # Initialize UI
+        self._init_ui()
+        
+    def _init_ui(self):
+        """Initialize the user interface."""
+        content_container = self.get_content_container()
+        
+        # Main layout
+        layout = QVBoxLayout(content_container)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(16)
+        
+        # Create the Pivot and add it to the container
+        self.pivot = self._create_pivot()
+        layout.addWidget(self.pivot, 0)  # Add with stretch factor 0 to prevent expansion
+        
+        # Create the content area with stacked widget
+        self.content_stack = QStackedWidget()
+        self.content_stack.setObjectName("modules_content_stack")
+        layout.addWidget(self.content_stack, 1)  # Add with stretch factor 1 to take remaining space
+        
+        # Create content widgets for each pivot
+        self._create_pivot_content()
+        
+    def _create_pivot(self) -> Pivot:
+        """Create the Pivot with modules category navigation."""
+        pivot = Pivot()
+        pivot.setObjectName("modules_pivot")
+        
+        # Define modules categories
+        categories = [
+            {
+                'name': 'modules',
+                'title': 'Modules',
+                'description': 'Browse and manage your modules'
+            },
+            {
+                'name': 'analysis',
+                'title': 'Analysis',
+                'description': 'Analyze module performance and statistics'
+            }
+        ]
+        
+        # Add items to the Pivot
+        for category in categories:
+            pivot.addItem(
+                routeKey=category['name'],
+                text=category['title']
+            )
+        
+        # Calculate and set minimum width for each pivot item based on text content
+        self._set_pivot_item_widths(pivot)
+        
+        # Connect the currentItemChanged signal to handle pivot changes
+        pivot.currentItemChanged.connect(self._on_pivot_changed)
+        
+        return pivot
+        
+    def _create_pivot_content(self):
+        """Create content widgets for each pivot."""
+        # Create content widgets for each category
+        self.modules_tab = ModulesTabWidget(self)
+        self.analysis_tab = AnalysisTabWidget(self)
+        
+        # Connect signals from modules tab
+        self.modules_tab.module_selected.connect(self.module_selected.emit)
+        
+        # Add content widgets to the stacked widget
+        self.content_stack.addWidget(self.modules_tab)
+        self.content_stack.addWidget(self.analysis_tab)
+        
+        # Set the first pivot as active
+        if self.pivot.items:
+            first_key = list(self.pivot.items.keys())[0]
+            self.pivot.setCurrentItem(first_key)
+        
+    def _on_pivot_changed(self, route_key: str):
+        """Handle pivot change event."""
+        # Find the index of the content widget for this route key
+        content_widgets = {
+            'modules': 0,
+            'analysis': 1
+        }
+        
+        if route_key in content_widgets:
+            index = content_widgets[route_key]
+            if index < self.content_stack.count():
+                # Switch to the corresponding content widget
+                self.content_stack.setCurrentIndex(index)
+                
+                # Emit the category navigation signal
+                self.category_navigated.emit(route_key)
+    
+    def _set_pivot_item_widths(self, pivot: Pivot):
+        """Calculate and set minimum width for each pivot item based on text content."""
+        from PyQt6.QtGui import QFontMetrics
+        from PyQt6.QtCore import QSize
+        
+        # Get the font metrics to calculate text width
+        font = pivot.font()
+        font_metrics = QFontMetrics(font)
+        
+        # Parse the CSS to get actual padding values
+        from ..stylesheets import PIVOT_QSS
+        import re
+        padding_match = re.search(r'padding:\s*(\d+)px\s+(\d+)px', PIVOT_QSS)
+        if padding_match:
+            top_bottom_padding = int(padding_match.group(1))
+            left_right_padding = int(padding_match.group(2))
+            total_padding = left_right_padding * 2  # Left + right padding
+        else:
+            # Fallback if parsing fails
+            total_padding = 40
+        
+        # Set individual minimum width for each pivot item based on its text content
+        for route_key, item in pivot.items.items():
+            text_width = font_metrics.horizontalAdvance(item.text())
+            min_width = text_width + total_padding
+            item.setMinimumWidth(min_width)
+        
+        # Configure the layout to distribute space evenly
+        if hasattr(pivot, 'hBoxLayout') and pivot.hBoxLayout:
+            # Set stretch factors to make all items equal width
+            for route_key, item in pivot.items.items():
+                pivot.hBoxLayout.setStretch(pivot.hBoxLayout.indexOf(item), 1)
+    
+    def get_current_category(self) -> str:
+        """Get the currently active category."""
+        return self.pivot.currentRouteKey() or ""
+    
+    def update_modules_data(self, modules: List[Dict[str, Any]]):
+        """Update the modules data from external source."""
+        self.modules_tab.update_modules_data(modules)
+        
+    def clear_selection(self):
+        """Clear the current table selection."""
+        self.modules_tab.clear_selection()

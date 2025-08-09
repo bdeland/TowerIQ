@@ -12,7 +12,7 @@ from PyQt6.QtGui import QPixmap, QPainter, QPainterPath, QColor, QFont
 from PyQt6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QGraphicsDropShadowEffect
 from dataclasses import dataclass
 
-from qfluentwidgets import ProgressBar, TitleLabel, CaptionLabel, BodyLabel
+from qfluentwidgets import ProgressBar, TitleLabel, CaptionLabel, BodyLabel, CardWidget, SimpleCardWidget
 from ..stylesheets.stylesheets import get_themed_stylesheet
 
 
@@ -50,7 +50,7 @@ class RarityPillWidget(QWidget):
     def __init__(self, rarity: str, parent=None):
         super().__init__(parent=parent)
         self.rarity = rarity.lower()
-        self.setFixedHeight(24)  # Back to original size since we don't need extra space for manual glow
+        self.setFixedHeight(20)  # Back to original size since we don't need extra space for manual glow
         self.setMinimumWidth(70)
         self.setMaximumWidth(80)
         
@@ -66,7 +66,6 @@ class RarityPillWidget(QWidget):
         # Create the text label
         self.text_label = QLabel(self._get_display_rarity(rarity))
         self.text_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.text_label.setStyleSheet("background-color: transparent; border: none;")
         
         # Set text color based on rarity
         _, text_color, _ = self._get_colors()
@@ -91,7 +90,7 @@ class RarityPillWidget(QWidget):
         # Create the glow effect
         glow_effect = QGraphicsDropShadowEffect()
         glow_effect.setOffset(0, 0)  # No offset
-        glow_effect.setBlurRadius(12)  # Adjust for desired glow intensity
+        glow_effect.setBlurRadius(20)  # Adjust for desired glow intensity
         glow_effect.setColor(QColor(bg_color))  # Set the glow color to match rarity
         
         # Apply the effect to the widget
@@ -141,22 +140,22 @@ class RarityPillWidget(QWidget):
     def _get_colors(self) -> tuple[str, str, str]:
         """Get the colors for the current rarity."""
         color_map = {
-            'common': ('#a0a0a0', '#ffffff', '#808080'),
-            'rare': ('#47dbff', '#000000', '#3bb8e6'),
-            'rareplus': ('#47dbff', '#000000', '#3bb8e6'),
-            'epic': ('#ff4ccf', '#ffffff', '#e644b8'),
-            'epicplus': ('#ff4ccf', '#ffffff', '#e644b8'),
-            'legendary': ('#ff9c3d', '#000000', '#e68a36'),
-            'legendaryplus': ('#ff9c3d', '#000000', '#e68a36'),
-            'mythic': ('#ff4040', '#ffffff', '#e63939'),
-            'mythicplus': ('#ff4040', '#ffffff', '#e63939'),
-            'ancestral': ('#79f369', '#000000', '#6ad95a'),
+            'common': ('#a0a0a0', '#ffffff', '#ffffff'),
+            'rare': ('#47dbff', '#000000', '#ffffff'),
+            'rareplus': ('#47dbff', '#000000', '#ffffff'),
+            'epic': ('#ff4ccf', '#ffffff', '#ffffff'),
+            'epicplus': ('#ff4ccf', '#ffffff', '#ffffff'),
+            'legendary': ('#ff9c3d', '#000000', '#ffffff'),
+            'legendaryplus': ('#ff9c3d', '#000000', '#ffffff'),
+            'mythic': ('#ff4040', '#ffffff', '#ffffff'),
+            'mythicplus': ('#ff4040', '#ffffff', '#ffffff'),
+            'ancestral': ('#79f369', '#000000', '#ffffff'),
         }
         
-        return color_map.get(self.rarity, ('#6c757d', '#ffffff', '#495057'))
+        return color_map.get(self.rarity, ('#6c757d', '#ffffff', '#ffffff'))
 
 
-class SubstatRowWidget(QWidget):
+class SubstatRowWidget(CardWidget):
     """Widget representing a single substat row with rarity pill and two-part text."""
     
     def __init__(self, value_text: str, name_text: str, rarity: str, parent=None):
@@ -164,7 +163,7 @@ class SubstatRowWidget(QWidget):
         self.setObjectName("SubstatRow")
         
         layout = QHBoxLayout(self)
-        layout.setContentsMargins(10, 5, 10, 5)
+        layout.setContentsMargins(10, 8, 10, 8)
         layout.setSpacing(10)
 
         # Rarity Pill - using custom RarityPillWidget
@@ -184,6 +183,8 @@ class SubstatRowWidget(QWidget):
         # Nested layout to control spacing specifically between value and name
         self._text_layout = QHBoxLayout()
         self._text_layout.setContentsMargins(0, 0, 0, 0)
+        self._text_layout.setAlignment(Qt.AlignmentFlag.AlignVCenter)
+        self._text_layout.setAlignment(Qt.AlignmentFlag.AlignLeft)
         # spacing will be set dynamically based on space width in current font
         self._text_layout.setSpacing(0)
         self._text_layout.addWidget(self.value_label)
@@ -211,6 +212,8 @@ class SubstatRowWidget(QWidget):
 
     def event(self, e):
         # Recalculate spacing when fonts/styles might change
+        if e is None:
+            return super().event(e)
         if e.type() in (
             QEvent.Type.FontChange,
             QEvent.Type.ApplicationFontChange,
@@ -220,12 +223,13 @@ class SubstatRowWidget(QWidget):
         return super().event(e)
 
 
-class LockedSubstatRowWidget(QWidget):
+class LockedSubstatRowWidget(SimpleCardWidget):
     """Widget representing a locked substat slot."""
     
     def __init__(self, unlock_level: int, parent=None):
         super().__init__(parent=parent)
         self.setObjectName("LockedSubstatRow")
+        #self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         
         layout = QHBoxLayout(self)
         layout.setContentsMargins(10, 8, 10, 8)
@@ -337,9 +341,21 @@ class ModuleViewWidget(QWidget):
         self.unique_effect_label = BodyLabel("Unique Effect")
         self.unique_effect_label.setObjectName("UniqueEffectTitle")
         
+        # Create a SimpleCardWidget container for the unique effect
+        self.unique_effect_container = SimpleCardWidget()
+        self.unique_effect_container.setObjectName("UniqueEffectContainer")
+        
+        # Create layout for the unique effect container
+        self.unique_effect_layout = QVBoxLayout(self.unique_effect_container)
+        self.unique_effect_layout.setContentsMargins(12, 12, 12, 12)
+        self.unique_effect_layout.setSpacing(8)
+        
         self.unique_effect_text = BodyLabel()
         self.unique_effect_text.setObjectName("UniqueEffectText")
         self.unique_effect_text.setWordWrap(True)
+        
+        # Add the text to the container layout
+        self.unique_effect_layout.addWidget(self.unique_effect_text)
     
     def _init_layout(self):
         """Initialize the layout structure."""
@@ -387,7 +403,7 @@ class ModuleViewWidget(QWidget):
         
         # 4. Unique Effect section (if applicable)
         main_layout.addWidget(self.unique_effect_label)
-        main_layout.addWidget(self.unique_effect_text)
+        main_layout.addWidget(self.unique_effect_container)
         
         main_layout.addStretch()
     
@@ -633,11 +649,16 @@ class ModuleViewWidget(QWidget):
             
         if self.module_data.unique_effect_text:
             self.unique_effect_text.setText(self.module_data.unique_effect_text)
+            # Set the color directly to ensure it's applied
+            self.unique_effect_text.setProperty("lightColor", "#ffae00")
+            self.unique_effect_text.setProperty("darkColor", "#ffae00")
             self.unique_effect_label.show()
-            self.unique_effect_text.show()
+            self.unique_effect_container.show()
+            # Force stylesheet refresh to ensure qproperty colors are applied
+            self.unique_effect_text.repaint()
         else:
             self.unique_effect_label.hide()
-            self.unique_effect_text.hide()
+            self.unique_effect_container.hide()
 
     def _update_main_effect(self):
         """Update the main effect line shown under the title."""
