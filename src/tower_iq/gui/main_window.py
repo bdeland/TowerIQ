@@ -107,6 +107,16 @@ class MainWindow(FluentWindow):
         self.connection_page.connect_device_requested.connect(self._on_connect_device_requested)
         self.connection_page.disconnect_device_requested.connect(self._on_disconnect_device_requested)
         self.connection_page.refresh_processes_requested.connect(self._on_refresh_processes_requested)
+        # New: script compatibility + activation signals
+        if hasattr(self.connection_page, 'compatible_scripts_requested'):
+            self.connection_page.compatible_scripts_requested.connect(self._on_compatible_scripts_requested)
+        if hasattr(self.connection_page, 'activate_hook_requested'):
+            self.connection_page.activate_hook_requested.connect(self._on_activate_hook_requested)
+        if hasattr(self.connection_page, 'select_process_requested'):
+            self.connection_page.select_process_requested.connect(self._on_select_process_requested)
+        # Controller -> UI updates
+        if self.controller and hasattr(self.controller, 'compatible_scripts_ready'):
+            self.controller.compatible_scripts_ready.connect(self.connection_page.update_compatible_scripts)
         
         # Connect settings page signals
         self.settings_page.category_navigated.connect(self.on_settings_category_navigated)
@@ -263,6 +273,47 @@ class MainWindow(FluentWindow):
         else:
             #TODO: fix this
             pass
+
+    def _on_compatible_scripts_requested(self, package_name: str, app_version: str):
+        """Forward compatible scripts request to controller in a thread-safe way."""
+        if self.controller:
+            try:
+                from PyQt6.QtCore import QMetaObject, Qt, Q_ARG
+                QMetaObject.invokeMethod(
+                    self.controller,
+                    "on_compatible_scripts_requested",
+                    Qt.ConnectionType.QueuedConnection,
+                    Q_ARG(str, package_name),
+                    Q_ARG(str, app_version)
+                )
+            except Exception:
+                pass
+
+    def _on_activate_hook_requested(self, hook_data: dict):
+        if self.controller:
+            try:
+                from PyQt6.QtCore import QMetaObject, Qt, Q_ARG
+                QMetaObject.invokeMethod(
+                    self.controller,
+                    "on_activate_hook_requested",
+                    Qt.ConnectionType.QueuedConnection,
+                    Q_ARG(object, hook_data)
+                )
+            except Exception:
+                pass
+
+    def _on_select_process_requested(self, process_data: dict):
+        if self.controller:
+            try:
+                from PyQt6.QtCore import QMetaObject, Qt, Q_ARG
+                QMetaObject.invokeMethod(
+                    self.controller,
+                    "on_select_process_requested",
+                    Qt.ConnectionType.QueuedConnection,
+                    Q_ARG(object, process_data)
+                )
+            except Exception:
+                pass
 
     def _on_connect_device_requested(self, device_serial: str):
         """Handle device connection requests from the connection page."""

@@ -72,6 +72,7 @@ class ConnectionStageManager:
         self.session_manager = session_manager
         self.emulator_service = emulator_service
         self.frida_service = frida_service
+        self.current_hook_script: Optional[str] = None
 
         # Define connection stages
         self.stages = [
@@ -131,7 +132,7 @@ class ConnectionStageManager:
             "script_injection": 1
         }
 
-    async def execute_connection_flow(self, device_id: str, process_info: Dict) -> bool:
+    async def execute_connection_flow(self, device_id: str, process_info: Dict, hook_script_content: Optional[str] = None) -> bool:
         """
         Execute the complete connection flow with stage tracking.
 
@@ -152,6 +153,7 @@ class ConnectionStageManager:
         self.is_executing = True
         self.current_device_id = device_id
         self.current_process_info = process_info
+        self.current_hook_script = hook_script_content
 
         try:
             # Reset all stages to pending
@@ -164,6 +166,11 @@ class ConnectionStageManager:
             # Execute each stage in sequence
             for stage in self.stages:
                 success = await self._execute_stage(stage)
+                # Emit live updates for UI after every stage execution
+                try:
+                    self.session_manager.update_connection_stages(self.get_all_stages_status())
+                except Exception:
+                    pass
                 if not success:
                     self.logger.error("Connection flow failed",
                                       stage=stage.stage_name)
@@ -282,7 +289,7 @@ class ConnectionStageManager:
         elif stage_name == "process_attachment":
             return await self._attach_to_process(device_id, process_info)
         elif stage_name == "script_injection":
-            return await self._inject_script(process_info)
+            return await self._inject_script()
         else:
             raise ValueError(f"Unknown stage: {stage_name}")
 
@@ -372,11 +379,13 @@ class ConnectionStageManager:
             self.logger.error("Error attaching to process", error=str(e))
             return False
 
-    async def _inject_script(self, process_info: Dict) -> bool:
-        """Inject the hook script."""
+    async def _inject_script(self) -> bool:
+        """Inject the hook script using the provided script content."""
         try:
-            version = process_info.get('version', 'Unknown')
-            success = await self.frida_service.inject_script(version)
+            if not self.current_hook_script:
+                self.logger.error("No hook script content provided for injection")
+                return False
+            success = await self.frida_service.inject_script(self.current_hook_script)
 
             if not success:
                 self.logger.error("Failed to inject script")
@@ -408,8 +417,11 @@ class ConnectionStageManager:
 
     def _update_session_stage(self, stage: str, message: str):
         """Update session manager with current stage information."""
-        self.session_manager.hook_activation_stage = stage
-        self.session_manager.hook_activation_message = message
+        # Legacy no-op in favor of live stage list updates via update_connection_stages()
+        try:
+            pass
+        except Exception:
+            pass
 
     def get_stage_status(self, stage_name: str) -> Optional[ConnectionStageInfo]:
         """Get the status of a specific stage."""

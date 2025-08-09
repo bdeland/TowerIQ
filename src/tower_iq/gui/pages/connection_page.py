@@ -16,7 +16,7 @@ from PyQt6.QtWidgets import (
     QGroupBox, QTextEdit, QFrame, QHeaderView, QTableWidgetItem, QSizePolicy
 )
 from qfluentwidgets import (SwitchButton, FluentIcon, PushButton, TableWidget, TableItemDelegate, isDarkTheme,
-                            ProgressRing, BodyLabel, InfoBar, InfoBarPosition, CardWidget, SimpleCardWidget)
+                            ProgressRing, BodyLabel, InfoBar, InfoBarPosition, CardWidget, SimpleCardWidget, ComboBox)
 from PyQt6.QtCore import pyqtSignal, Qt, QTimer
 from PyQt6.QtGui import QPalette, QColor
 
@@ -59,13 +59,14 @@ class CustomTableItemDelegate(TableItemDelegate):
 
 
 class ConnectionPage(QWidget):
-    # --- Signals remain the same ---
+    # --- Signals ---
     scan_devices_requested = pyqtSignal()
     connect_device_requested = pyqtSignal(str)
     disconnect_device_requested = pyqtSignal()  # New signal for disconnect requests
     refresh_processes_requested = pyqtSignal()
     select_process_requested = pyqtSignal(dict)
-    activate_hook_requested = pyqtSignal()
+    activate_hook_requested = pyqtSignal(object)  # Emits selected hook script dict
+    compatible_scripts_requested = pyqtSignal(str, str)  # package, version
     back_to_stage_requested = pyqtSignal(int)
     
     def __init__(self, session_manager, config_manager, log_signal=None, parent=None):
@@ -90,10 +91,13 @@ class ConnectionPage(QWidget):
         self.status_section = self._create_status_section() # Status section remains a GroupBox
         self.device_card = self._create_device_card()
         self.process_card = self._create_process_card()
-        # Temporarily use a simple QGroupBox instead of ActivationStatusWidget
-        self.activation_section = QGroupBox("Activation", self)
+        # Activation Status section
+        self.activation_section = QGroupBox("Activation Status", self)
         activation_layout = QVBoxLayout(self.activation_section)
-        activation_layout.addWidget(BodyLabel("Activation widget temporarily disabled"))
+        self.activation_status_container = QWidget(self.activation_section)
+        self.activation_status_layout = QVBoxLayout(self.activation_status_container)
+        self.activation_status_layout.setContentsMargins(0, 0, 0, 0)
+        activation_layout.addWidget(self.activation_status_container)
         
         # Add sections to layout
         layout.addWidget(self.status_section)
@@ -107,6 +111,9 @@ class ConnectionPage(QWidget):
         self.session_manager.available_processes_changed.connect(self.update_process_table)
         self.session_manager.connection_main_state_changed.connect(self._on_connection_state_changed)
         self.session_manager.connection_sub_state_changed.connect(self._on_connection_sub_state_changed)
+        # Live stage updates for activation status UI
+        if hasattr(self.session_manager, 'connection_stages_changed'):
+            self.session_manager.connection_stages_changed.connect(self._on_connection_stages_changed)
         
         # Connect activation widget signals (disabled for debugging)
         # self.activation_section.cancel_clicked.connect(self._on_cancel_clicked)
@@ -325,6 +332,14 @@ class ConnectionPage(QWidget):
         content_layout.setContentsMargins(10, 10, 10, 10)
         content_layout.setSpacing(10)
 
+        # Script selection bar
+        script_bar = QHBoxLayout()
+        script_bar.addWidget(BodyLabel("Hook Script:"))
+        self.hook_script_combo = ComboBox(self)
+        self.hook_script_combo.setEnabled(False)
+        script_bar.addWidget(self.hook_script_combo)
+        content_layout.addLayout(script_bar)
+
         # Create the process table
         self.process_table = self._create_standard_table(["App Name", "Package", "Version", "PID", "Status"])
         self.process_table.itemSelectionChanged.connect(self._on_process_selection_changed)
@@ -347,7 +362,7 @@ class ConnectionPage(QWidget):
         
         self.activate_hook_button = PushButton(FluentIcon.PLAY_SOLID, "Activate Hook")
         self.activate_hook_button.setEnabled(False) # Enabled when process is selected
-        self.activate_hook_button.clicked.connect(self.activate_hook_requested)
+        self.activate_hook_button.clicked.connect(self._emit_activate_hook)
         bottom_bar_layout.addWidget(self.activate_hook_button)
         content_layout.addLayout(bottom_bar_layout)
         
@@ -447,7 +462,7 @@ class ConnectionPage(QWidget):
         self.process_card.setEnabled(True)
         self.refresh_processes_button.setEnabled(is_connected or is_active)
         self.activate_hook_button.setEnabled(False)  # Will be enabled when process is selected
-        self.activation_section.setVisible(is_active)
+        self.activation_section.setVisible(is_active or is_connected)
         
         # Update device card button visibility based on connection state
         if is_connected or is_active:
@@ -715,6 +730,12 @@ class ConnectionPage(QWidget):
             if item is not None and hasattr(item, 'data'):
                 process_data = item.data(Qt.ItemDataRole.UserRole)
                 self.select_process_requested.emit(process_data)
+                # Request compatible scripts
+                package = process_data.get('package', '')
+                version = process_data.get('version', 'Unknown')
+                self.hook_script_combo.clear()
+                self.hook_script_combo.setEnabled(False)
+                self.compatible_scripts_requested.emit(package, version)
 
     def _on_cancel_clicked(self):
         """Handle cancel button clicks based on current state."""
@@ -742,6 +763,49 @@ class ConnectionPage(QWidget):
         self.logger.info("Manual device scan triggered by user (refresh button)")
         self.scan_devices_requested.emit()
         self.logger.info("Device scan signal emitted to main window")
+
+    # --- New helpers for script selection and activation status ---
+    def update_compatible_scripts(self, scripts: list):
+        """Populate the combo with compatible scripts and enable controls."""
+        self.hook_script_combo.clear()
+        for script in scripts or []:
+            name = script.get('scriptName', script.get('fileName', 'Script'))
+            self.hook_script_combo.addItem(name, userData=script)
+        has_items = self.hook_script_combo.count() > 0
+        self.hook_script_combo.setEnabled(has_items)
+        self.activate_hook_button.setEnabled(has_items)
+
+    def _emit_activate_hook(self):
+        data = self.hook_script_combo.currentData()
+        self.activate_hook_requested.emit(data if isinstance(data, dict) else {})
+
+    def _on_connection_stages_changed(self, stages: list):
+        # Clear existing widgets
+        while self.activation_status_layout.count():
+            item = self.activation_status_layout.takeAt(0)
+            if item is None:
+                continue
+            w = item.widget()
+            if w is not None:
+                w.deleteLater()
+        # Rebuild status rows
+        for stage in stages or []:
+            row = QHBoxLayout()
+            status = getattr(stage, 'status', None)
+            status_value = getattr(status, 'value', None)
+            if status_value is None:
+                status_value = str(status) if status is not None else "pending"
+            icon_label = BodyLabel("⏳" if status_value in ("pending", "active") else ("✅" if status_value == "completed" else "❌"))
+            row.addWidget(icon_label)
+            name_label = BodyLabel(getattr(stage, 'display_name', getattr(stage, 'stage_name', 'Stage')))
+            row.addWidget(name_label)
+            msg_label = BodyLabel(getattr(stage, 'message', ''))
+            row.addWidget(msg_label)
+            container = QWidget()
+            layout = QHBoxLayout(container)
+            layout.setContentsMargins(0, 0, 0, 0)
+            layout.addLayout(row)
+            self.activation_status_layout.addWidget(container)
 
     def showEvent(self, event):
         """Override showEvent to expand device card when page is shown."""

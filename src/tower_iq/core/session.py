@@ -184,6 +184,7 @@ class SessionManager(QObject):
     connection_sub_state_changed = pyqtSignal(object)  # Can be ConnectionSubState or None
     state_inconsistency_detected = pyqtSignal(list)  # List of StateInconsistency
     state_recovery_attempted = pyqtSignal(bool)  # True if recovery succeeded
+    connection_stages_changed = pyqtSignal(list)
 
     def __init__(self):
         super().__init__()
@@ -227,6 +228,7 @@ class SessionManager(QObject):
             self._stage_progress = {}
             self._last_error_info = None
             self._state_snapshot = None
+            self._connection_stages = []
 
     def _set_property(self, name: str, value: Any, signal: Any = None):
         """Generic thread-safe property setter that emits a signal on change."""
@@ -560,3 +562,10 @@ class SessionManager(QObject):
         """Clear error information."""
         with QMutexLocker(self._mutex):
             self._last_error_info = None 
+
+    # --- New connection stages state for UI live updates ---
+    def update_connection_stages(self, stages: list):
+        """Update connection stages and emit change signal (thread-safe)."""
+        with QMutexLocker(self._mutex):
+            self._connection_stages = stages
+        self.connection_stages_changed.emit(stages)

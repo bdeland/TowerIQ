@@ -18,6 +18,8 @@ from .services.database_service import DatabaseService
 from .services.emulator_service import EmulatorService
 from .services.connection_flow_controller import ConnectionFlowController
 from .services.connection_stage_manager import ConnectionStageManager
+from .services.hook_script_manager import HookScriptManager
+from .services.frida_service import FridaService
 
 
 class DeviceScanWorker(QObject):
@@ -104,6 +106,7 @@ class MainController(QObject):
     # Signals
     setup_finished = pyqtSignal(bool)
     device_scan_requested = pyqtSignal()
+    compatible_scripts_ready = pyqtSignal(list)
     
     def __init__(self, config: ConfigurationManager, logger: Any, db_path: str = '', db_service=None) -> None:
         super().__init__()
@@ -123,6 +126,16 @@ class MainController(QObject):
         
         # Initialize session manager
         self.session = SessionManager()
+        # Initialize connection and script services
+        # Hooks directory relative to project root
+        project_root = self.config.get_project_root()
+        hooks_dir = os.path.join(project_root, 'test_frida_scripts')
+        self.hook_manager = HookScriptManager(hooks_dir_path=hooks_dir)
+        try:
+            self.hook_manager.discover_scripts()
+        except Exception:
+            pass
+
         
         # Link services (only if not already linked)
         if not hasattr(config, '_db_service') or config._db_service is None:
@@ -146,6 +159,13 @@ class MainController(QObject):
         
         # Initialize timer properly in main thread
         self.monitor_timer = None
+
+        # Wire UI-related signals if a MainWindow will connect
+        try:
+            # No-op: signals defined above
+            pass
+        except Exception:
+            pass
     
     def _setup_worker_threads(self):
         """Set up worker threads for background operations."""
@@ -400,16 +420,25 @@ class MainController(QObject):
         finally:
             loop.close()
     
-    @pyqtSlot(str)
-    def on_select_process_requested(self, package_name: str):
+    @pyqtSlot(object)
+    def on_select_process_requested(self, process_data: dict):
         """Handle process selection requests from the GUI."""
-        self.logger.info("Process selection requested from GUI", package_name=package_name)
-        
+        package_name = (process_data or {}).get('package', '')
+        version = (process_data or {}).get('version', 'Unknown')
+        pid = (process_data or {}).get('pid', None)
+
+        self.logger.info("Process selection requested from GUI", package_name=package_name, version=version, pid=pid)
+
         # Update session state
         self.session.selected_target_package = package_name
-        
-        # TODO: Implement real hook compatibility check
-        self.session.is_hook_compatible = False  # Conservative default
+        self.session.selected_target_version = version
+        try:
+            self.session.selected_target_pid = int(pid) if pid is not None else None
+        except Exception:
+            self.session.selected_target_pid = None
+
+        # Reset compatibility until validated
+        self.session.is_hook_compatible = False
         
         self.logger.info("Process selection handled", package_name=package_name)
     
@@ -446,16 +475,70 @@ class MainController(QObject):
         finally:
             loop.close()
     
-    @pyqtSlot(str)
-    def on_activate_hook_requested(self, package_name: str):
+    @pyqtSlot(object)
+    def on_activate_hook_requested(self, hook_data: dict):
         """Handle hook activation requests from the GUI."""
-        self.logger.info("Hook activation requested from GUI", package_name=package_name)
+        self.logger.info("Hook activation requested from GUI", hook_data=hook_data)
         
-        # TODO: Implement real hook activation
-        # Note: is_hook_active is computed from connection state, so we don't set it directly
-        self.session.selected_target_package = package_name
-        
-        self.logger.info("Hook activation handled (not yet implemented)", package_name=package_name)
+        # Gather required info
+        device_id = self.session.connected_emulator_serial
+        process_info = {
+            "pid": self.session.selected_target_pid,
+            "package": self.session.selected_target_package,
+            "version": self.session.selected_target_version,
+        }
+        if not device_id or not process_info.get("pid"):
+            self.logger.error("Cannot activate hook: missing device or process info")
+            return
+
+        # Load script content via HookScriptManager
+        file_name = (hook_data or {}).get('fileName')
+        script_content = ''
+        try:
+            if file_name:
+                script_content = self.hook_manager.get_script_content(file_name)
+        except Exception as e:
+            self.logger.error("Failed to load script content", error=str(e))
+            script_content = ''
+        if not script_content:
+            self.logger.error("No script content available for injection")
+            return
+
+        # Execute connection flow using ConnectionStageManager directly for injection phases
+        # Build stage manager and frida service context
+        try:
+            # Create a FridaService backed by a dedicated event loop for this action
+            import asyncio
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            frida_service = FridaService(self.config, self.logger, loop)
+            stage_manager = ConnectionStageManager(self.session, self.emulator_service, frida_service, self.logger)
+
+            success = loop.run_until_complete(stage_manager.execute_connection_flow(
+                device_id, process_info, hook_script_content=script_content
+            ))
+        except Exception as e:
+            self.logger.error("Error during hook activation flow", error=str(e))
+            success = False
+        finally:
+            try:
+                loop.close()
+            except Exception:
+                pass
+
+        if success:
+            self.logger.info("Hook activation flow completed successfully")
+        else:
+            self.logger.error("Hook activation flow failed")
+
+    @pyqtSlot(str, str)
+    def on_compatible_scripts_requested(self, package_name: str, app_version: str):
+        """Handle requests for compatible hook scripts from the GUI."""
+        try:
+            compatible = self.hook_manager.get_compatible_scripts(package_name, app_version)
+        except Exception:
+            compatible = []
+        self.compatible_scripts_ready.emit(compatible)
         
     def get_session_state(self) -> dict:
         """Get current session state for debugging."""

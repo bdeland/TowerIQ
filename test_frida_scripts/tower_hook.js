@@ -1,3 +1,19 @@
+/** TOWERIQ_HOOK_METADATA
+{
+    "contractVersion": "1.1",
+    "fileName": "tower_hook.js",
+    "scriptName": "The Tower - Full Data Logger",
+    "scriptDescription": "A comprehensive logger for all major in-game events and currencies.",
+    "targetPackage": "com.TechTreeGames.TheTower",
+    "supportedVersions": ["26.5.3"],
+    "features": [
+        "round_start_end_events",
+        "per_wave_metric_bundle",
+        "detailed_gem_tracking"
+    ]
+}
+*/
+
 // tower_hook_integrated_v29.js
 
 // This script is a long-running data logger.

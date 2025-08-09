@@ -1,104 +1,52 @@
 📦
-4243 /tracer.js.map
-5001 /tracer.js
+1967 /tracer.js.map
+2488 /tracer.js
 157866 /node_modules/frida-il2cpp-bridge/dist/index.js
 ↻ frida-il2cpp-bridge
 ✄
-{"version":3,"file":"tracer.js","sourceRoot":"C:/Users/delan/Documents/GitHub/TowerIQ/","sources":["tracer.js"],"names":[],"mappings":"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"}
+{"version":3,"file":"tracer.js","sourceRoot":"C:/Users/delan/Documents/GitHub/TowerIQ/","sources":["tracer.js"],"names":[],"mappings":"AAAA,oBAAoB;AACpB,yFAAyF;AACzF,+DAA+D;AAE/D,OAAO,qBAAqB,CAAC;AAE7B,SAAS,GAAG,CAAC,KAAK,EAAE,OAAO,IAAI,OAAO,CAAC,GAAG,CAAC,IAAI,KAAK,CAAC,WAAW,EAAE,KAAK,OAAO,EAAE,CAAC,CAAC,CAAC,CAAC;AAEpF,MAAM,CAAC,YAAY,GAAG;IAClB,GAAG,CAAC,QAAQ,EAAE,8BAA8B,CAAC,CAAC;IAC9C,IAAI;QACA,MAAM,aAAa,GAAG,MAAM,CAAC,MAAM,CAAC,QAAQ,CAAC,iBAAiB,CAAC,CAAC,KAAK,CAAC,KAAK,CAAC,eAAe,CAAC,CAAC;QAC7F,0EAA0E;QAC1E,MAAM,YAAY,GAAG,aAAa,CAAC,MAAM,CAAC,wBAAwB,EAAE,CAAC,CAAC,CAAC;QAEvE,WAAW,CAAC,MAAM,CAAC,YAAY,CAAC,MAAM,EAAE;YACpC,OAAO,EAAE,UAAS,IAAI;gBAClB,GAAG,CAAC,SAAS,EAAE,oDAAoD,CAAC,CAAC;gBACrE,GAAG,CAAC,SAAS,EAAE,8CAA8C,CAAC,CAAC;gBAE/D,uFAAuF;gBACvF,MAAM,QAAQ,GAAG,IAAI,CAAC,CAAC,CAAC,CAAC,OAAO,EAAE,KAAK,CAAC,CAAC;gBACzC,MAAM,QAAQ,GAAG,IAAI,CAAC,CAAC,CAAC,CAAC,OAAO,EAAE,KAAK,CAAC,CAAC;gBACzC,GAAG,CAAC,QAAQ,EAAE,uBAAuB,QAAQ,eAAe,QAAQ,EAAE,CAAC,CAAC;gBAExE,oEAAoE;gBACpE,MAAM,KAAK,GAAG,MAAM,CAAC,SAAS,CAAC,IAAI,CAAC,OAAO,EAAE,UAAU,CAAC,QAAQ,CAAC,CAAC,GAAG,CAAC,WAAW,CAAC,WAAW,CAAC,CAAC,IAAI,CAAC,KAAK,CAAC,CAAC;gBAC3G,OAAO,CAAC,GAAG,CAAC,uBAAuB,KAAK,yBAAyB,CAAC,CAAC;YACvE,CAAC;YACD,OAAO,EAAE,UAAS,MAAM;gBACpB,sDAAsD;gBACtD,MAAM,SAAS,GAAG,IAAI,MAAM,CAAC,MAAM,CAAC,MAAM,CAAC,CAAC;gBAC5C,MAAM,SAAS,GAAG,SAAS,CAAC,KAAK,CAAC,WAAW,CAAC,CAAC,KAAK,CAAC;gBACrD,MAAM,MAAM,GAAG,SAAS,CAAC,KAAK,CAAC,eAAe,CAAC,CAAC,KAAK,CAAC,QAAQ,EAAE,CAAC;gBACjE,MAAM,UAAU,GAAG,aAAa,CAAC,KAAK,CAAC,UAAU,CAAC,CAAC,KAAK,CAAC,MAAM,CAAC,eAAe,EAAE,CAAC,CAAC,CAAC,MAAM,CAAC,SAAS,CAAC,CAAC,QAAQ,EAAE,CAAC;gBACjH,GAAG,CAAC,QAAQ,EAAE,WAAW,UAAU,MAAM,MAAM,qBAAqB,CAAC,CAAC;gBACtE,GAAG,CAAC,SAAS,EAAE,sDAAsD,CAAC,CAAC;YAC3E,CAAC;SACJ,CAAC,CAAC;QAEH,GAAG,CAAC,SAAS,EAAE,8EAA8E,CAAC,CAAC;KAElG;IAAC,OAAO,CAAC,EAAE;QACR,GAAG,CAAC,OAAO,EAAE,4BAA4B,CAAC,CAAC,KAAK,EAAE,CAAC,CAAC;KACvD;AACL,CAAC,CAAC;AAEF,MAAM,CAAC,OAAO,CAAC,GAAG,EAAE;IAChB,GAAG,CAAC,SAAS,EAAE,gEAAgE,CAAC,CAAC;AACrF,CAAC,CAAC,CAAC"}
 ✄
-// module_inspector_with_sprites_final.js
-// This is the final, corrected tool. The inspectSprite function has been
-// rewritten to read the sprite information directly from the ModuleDetailsUI
-// panel, which is the correct and most direct approach.
+// creator_tracer.js
+// This script hooks the final "factory" method that creates a module from a banner pull.
+// It reveals the final result of all probability calculations.
 import "frida-il2cpp-bridge";
 function log(level, message) { console.log(`[${level.toUpperCase()}] ${message}`); }
-// --- Main Tool Functions ---
-global.inspectModule = function () {
-    // This function is complete and works perfectly.
-    log("ACTION", "Inspecting the current module's data...");
-    let moduleManager, allEffectsArray;
+global.traceCreator = function () {
+    log("ACTION", "Arming the creator tracer...");
     try {
-        moduleManager = Il2Cpp.domain.assembly("Assembly-CSharp").image.class("ModuleManager").field("Instance").value;
-        allEffectsArray = moduleManager.field("effects").value;
-    }
-    catch (e) {
-        log("ERROR", "Could not get ModuleManager.");
-        return;
-    }
-    let moduleItem;
-    try {
-        const moduleUI = Il2Cpp.domain.assembly("Assembly-CSharp").image.class("ModuleUI").method("get_Instance").invoke();
-        const detailsPanel = moduleUI.field("moduleDetailsUI").value;
-        moduleItem = detailsPanel.field("_moduleItem").value;
-        if (!moduleItem || moduleItem.isNull()) {
-            log("ERROR", "No module is being inspected. Please open a module's detail page.");
-            return;
-        }
-    }
-    catch (e) {
-        log("ERROR", `Failed to get the inspected module: ${e.stack}`);
-        return;
-    }
-    try {
-        const infoIndex = moduleItem.field("infoIndex").value;
-        const moduleName = moduleManager.method("GetModuleName", 1).invoke(infoIndex).toString();
-        const moduleLevel = moduleItem.field("level").value;
-        const effects = moduleItem.field("effects").value;
-        const effectLocked = moduleItem.field("effectLocked").value;
-        log("INFO", `--- Inspector Report for: "${moduleName}" (Level ${moduleLevel}) ---`);
-        for (let i = 0; i < effects.length; i++) {
-            const effectId = effects.get(i);
-            const isLocked = effectLocked.get(i);
-            const effectInfo = allEffectsArray.get(effectId);
-            const clusterName = effectInfo.field("clusterIndex").value.toString();
-            if (clusterName !== "None") {
-                const rarity = effectInfo.field("rarity").value.toString();
-                log("DETAIL", `[Slot ${i}] Effect: ${clusterName} (${rarity}) | Locked: ${isLocked}`);
+        const ModuleManager = Il2Cpp.domain.assembly("Assembly-CSharp").image.class("ModuleManager");
+        // This function is the result of a banner purchase. It takes 3 arguments.
+        const targetMethod = ModuleManager.method("CreateModuleFromBanner", 3);
+        Interceptor.attach(targetMethod.handle, {
+            onEnter: function (args) {
+                log("SUCCESS", "--------------------------------------------------");
+                log("SUCCESS", "---> CreateModuleFromBanner was called! <---");
+                // args[0] is 'this', args[1] is ModuleBanner, args[2] is epicPity, args[3] is rarePity
+                const epicPity = args[2].toInt32() === 1;
+                const rarePity = args[3].toInt32() === 1;
+                log("DETAIL", `Inputs -> epicPity: ${epicPity}, rarePity: ${rarePity}`);
+                // The call stack shows us the function that made the final decision
+                const stack = Thread.backtrace(this.context, Backtracer.ACCURATE).map(DebugSymbol.fromAddress).join('\\n');
+                console.log(`--- Called by ---\\n${stack}\\n-----------------\\n`);
+            },
+            onLeave: function (retval) {
+                // retval is a pointer to the newly created ModuleItem
+                const newModule = new Il2Cpp.Object(retval);
+                const infoIndex = newModule.field("infoIndex").value;
+                const rarity = newModule.field("currentRarity").value.toString();
+                const moduleName = ModuleManager.field("Instance").value.method("GetModuleName", 1).invoke(infoIndex).toString();
+                log("RESULT", `---> A "${moduleName}" (${rarity}) was created! <---`);
+                log("SUCCESS", "--------------------------------------------------\n");
             }
-        }
-        log("INFO", "--- End of Report ---");
+        });
+        log("SUCCESS", "Tracer is live on 'CreateModuleFromBanner'. Please buy a module in the game.");
     }
     catch (e) {
-        log("ERROR", `An error occurred while inspecting the module: ${e.stack}`);
-    }
-};
-global.inspectSprite = function () {
-    log("ACTION", "Inspecting the current module's sprites...");
-    try {
-        // Get the ModuleDetailsUI panel directly
-        const moduleUI = Il2Cpp.domain.assembly("Assembly-CSharp").image.class("ModuleUI").method("get_Instance").invoke();
-        const detailsPanel = moduleUI.field("moduleDetailsUI").value;
-        if (!detailsPanel || detailsPanel.isNull()) {
-            log("ERROR", "Could not find the ModuleDetailsUI panel instance.");
-            return;
-        }
-        // --- Extract Sprite Names Directly from the Details Panel ---
-        // Based on consistent naming, these fields should exist on ModuleDetailsUI.
-        const frameImage = detailsPanel.field("moduleFrame").value;
-        const iconImage = detailsPanel.field("moduleIcon").value;
-        // An Image component's image is stored in its 'sprite' property.
-        // We access properties via "get_PROPERTYNAME" methods.
-        const frameSprite = frameImage.method("get_sprite").invoke();
-        const iconSprite = iconImage.method("get_sprite").invoke();
-        const frameSpriteName = frameSprite ? frameSprite.method("get_name").invoke().toString() : "None";
-        const iconSpriteName = iconSprite ? iconSprite.method("get_name").invoke().toString() : "None";
-        // Get the module name for a nice report header
-        const moduleItem = detailsPanel.field("_moduleItem").value;
-        const moduleName = Il2Cpp.domain.assembly("Assembly-CSharp").image.class("ModuleManager").field("Instance").value.method("GetModuleName", 1).invoke(moduleItem.field("infoIndex").value).toString();
-        log("INFO", `--- Sprite Info for: "${moduleName}" ---`);
-        log("DETAIL", `Frame Sprite Name: ${frameSpriteName}`);
-        log("DETAIL", `Icon Sprite Name: ${iconSpriteName}`);
-        log("INFO", "--- End of Report ---");
-    }
-    catch (e) {
-        log("ERROR", `An error occurred while inspecting sprites: ${e.stack}`);
-        log("HINT", "If this fails, the field names 'moduleFrame' or 'moduleIcon' might be different on the ModuleDetailsUI class. Use a lister script to find the correct names.");
+        log("ERROR", `Failed to attach tracer: ${e.stack}`);
     }
 };
 Il2Cpp.perform(() => {
-    log("SUCCESS", "Complete Module Tool is ready.");
-    log("INFO", "Open a module's detail page in-game.");
-    log("ACTION", "Call 'inspectModule()' for substat info, or 'inspectSprite()' for image info.");
+    log("SUCCESS", "Tracer script is ready. Call traceCreator() to arm the tracer.");
 });
 ✄
 "use strict";
