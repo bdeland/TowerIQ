@@ -8,7 +8,7 @@ from pathlib import Path
 import structlog
 from PyQt6.QtCore import Qt, pyqtSlot, QObject, QThread, pyqtSignal
 from PyQt6.QtWidgets import QWidget, QVBoxLayout, QScrollArea, QFileDialog
-from qfluentwidgets import FluentIcon, LineEdit, InfoBar
+from qfluentwidgets import FluentIcon, LineEdit, InfoBar, InfoBarPosition
 
 from ..utils.settings_item_card import SettingsItemCard
 from ..utils.database_path_card import DatabasePathCard
@@ -175,7 +175,8 @@ class DatabaseSettingsPage(QWidget):
                 title='Fixes Attempted',
                 content='Database health check and fix process completed.',
                 duration=3000,
-                parent=self
+                parent=self,
+                position=InfoBarPosition.BOTTOM_RIGHT,
             )
     
     @pyqtSlot(str)
@@ -185,7 +186,8 @@ class DatabaseSettingsPage(QWidget):
             title='Error',
             content=error_message,
             duration=3000,
-            parent=self
+            parent=self,
+            position=InfoBarPosition.BOTTOM_RIGHT,
         )
         self.health_check_card.set_busy(False)
         

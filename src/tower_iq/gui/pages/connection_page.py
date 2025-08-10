@@ -172,7 +172,8 @@ class ConnectionPage(QWidget):
             title="Successfully connected to device",
             content=f"Device {device_serial} is now connected and ready.",
             duration=4000,
-            parent=self
+            parent=self,
+            position=InfoBarPosition.BOTTOM_RIGHT,
         )
 
     def _show_connection_error_infobar(self, device_serial: str, error_message: str):
@@ -189,7 +190,8 @@ class ConnectionPage(QWidget):
             title="Connection failed",
             content=f"Failed to connect to {device_serial}: {error_message}",
             duration=5000,
-            parent=self
+            parent=self,
+            position=InfoBarPosition.BOTTOM_RIGHT,
         )
 
 

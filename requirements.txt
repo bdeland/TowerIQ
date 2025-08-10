@@ -6,6 +6,7 @@ numba
 
 # For plotting and visualization
 matplotlib
+seaborn
 
 # For enhanced Qt widgets including QLabeledRangeSlider
 superqt

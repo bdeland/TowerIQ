@@ -7,13 +7,24 @@ import os
 from typing import List, Optional, Dict, Any, cast
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel,
-    QHeaderView, QTableWidgetItem, QSizePolicy, QStackedWidget
+    QHeaderView, QTableWidgetItem, QSizePolicy, QStackedWidget,
+    QFormLayout, QProgressBar
 )
-from PyQt6.QtCore import Qt, pyqtSignal, QSize, QRect, QPoint
+from PyQt6.QtCore import Qt, pyqtSignal, QSize, QRect, QPoint, QThread
+# Optional Plotly view support
+try:
+    from PyQt6.QtWebEngineWidgets import QWebEngineView  # type: ignore
+except Exception:  # pragma: no cover
+    QWebEngineView = None  # type: ignore
 from PyQt6.QtGui import QColor, QPixmap, QPainter, QIcon, QImage
+from matplotlib.figure import Figure
+from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
+import seaborn as sns
 from qfluentwidgets import (
     TableWidget, TableItemDelegate, SearchLineEdit, ComboBox, 
-    BodyLabel, CaptionLabel, CardWidget, CheckBox, PushButton
+    BodyLabel, CaptionLabel, CheckBox, PushButton, InfoBar, InfoBarPosition,
+    SimpleCardWidget, TransparentToolButton, SpinBox, DoubleSpinBox,
+    PrimaryPushButton, ToolTipFilter, FlowLayout
 )
 from qfluentwidgets.components.navigation.pivot import Pivot
 from qfluentwidgets import FluentIcon
@@ -27,6 +38,8 @@ from ..stylesheets.stylesheets import RARITY_COLORS
 # Import ModuleSimulator and related classes
 from ...core.game_data.modules.module_simulator import ModuleSimulator, GeneratedModule
 from ...core.game_data.modules.game_data_manager import GameDataManager
+from ...core.game_data.modules.enhanced_fast_simulator import EPIC_MODULES
+from ..workers.simulator_worker import SimulatorWorker
 
 
 class ModuleTableItemDelegate(TableItemDelegate):
@@ -617,41 +630,492 @@ class ModulesTabWidget(QWidget):
         self.module_view.set_module_data(empty_data)
 
 
-class AnalysisTabWidget(QWidget):
-    """
-    The analysis tab widget for module analysis and statistics.
-    """
-    
+class SimulatorTabWidget(QWidget):
+    """Module Pull Simulator UI."""
+
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
+        self._epic_modules = list(EPIC_MODULES)
+        self.worker_thread: QThread | None = None
+        self.worker: SimulatorWorker | None = None
         self._init_ui()
-        
+        self._setup_worker()
+
     def _init_ui(self):
-        """Initialize the user interface."""
         layout = QVBoxLayout(self)
         layout.setContentsMargins(24, 24, 24, 24)
         layout.setSpacing(16)
-        
-        # Header
-        header_label = BodyLabel("Module Analysis")
-        header_label.setObjectName("AnalysisHeader")
-        layout.addWidget(header_label)
-        
-        # Description
-        description_label = CaptionLabel("Analyze your modules for optimal builds and performance insights.")
-        layout.addWidget(description_label)
-        
-        # Placeholder content
-        placeholder = CardWidget()
-        placeholder_layout = QVBoxLayout(placeholder)
-        placeholder_layout.setContentsMargins(24, 24, 24, 24)
-        
-        placeholder_label = BodyLabel("Module Analysis features coming soon!")
-        placeholder_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        placeholder_layout.addWidget(placeholder_label)
-        
-        layout.addWidget(placeholder)
-        layout.addStretch()
+
+        # Targets & Parameters section
+        params_card = SimpleCardWidget()
+        params_form = QFormLayout(params_card)
+        params_form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.FieldsStayAtSizeHint)
+        params_form.setContentsMargins(24, 24, 24, 24)
+        params_form.setSpacing(12)
+
+        # Target Modules: label with info icon
+        tm_label_row = QWidget()
+        tm_label_layout = QHBoxLayout(tm_label_row)
+        tm_label_layout.setContentsMargins(0, 0, 0, 0)
+        tm_label_layout.setSpacing(6)
+        tm_info = TransparentToolButton(FluentIcon.INFO)
+        tm_label = CaptionLabel("Target Modules")
+        # Tooltips for help
+        self._install_tooltip(tm_info, "Select one or more epic modules to target, with copies required.")
+        self._install_tooltip(tm_label, "Select one or more epic modules to target, with copies required.")
+        tm_label_layout.addWidget(tm_info)
+        tm_label_layout.addWidget(tm_label)
+
+        # TableWidget with Module, Copies, Remove
+        self.targets_table = self._create_targets_table()
+        params_form.addRow(tm_label_row, self.targets_table)
+
+        # Under-table Add button (icon only)
+        add_row_container = QWidget()
+        add_row_layout = QHBoxLayout(add_row_container)
+        add_row_layout.setContentsMargins(4, 4, 4, 0)
+        add_row_layout.setSpacing(0)
+        self.add_row_button = TransparentToolButton(FluentIcon.ADD)
+        self._install_tooltip(self.add_row_button, "Add another target module")
+        self.add_row_button.clicked.connect(self._on_add_target_row)
+        add_row_layout.addWidget(self.add_row_button)
+        add_row_layout.addStretch(1)
+        params_form.addRow("", add_row_container)
+
+        # Controls row: Pity, Accuracy, Confidence (single row)
+        controls_row = QWidget()
+        # Use a two-row responsive layout: one HBox inside a container with word wrap behavior
+        # We approximate wrapping by allowing expanding widgets and letting layout flow to next line via parent width
+        # For robust behavior, we place items in a grid-like form using nested layouts
+        controls_layout = QHBoxLayout(controls_row)
+        controls_layout.setContentsMargins(0, 0, 0, 0)
+        controls_layout.setSpacing(16)
+
+        # Pity group
+        pity_group = QWidget()
+        pity_group_layout = QHBoxLayout(pity_group)
+        pity_group_layout.setContentsMargins(0, 0, 0, 0)
+        pity_group_layout.setSpacing(8)
+        self.pity_spinbox = SpinBox()
+        self.pity_spinbox.setRange(1, 150)
+        self.pity_spinbox.setValue(1)
+        pity_reset = PushButton("Reset")
+        pity_reset.clicked.connect(lambda: self.pity_spinbox.setValue(1))
+        pity_info = TransparentToolButton(FluentIcon.INFO)
+        pity_label = CaptionLabel("Pity Counter")
+        self._install_tooltip(pity_info, "Pulls since last epic before pity guarantee triggers.")
+        self._install_tooltip(pity_label, "Pulls since last epic before pity guarantee triggers.")
+        pity_group_layout.addWidget(pity_info)
+        pity_group_layout.addWidget(pity_label)
+        pity_group_layout.addWidget(self.pity_spinbox)
+        pity_group_layout.addWidget(pity_reset)
+
+        # Accuracy group
+        accuracy_group = QWidget()
+        accuracy_layout = QHBoxLayout(accuracy_group)
+        accuracy_layout.setContentsMargins(0, 0, 0, 0)
+        accuracy_layout.setSpacing(8)
+        self.accuracy_spinbox = DoubleSpinBox()
+        self.accuracy_spinbox.setSuffix(" %")
+        self.accuracy_spinbox.setDecimals(2)
+        self.accuracy_spinbox.setRange(0.01, 10.0)
+        self.accuracy_spinbox.setSingleStep(0.05)
+        self.accuracy_spinbox.setValue(1.00)
+        self.sim_count_label = BodyLabel("")
+        acc_info = TransparentToolButton(FluentIcon.INFO)
+        acc_label = CaptionLabel("Simulation Accuracy")
+        self._install_tooltip(acc_info, "Lower % runs more simulations for tighter estimates.")
+        self._install_tooltip(acc_label, "Lower % runs more simulations for tighter estimates.")
+        accuracy_layout.addWidget(acc_info)
+        accuracy_layout.addWidget(acc_label)
+        accuracy_layout.addWidget(self.accuracy_spinbox)
+        accuracy_layout.addWidget(self.sim_count_label)
+
+        # Confidence group
+        confidence_group = QWidget()
+        confidence_layout = QHBoxLayout(confidence_group)
+        confidence_layout.setContentsMargins(0, 0, 0, 0)
+        confidence_layout.setSpacing(8)
+        self.confidence_spinbox = SpinBox()
+        self.confidence_spinbox.setRange(1, 99)
+        self.confidence_spinbox.setValue(95)
+        self.confidence_spinbox.setSuffix(" %")
+        conf_info = TransparentToolButton(FluentIcon.INFO)
+        conf_label = CaptionLabel("Confidence Level")
+        self._install_tooltip(conf_info, "Percentile to report for required gems (e.g., 95%).")
+        self._install_tooltip(conf_label, "Percentile to report for required gems (e.g., 95%).")
+        confidence_layout.addWidget(conf_info)
+        confidence_layout.addWidget(conf_label)
+        confidence_layout.addWidget(self.confidence_spinbox)
+
+        # Assemble
+        # Allow groups to expand and wrap by policy
+        for grp in (pity_group, accuracy_group, confidence_group):
+            grp.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+            controls_layout.addWidget(grp)
+        params_form.addRow("", controls_row)
+
+        # Hooks
+        self.accuracy_spinbox.valueChanged.connect(self._update_sim_count_label)
+        self._update_sim_count_label()
+
+        layout.addWidget(params_card)
+
+        # Create first default row with placeholder
+        self._add_target_row(is_first=True)
+
+        # Results section (above button)
+        results_card = SimpleCardWidget()
+        results_layout = QVBoxLayout(results_card)
+        results_layout.setContentsMargins(24, 24, 24, 24)
+        results_layout.setSpacing(12)
+
+        self.progress_bar = QProgressBar()
+        self.progress_bar.setRange(0, 100)
+        self.progress_bar.setValue(0)
+        self.progress_bar.setVisible(False)
+        results_layout.addWidget(self.progress_bar)
+
+        self.results_label = BodyLabel("Set targets and run the simulation to see results.")
+        results_layout.addWidget(self.results_label)
+
+        layout.addWidget(results_card)
+
+        # Run Simulation button
+        self.run_button = PrimaryPushButton("Run Simulation")
+        self.run_button.setEnabled(False)
+        self.run_button.clicked.connect(self._on_run_clicked)
+        layout.addWidget(self.run_button)
+
+        # Chart below the run button
+        chart_card = SimpleCardWidget()
+        chart_layout = QVBoxLayout(chart_card)
+        chart_layout.setContentsMargins(24, 24, 24, 24)
+        chart_layout.setSpacing(12)
+        sns.set_theme(style="whitegrid")
+        self.figure = Figure(figsize=(5, 3), tight_layout=True)
+        self.canvas = FigureCanvas(self.figure)
+        self.ax = self.figure.add_subplot(111)
+        self._init_blank_chart()
+        chart_layout.addWidget(self.canvas)
+        layout.addWidget(chart_card)
+
+        # Validation hooks
+        self.pity_spinbox.valueChanged.connect(self._validate_inputs)
+        self.confidence_spinbox.valueChanged.connect(self._validate_inputs)
+        self.accuracy_spinbox.valueChanged.connect(self._validate_inputs)
+        self._validate_inputs()
+
+    def _setup_worker(self):
+        # Create thread and worker and connect signals
+        if self.worker_thread is not None:
+            try:
+                self.worker_thread.quit()
+                self.worker_thread.wait()
+            except Exception:
+                pass
+        self.worker_thread = QThread(self)
+        self.worker = SimulatorWorker()
+        self.worker.moveToThread(self.worker_thread)
+        # Start signal connects to run method
+        self.worker_thread.started.connect(self.worker.run)
+        # Progress and finished signals
+        self.worker.progress_updated.connect(self._on_progress_updated)
+        # Partial results for real-time chart updates (safe getattr to appease linters)
+        partial_sig = getattr(self.worker, 'partial_results', None)
+        if partial_sig is not None:
+            partial_sig.connect(self._on_partial_results)
+        self.worker.simulation_finished.connect(self.display_simulation_results)
+
+    def _install_tooltip(self, widget: QWidget, text: str):
+        try:
+            # Best-effort: set a standard Qt tooltip; some builds of ToolTipFilter use different signatures
+            widget.setToolTip(text)
+            try:
+                widget.installEventFilter(ToolTipFilter(widget))  # type: ignore[arg-type]
+            except Exception:
+                pass
+        except Exception:
+            pass
+
+    def _on_add_target_row(self):
+        self._add_target_row()
+        self._validate_inputs()
+
+    def _create_targets_table(self) -> TableWidget:
+        table = TableWidget()
+        table.setColumnCount(3)
+        table.setHorizontalHeaderLabels(["Module", "Copies", ""])
+        header = table.horizontalHeader()
+        if header:
+            header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+            header.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
+            header.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
+        table.setAlternatingRowColors(True)
+        table.setSelectionBehavior(TableWidget.SelectionBehavior.SelectRows)
+        table.setSelectionMode(TableWidget.SelectionMode.SingleSelection)
+        # Compact vertical sizing
+        table.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        vh = table.verticalHeader()
+        if vh is not None:
+            vh.setDefaultSectionSize(36)
+            vh.setVisible(False)
+        # Hide header if possible to save vertical space
+        if header:
+            header.setVisible(False)
+        table.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        table.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        table.setShowGrid(False)
+        return table
+
+    def _add_target_row(self, is_first: bool = False):
+        row = self.targets_table.rowCount()
+        self.targets_table.insertRow(row)
+
+        # Module combo with placeholder that is NOT in dropdown list
+        combo = ComboBox()
+        # Placeholder text shown when index is -1
+        combo.setPlaceholderText("Select a Target Module")
+        for name in self._epic_modules:
+            combo.addItem(name)
+        # Ensure no selection initially (shows placeholder)
+        combo.setCurrentIndex(-1)
+        combo.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        # Keep module column wide enough for the longest name
+        fm = combo.fontMetrics() if hasattr(combo, 'fontMetrics') else None
+        longest_text = max(self._epic_modules, key=len) if self._epic_modules else "Magnetic Hook"
+        text_px = fm.horizontalAdvance(longest_text) if fm else len(longest_text) * 9
+        column_width = min(700, max(260, text_px + 60))
+        self.targets_table.setColumnWidth(0, column_width)
+        def on_combo_changed_index(_idx: int):
+            self._validate_inputs()
+            remove_btn = self.targets_table.cellWidget(row, 2)
+            if isinstance(remove_btn, TransparentToolButton):
+                is_placeholder = (combo.currentIndex() == -1)
+                # First row special handling: allow revert to placeholder
+                remove_btn.setEnabled((not is_placeholder) or (row > 0))
+                tip = (
+                    "Can't delete, at least one module needed for simulation"
+                    if is_placeholder and row == 0 else "Remove this target"
+                )
+                self._install_tooltip(remove_btn, tip)
+        combo.currentIndexChanged.connect(on_combo_changed_index)
+        self.targets_table.setCellWidget(row, 0, combo)
+
+        # Copies spinbox with unified width
+        copies = SpinBox()
+        copies.setRange(1, 99)
+        copies.setValue(1)
+        copies.setMinimumWidth(80)
+        copies.valueChanged.connect(self._validate_inputs)
+        self.targets_table.setCellWidget(row, 1, copies)
+
+        # Delete button handling
+        remove_btn = TransparentToolButton(FluentIcon.DELETE)
+        self._install_tooltip(remove_btn, "Can't delete, at least one module needed for simulation")
+        # Initially disabled on first row (no selection yet)
+        remove_btn.setEnabled(False if is_first else True)
+        def on_remove():
+            # If first row or placeholder behavior: revert to placeholder instead of removing
+            if row == 0:
+                combo.setCurrentIndex(-1)
+                on_combo_changed_index(-1)
+            else:
+                self._remove_target_row(remove_btn)
+        remove_btn.clicked.connect(on_remove)
+        self.targets_table.setCellWidget(row, 2, remove_btn)
+
+        # Make spinboxes consistent widths
+        self._normalize_spinbox_widths()
+
+        self._update_targets_table_height()
+
+    def _remove_target_row(self, source_button: TransparentToolButton):
+        # Find the row that contains the source_button
+        for r in range(self.targets_table.rowCount()):
+            if self.targets_table.cellWidget(r, 2) is source_button:
+                self.targets_table.removeRow(r)
+                break
+        self._validate_inputs()
+        self._update_targets_table_height()
+
+    def _normalize_spinbox_widths(self):
+        # Make all SpinBoxes in the UI consistent widths
+        fixed_w = 80
+        self.pity_spinbox.setMinimumWidth(fixed_w)
+        self.accuracy_spinbox.setMinimumWidth(fixed_w + 40)  # allow for % suffix
+        self.confidence_spinbox.setMinimumWidth(fixed_w)
+        for r in range(self.targets_table.rowCount()):
+            widget = self.targets_table.cellWidget(r, 1)
+            if isinstance(widget, SpinBox):
+                widget.setMinimumWidth(fixed_w)
+
+    def _update_targets_table_height(self):
+        header = self.targets_table.horizontalHeader()
+        header_h = header.height() if header is not None else 24
+        vh = self.targets_table.verticalHeader()
+        row_h = vh.defaultSectionSize() if vh is not None else 36
+        rows = self.targets_table.rowCount()
+        visible_rows = min(max(rows, 1), 4)
+        # Add small padding for frame and margins
+        padding = 8
+        height = header_h + visible_rows * row_h + padding
+        self.targets_table.setFixedHeight(max(height, header_h + row_h + padding))
+        # Enable/disable scroll as needed
+        if rows > 4:
+            self.targets_table.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        else:
+            self.targets_table.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+
+    def _update_sim_count_label(self):
+        value = max(0.0001, float(self.accuracy_spinbox.value()))  # percent
+        sims = int(1 / (value / 100.0))
+        self.sim_count_label.setText(f"≈ {sims:,} sims")
+        if value < 0.05:  # warn for very low accuracy
+            InfoBar.info(
+                title="Low accuracy selected",
+                content="This will run a very large number of simulations.",
+                duration=3000,
+                parent=self,
+                position=InfoBarPosition.TOP_RIGHT,
+            )
+        # keep widths normalized when value changes
+        self._normalize_spinbox_widths()
+
+    def _validate_inputs(self):
+        # Enabled if at least one non-placeholder is selected
+        enabled = False
+        for r in range(self.targets_table.rowCount()):
+            combo = self.targets_table.cellWidget(r, 0)
+            if isinstance(combo, ComboBox) and combo.currentIndex() != -1:
+                enabled = True
+                break
+        self.run_button.setEnabled(enabled)
+
+    def _gather_targets(self) -> list[dict]:
+        targets: list[dict] = []
+        for r in range(self.targets_table.rowCount()):
+            combo = self.targets_table.cellWidget(r, 0)
+            spin = self.targets_table.cellWidget(r, 1)
+            if isinstance(combo, ComboBox) and isinstance(spin, SpinBox):
+                name = combo.currentText().strip()
+                copies = int(spin.value())
+                if name and name != "Select a Target Module":
+                    targets.append({"name": name, "copies": copies})
+        return targets
+
+    def _on_run_clicked(self):
+        # Disable inputs
+        self._set_inputs_enabled(False)
+        # Show progress
+        self.progress_bar.setVisible(True)
+        self.progress_bar.setValue(0)
+
+        # Gather parameters
+        targets = self._gather_targets()
+        pity = int(self.pity_spinbox.value())
+        acc = float(self.accuracy_spinbox.value())
+        num_sims = max(1, int(1 / (acc / 100.0)))
+        confidence = int(self.confidence_spinbox.value())
+
+        if self.worker is None or self.worker_thread is None:
+            self._setup_worker()
+
+        # Load parameters into worker and start thread
+        assert self.worker is not None and self.worker_thread is not None
+        self.worker.start_simulation(targets=targets, pity=pity, num_sims=num_sims, confidence=confidence)
+        self.worker_thread.start()
+
+    def _on_progress_updated(self, percent: int):
+        self.progress_bar.setValue(max(0, min(100, int(percent))))
+
+    def _on_partial_results(self, gems_spent_array: object):
+        try:
+            import numpy as _np
+            data = _np.asarray(gems_spent_array)
+            if data.size == 0:
+                return
+            self._update_chart(data)
+        except Exception:
+            pass
+
+    def display_simulation_results(self, results: dict):
+        gems = int(results.get("percentile_gems", 0))
+        confidence = int(results.get("confidence", 95))
+        pulls = gems / 20.0
+        self.results_label.setText(
+            f"To obtain your targets with {confidence}% confidence, it will take an estimated {gems:,} gems ({pulls:,.0f} pulls)."
+        )
+        InfoBar.success(
+            title="Simulation complete",
+            content="Results are ready.",
+            duration=3000,
+            parent=self,
+            position=InfoBarPosition.TOP_RIGHT,
+        )
+
+        # Hide progress and re-enable inputs
+        self.progress_bar.setVisible(False)
+        self._set_inputs_enabled(True)
+
+        # Update final seaborn histogram
+        try:
+            gems_spent = results.get("gems_spent")
+            if gems_spent is not None and hasattr(gems_spent, "__len__") and len(gems_spent) > 0:
+                self._update_chart(gems_spent)
+        except Exception:
+            pass
+
+        # Stop and clean thread
+        if self.worker_thread is not None:
+            try:
+                self.worker_thread.quit()
+                self.worker_thread.wait()
+            except Exception:
+                pass
+            # Recreate thread for next run
+            self._setup_worker()
+
+    def _set_inputs_enabled(self, enabled: bool):
+        # No explicit add button anymore; enable icon button
+        if hasattr(self, 'add_row_button') and self.add_row_button:
+            self.add_row_button.setEnabled(enabled)
+        self.pity_spinbox.setEnabled(enabled)
+        self.accuracy_spinbox.setEnabled(enabled)
+        self.confidence_spinbox.setEnabled(enabled)
+        self.run_button.setEnabled(enabled and self.targets_table.rowCount() > 0)
+
+    def _init_blank_chart(self):
+        self.ax.clear()
+        self.ax.set_title("Monte Carlo Distribution of Gems Spent")
+        self.ax.set_xlabel("Gems")
+        self.ax.set_ylabel("Frequency")
+        self.canvas.draw_idle()
+
+    def _update_chart(self, gems_spent):
+        import numpy as np
+        self.ax.clear()
+        data = np.asarray(gems_spent)
+        if data.size == 0:
+            self._init_blank_chart()
+            return
+        # Convert histogram to density line with filled area and confidence bands
+        counts, bin_edges = np.histogram(data, bins=50)
+        bin_centers = (bin_edges[:-1] + bin_edges[1:]) / 2
+        line = sns.lineplot(x=bin_centers, y=counts, ax=self.ax, color="#4C78A8")
+        self.ax.fill_between(bin_centers, counts, color="#4C78A8", alpha=0.2)
+        # Confidence bands (e.g., 10th-90th and 25th-75th percentiles)
+        p10, p25, p50, p75, p90 = np.percentile(data, [10, 25, 50, 75, 90])
+        ylim = self.ax.get_ylim()
+        self.ax.axvspan(p10, p90, color="#FFB000", alpha=0.15, label="10-90% CI")
+        self.ax.axvspan(p25, p75, color="#2ECC71", alpha=0.15, label="25-75% IQR")
+        self.ax.axvline(p50, color="#444", linestyle="--", linewidth=1.5, label="Median")
+        self.ax.set_ylim(ylim)
+        self.ax.set_title("Monte Carlo Distribution of Gems Spent")
+        self.ax.set_xlabel("Gems")
+        self.ax.set_ylabel("Frequency")
+        self.ax.legend(loc="upper right")
+        self.canvas.draw_idle()
 
 
 class ModulesPage(ContentPage):
@@ -717,8 +1181,8 @@ class ModulesPage(ContentPage):
             },
             {
                 'name': 'analysis',
-                'title': 'Analysis',
-                'description': 'Analyze module performance and statistics'
+                'title': 'Module Pull Simulator',
+                'description': 'Simulate pulls to reach your target epics'
             }
         ]
         
@@ -741,14 +1205,14 @@ class ModulesPage(ContentPage):
         """Create content widgets for each pivot."""
         # Create content widgets for each category
         self.modules_tab = ModulesTabWidget(self)
-        self.analysis_tab = AnalysisTabWidget(self)
+        self.simulator_tab = SimulatorTabWidget(self)
         
         # Connect signals from modules tab
         self.modules_tab.module_selected.connect(self.module_selected.emit)
         
         # Add content widgets to the stacked widget
         self.content_stack.addWidget(self.modules_tab)
-        self.content_stack.addWidget(self.analysis_tab)
+        self.content_stack.addWidget(self.simulator_tab)
         
         # Set the first pivot as active
         if self.pivot.items:
