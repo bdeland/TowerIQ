@@ -208,3 +208,7 @@ config/local.json
 config/secrets.json
 *.pid
 *.lock
+.cursor/
+.ruff_cache/
+.vscode/
+node_modules/
