@@ -1,50 +1,243 @@
-import { useState } from "react";
-import reactLogo from "./assets/react.svg";
-import { invoke } from "@tauri-apps/api/core";
-import "./App.css";
+import { useState } from 'react';
+import { BrowserRouter as Router, Routes, Route, useNavigate, useLocation } from 'react-router-dom';
+import {
+  AppBar,
+  Box,
+  CssBaseline,
+  Drawer,
+  IconButton,
+  List,
+  ListItem,
+  ListItemButton,
+  ListItemIcon,
+  ListItemText,
+  Toolbar,
+  Typography,
+  ThemeProvider,
+  createTheme,
+} from '@mui/material';
+import {
+  Menu as MenuIcon,
+  Home as HomeIcon,
+  Dashboard as DashboardIcon,
+  Settings as SettingsIcon,
+  Explore as ExploreIcon,
+  History as HistoryIcon,
+  ChevronLeft as ChevronLeftIcon,
+} from '@mui/icons-material';
+import { HomePage } from './pages/HomePage';
+import { DashboardPage } from './pages/DashboardPage';
+import { ExplorePage } from './pages/ExplorePage';
+import { HistoryPage } from './pages/HistoryPage';
+import { SettingsPage } from './pages/SettingsPage';
+import { Breadcrumbs } from './components/Breadcrumbs';
+import './App.css';
 
-function App() {
-  const [greetMsg, setGreetMsg] = useState("");
-  const [name, setName] = useState("");
+// Create a theme for the dashboard
+const theme = createTheme({
+  palette: {
+    mode: 'light',
+    primary: {
+      main: '#646cff',
+    },
+    secondary: {
+      main: '#ff6464',
+    },
+  },
+});
 
-  async function greet() {
-    // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
-    setGreetMsg(await invoke("greet", { name }));
-  }
+const drawerWidth = 240;
+
+// Navigation items with routes
+const navigationItems = [
+  { text: 'Home', icon: <HomeIcon />, path: '/' },
+  { text: 'Dashboard', icon: <DashboardIcon />, path: '/dashboard' },
+  { text: 'Explore', icon: <ExploreIcon />, path: '/explore' },
+  { text: 'History', icon: <HistoryIcon />, path: '/history' },
+  { text: 'Settings', icon: <SettingsIcon />, path: '/settings' },
+];
+
+// Main layout component with navigation
+function DashboardLayout() {
+  const [open, setOpen] = useState(true);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(true);
+  const navigate = useNavigate();
+  const location = useLocation();
+
+  const handleDrawerOpen = () => {
+    setOpen(true);
+  };
+
+  const handleDrawerClose = () => {
+    setOpen(false);
+  };
+
+  const toggleSidebar = () => {
+    setSidebarCollapsed(!sidebarCollapsed);
+  };
+
+  const handleNavigation = (path: string) => {
+    navigate(path);
+  };
 
   return (
-    <main className="container">
-      <h1>Welcome to Tauri + React</h1>
+    <ThemeProvider theme={theme}>
+      <Box sx={{ display: 'flex' }}>
+        <CssBaseline />
+        
+        {/* App Bar */}
+        <AppBar
+          position="fixed"
+          sx={{
+            width: '100%',
+            zIndex: (theme) => theme.zIndex.drawer + 1,
+            transition: 'width 0.3s ease, margin-left 0.3s ease',
+          }}
+        >
+          <Toolbar>
+            <IconButton
+              color="inherit"
+              aria-label="open drawer"
+              edge="start"
+              onClick={handleDrawerOpen}
+              sx={{ mr: 2, display: { sm: 'none' } }}
+            >
+              <MenuIcon />
+            </IconButton>
+            <IconButton
+              color="inherit"
+              aria-label="toggle sidebar"
+              edge="start"
+              onClick={toggleSidebar}
+              sx={{ mr: 2, display: { xs: 'none', sm: 'block' } }}
+            >
+              <MenuIcon />
+            </IconButton>
+            <Typography variant="h6" noWrap component="div">
+              TowerIQ
+            </Typography>
+          </Toolbar>
+        </AppBar>
 
-      <div className="row">
-        <a href="https://vite.dev" target="_blank">
-          <img src="/vite.svg" className="logo vite" alt="Vite logo" />
-        </a>
-        <a href="https://tauri.app" target="_blank">
-          <img src="/tauri.svg" className="logo tauri" alt="Tauri logo" />
-        </a>
-        <a href="https://react.dev" target="_blank">
-          <img src={reactLogo} className="logo react" alt="React logo" />
-        </a>
-      </div>
-      <p>Click on the Tauri, Vite, and React logos to learn more.</p>
+        {/* Sidebar */}
+        <Box
+          component="nav"
+          sx={{ 
+            width: { sm: sidebarCollapsed ? 0 : drawerWidth }, 
+            flexShrink: { sm: 0 },
+            transition: 'width 0.3s ease',
+          }}
+        >
+          {/* Mobile drawer */}
+          <Drawer
+            variant="temporary"
+            open={open}
+            onClose={handleDrawerClose}
+            ModalProps={{
+              keepMounted: true,
+            }}
+            sx={{
+              display: { xs: 'block', sm: 'none' },
+              '& .MuiDrawer-paper': { boxSizing: 'border-box', width: drawerWidth },
+            }}
+          >
+            <Box sx={{ display: 'flex', alignItems: 'center', padding: 1, justifyContent: 'flex-end' }}>
+              <IconButton onClick={handleDrawerClose}>
+                <ChevronLeftIcon />
+              </IconButton>
+            </Box>
+            <List>
+              {navigationItems.map((item) => (
+                <ListItem key={item.text} disablePadding>
+                  <ListItemButton
+                    selected={location.pathname === item.path}
+                    onClick={() => handleNavigation(item.path)}
+                  >
+                    <ListItemIcon>
+                      {item.icon}
+                    </ListItemIcon>
+                    <ListItemText primary={item.text} />
+                  </ListItemButton>
+                </ListItem>
+              ))}
+            </List>
+          </Drawer>
+          
+          {/* Desktop drawer */}
+          <Drawer
+            variant="permanent"
+            sx={{
+              display: { xs: 'none', sm: 'block' },
+              '& .MuiDrawer-paper': { 
+                boxSizing: 'border-box', 
+                width: sidebarCollapsed ? 64 : drawerWidth,
+                transition: 'width 0.3s ease',
+                overflowX: 'hidden',
+              },
+            }}
+            open
+          >
+            <Toolbar />
+            <List>
+              {navigationItems.map((item) => (
+                <ListItem key={item.text} disablePadding>
+                  <ListItemButton
+                    selected={location.pathname === item.path}
+                    onClick={() => handleNavigation(item.path)}
+                    sx={{
+                      minHeight: 48,
+                      justifyContent: sidebarCollapsed ? 'center' : 'initial',
+                      px: 2.5,
+                    }}
+                  >
+                    <ListItemIcon
+                      sx={{
+                        minWidth: 0,
+                        mr: sidebarCollapsed ? 0 : 3,
+                        justifyContent: 'center',
+                      }}
+                    >
+                      {item.icon}
+                    </ListItemIcon>
+                    {!sidebarCollapsed && <ListItemText primary={item.text} />}
+                  </ListItemButton>
+                </ListItem>
+              ))}
+            </List>
+          </Drawer>
+        </Box>
 
-      <form
-        className="row"
-        onSubmit={(e) => {
-          e.preventDefault();
-          greet();
-        }}
-      >
-        <input
-          id="greet-input"
-          onChange={(e) => setName(e.currentTarget.value)}
-          placeholder="Enter a name..."
-        />
-        <button type="submit">Greet</button>
-      </form>
-      <p>{greetMsg}</p>
-    </main>
+        {/* Main content */}
+        <Box
+          component="main"
+          sx={{
+            flexGrow: 1,
+            p: 3,
+            width: { sm: sidebarCollapsed ? 'calc(100% - 64px)' : `calc(100% - ${drawerWidth}px)` },
+            ml: { sm: sidebarCollapsed ? '64px' : 0 },
+            transition: 'width 0.3s ease, margin-left 0.3s ease',
+          }}
+        >
+          <Toolbar />
+          <Breadcrumbs />
+          <Routes>
+            <Route path="/" element={<HomePage />} />
+            <Route path="/dashboard" element={<DashboardPage />} />
+            <Route path="/explore" element={<ExplorePage />} />
+            <Route path="/history" element={<HistoryPage />} />
+            <Route path="/settings" element={<SettingsPage />} />
+          </Routes>
+        </Box>
+      </Box>
+    </ThemeProvider>
+  );
+}
+
+function App() {
+  return (
+    <Router>
+      <DashboardLayout />
+    </Router>
   );
 }
 
