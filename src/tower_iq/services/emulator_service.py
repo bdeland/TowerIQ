@@ -38,7 +38,7 @@ except ImportError:
     FridaError = Exception  # Define for type checking even if frida is not installed
 
 from ..core.config import ConfigurationManager
-from src.tower_iq.core.utils import AdbWrapper, AdbError
+from ..core.utils import AdbWrapper, AdbError
 from .frida_manager import FridaServerManager, FridaServerSetupError
 
 

@@ -12,14 +12,10 @@ packages = [{include = "tower_iq", from = "src"}]
 
 [tool.poetry.dependencies]
 python = ">=3.11,<3.13"
-pyqt6 = "^6.6"
-PyQt6-WebEngine = "^6.6"
-qasync = "^0.24"
 structlog = "^23.2"
 colorama = "*"
 pyyaml = "^6.0"
 python-dotenv = "^1.0"
-pyqtgraph = "^0.13"
 pandas = "^2.2"
 numpy = "^1.26"
 seaborn = "^0.13"
@@ -29,7 +25,6 @@ pyinstaller = "^6.3"
 sqlcipher3-wheels = "^0.5.4"
 frida = "15.2.2"
 frida-tools = ">=11.0.0,<12.0.0"
-PyQt6-Frameless-Window = "*"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^7.4"
@@ -40,8 +35,3 @@ ipykernel = "^6.29.5"
 
 [tool.poetry.scripts]
 tower-iq = "tower_iq.main_app_entry:main"
-tower-iq-qasync = "tower_iq.main_app_entry_qasync_backup:main"
-
-[tool.pyside6]
-[tool.pyside6-project]
-files = ["src/tower_iq/gui/TowerIQ_QTProject/main_app.py"]

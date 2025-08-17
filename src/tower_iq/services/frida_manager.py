@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Any
 import aiohttp
 
-from src.tower_iq.core.utils import AdbWrapper, AdbError
+from ..core.utils import AdbWrapper, AdbError
 
 class FridaServerSetupError(Exception):
     """Raised when frida-server setup fails."""

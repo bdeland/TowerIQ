@@ -8,8 +8,35 @@ numba
 matplotlib
 seaborn
 
-# For enhanced Qt widgets including QLabeledRangeSlider
-superqt
-
 # For image processing (PIL/Pillow)
 Pillow
+
+# For FastAPI backend server
+fastapi
+uvicorn[standard]
+pydantic
+
+# For HTTP requests in startup script
+requests
+
+# For structured logging
+structlog
+colorama
+
+# For PyQt6 GUI
+PyQt6
+
+# For async operations
+qasync
+
+# For database operations
+sqlite3
+
+# For configuration management
+pyyaml
+
+# For Frida integration
+frida-tools
+
+# For device communication
+adb-enhanced
