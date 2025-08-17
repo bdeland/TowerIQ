@@ -146,9 +146,10 @@ def start_tauri_frontend():
             return None
         
         # Start the Tauri app using npx to run the local CLI
+        # Don't capture output so we can see what's happening
         process = subprocess.Popen([
             npx_cmd, "@tauri-apps/cli", "dev"
-        ], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        ], stdout=None, stderr=None, text=True)
         
         logger.info("Tauri frontend started", pid=process.pid)
         return process
