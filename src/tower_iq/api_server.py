@@ -238,10 +238,41 @@ async def get_devices():
         raise HTTPException(status_code=503, detail="Backend not initialized")
     
     try:
-        # This would need to be implemented to get devices from the emulator service
-        return {"devices": []}
+        # Use the emulator service to get devices
+        devices = await controller.emulator_service.list_devices_with_details()
+        return {"devices": devices}
     except Exception as e:
         logger.error("Error getting devices", error=str(e))
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/devices/{device_id}/processes")
+async def get_processes(device_id: str):
+    """Get processes for a specific device."""
+    if not controller:
+        raise HTTPException(status_code=503, detail="Backend not initialized")
+    
+    try:
+        # Use the emulator service to get processes for the device
+        processes = await controller.emulator_service.get_processes(device_id)
+        return {"processes": processes}
+    except Exception as e:
+        logger.error("Error getting processes", error=str(e))
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/hook-scripts")
+async def get_hook_scripts():
+    """Get available hook scripts."""
+    if not controller:
+        raise HTTPException(status_code=503, detail="Backend not initialized")
+    
+    try:
+        # Get scripts from the hook script manager
+        scripts = controller.hook_script_manager.get_available_scripts()
+        return {"scripts": scripts}
+    except Exception as e:
+        logger.error("Error getting hook scripts", error=str(e))
         raise HTTPException(status_code=500, detail=str(e))
 
 

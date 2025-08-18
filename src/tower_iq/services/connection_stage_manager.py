@@ -139,6 +139,7 @@ class ConnectionStageManager:
         Args:
             device_id: Device serial ID
             process_info: Process information dictionary
+            hook_script_content: Optional hook script content to inject
 
         Returns:
             True if connection flow completed successfully, False otherwise

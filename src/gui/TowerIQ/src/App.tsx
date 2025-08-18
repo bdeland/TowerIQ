@@ -24,12 +24,14 @@ import {
   Explore as ExploreIcon,
   History as HistoryIcon,
   ChevronLeft as ChevronLeftIcon,
+  Link as ConnectIcon,
 } from '@mui/icons-material';
 import { HomePage } from './pages/HomePage';
 import { DashboardPage } from './pages/DashboardPage';
 import { ExplorePage } from './pages/ExplorePage';
 import { HistoryPage } from './pages/HistoryPage';
 import { SettingsPage } from './pages/SettingsPage';
+import { ConnectionPage } from './pages/ConnectionPage';
 import { Breadcrumbs } from './components/Breadcrumbs';
 import './App.css';
 
@@ -52,6 +54,7 @@ const drawerWidth = 240;
 const navigationItems = [
   { text: 'Home', icon: <HomeIcon />, path: '/' },
   { text: 'Dashboard', icon: <DashboardIcon />, path: '/dashboard' },
+  { text: 'Connection', icon: <ConnectIcon />, path: '/connection' },
   { text: 'Explore', icon: <ExploreIcon />, path: '/explore' },
   { text: 'History', icon: <HistoryIcon />, path: '/history' },
   { text: 'Settings', icon: <SettingsIcon />, path: '/settings' },
@@ -223,6 +226,7 @@ function DashboardLayout() {
           <Routes>
             <Route path="/" element={<HomePage />} />
             <Route path="/dashboard" element={<DashboardPage />} />
+            <Route path="/connection" element={<ConnectionPage />} />
             <Route path="/explore" element={<ExplorePage />} />
             <Route path="/history" element={<HistoryPage />} />
             <Route path="/settings" element={<SettingsPage />} />

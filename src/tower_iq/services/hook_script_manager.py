@@ -76,6 +76,29 @@ class HookScriptManager:
                 continue
         return compatible
 
+    def get_available_scripts(self) -> List[Dict]:
+        """
+        Return all available scripts with their content loaded.
+        """
+        available_scripts = []
+        for script in self.scripts:
+            try:
+                # Load the script content
+                file_name = script.get("fileName", "")
+                content = self.get_script_content(file_name)
+                
+                # Create a script object with content
+                script_with_content = {
+                    "id": file_name,
+                    "name": script.get("scriptName", script.get("fileName", "Script")),
+                    "description": script.get("description", "No description available"),
+                    "content": content
+                }
+                available_scripts.append(script_with_content)
+            except Exception:
+                continue
+        return available_scripts
+
     def get_script_content(self, file_name: str) -> str:
         """
         Read and return the content of the script by file name. Returns empty string if not found.

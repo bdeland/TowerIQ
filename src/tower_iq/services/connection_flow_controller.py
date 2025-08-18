@@ -264,13 +264,15 @@ class ConnectionFlowController(QObject):
     
     # --- Main Flow Control Methods ---
     
-    async def start_connection_flow(self, device_id: str, process_info: Optional[Dict[str, Any]] = None) -> bool:
+    async def start_connection_flow(self, device_id: str, process_info: Optional[Dict[str, Any]] = None, 
+                                  hook_script_content: Optional[str] = None) -> bool:
         """
         Start the complete connection flow from device selection to hook activation.
         
         Args:
             device_id: Target device identifier
             process_info: Optional process information if already selected
+            hook_script_content: Optional hook script content to inject
             
         Returns:
             True if connection flow completed successfully, False otherwise
@@ -369,7 +371,7 @@ class ConnectionFlowController(QObject):
             # Transition to disconnected state
             if cleanup_success:
                 self.session_manager.transition_to_state(ConnectionState.DISCONNECTED)
-                self.session_manager.reset_connection_state()
+                self.session_manager.reset_to_disconnected()
                 self._logger.info("Disconnect flow completed successfully")
             else:
                 self._logger.warning("Disconnect flow completed with issues")
@@ -621,7 +623,7 @@ class ConnectionFlowController(QObject):
         self._logger.info("Performing minimal cleanup")
         try:
             # Just clear session state without full service cleanup
-            self.session_manager.reset_connection_state()
+            self.session_manager.reset_to_disconnected()
             return True
         except Exception as e:
             self._logger.error("Minimal cleanup failed", error=str(e))
@@ -658,7 +660,7 @@ class ConnectionFlowController(QObject):
             await self.cleanup_manager.force_cleanup_all()
             
             # Reset session state completely
-            self.session_manager.reset_all_state()
+            self.session_manager.reset_to_disconnected()
             
             return standard_success
             
@@ -1196,9 +1198,8 @@ class ConnectionFlowController(QObject):
             
             session_stage = stage_mapping.get(stage, stage.value)
             
-            # Update session manager
-            self.session_manager.hook_activation_stage = session_stage
-            self.session_manager.hook_activation_message = message
+            # Update session manager - these are read-only properties, so we don't set them directly
+            # The stage and message are derived from the connection state
             
             # Create stage progress info
             stage_progress = StageProgress(

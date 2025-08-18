@@ -127,12 +127,21 @@ class EmulatorService:
         """Scans common localhost ports for emulators and tries to connect."""
         self.logger.info(
             "Scanning for network-based emulators on localhost...")
-        # Common ports for Android emulators (Nox, Memu, LDPlayer, etc.) plus MuMu Player
-        ports_to_scan = list(range(5555, 5585, 2)) + [7555]
-
-        tasks = [self._try_adb_connect("127.0.0.1", port)
-                 for port in ports_to_scan]
-        await asyncio.gather(*tasks)
+        
+        # Reduce the port range to avoid excessive scanning
+        # Only scan the most common emulator ports
+        ports_to_scan = [5555, 5557, 5559, 5561, 5563, 5565, 7555]
+        
+        # Add timeout to prevent hanging
+        try:
+            tasks = [self._try_adb_connect("127.0.0.1", port)
+                     for port in ports_to_scan]
+            await asyncio.wait_for(asyncio.gather(*tasks, return_exceptions=True), timeout=10.0)
+        except asyncio.TimeoutError:
+            self.logger.warning("Network device scanning timed out, continuing with available devices")
+        except Exception as e:
+            self.logger.warning("Error during network device scanning", error=str(e))
+        
         self.logger.info("Network scan completed.")
 
     async def _try_adb_connect(self, ip: str, port: int):
@@ -144,7 +153,7 @@ class EmulatorService:
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE
             )
-            stdout, _ = await asyncio.wait_for(process.communicate(), timeout=2.0)
+            stdout, _ = await asyncio.wait_for(process.communicate(), timeout=1.0)  # Reduced timeout
             output = stdout.decode().strip()
             if "connected to" in output or "already connected" in output:
                 self.logger.debug(
@@ -153,7 +162,7 @@ class EmulatorService:
             self.logger.debug(
                 f"Connection attempt to {target} timed out (port likely closed).")
         except Exception as e:
-            self.logger.warning(
+            self.logger.debug(  # Changed from warning to debug to reduce noise
                 f"Error trying to connect to {target}", error=str(e))
 
     async def get_game_pid(self, package_name: str) -> Optional[int]:
@@ -233,6 +242,35 @@ class EmulatorService:
         except Exception as e:
             self.logger.error(
                 "Error getting running third-party packages", device=device_id, error=str(e))
+            return []
+
+    async def get_processes(self, device_id: str) -> list[dict]:
+        """Get running processes for a specific device."""
+        try:
+            # Store the current connected device
+            original_device = self.connected_device
+            self.connected_device = device_id
+            
+            # Get running third-party packages (which are processes)
+            processes = await self.get_installed_third_party_packages()
+            
+            # Restore original connected device
+            self.connected_device = original_device
+            
+            # Convert to the format expected by the frontend
+            formatted_processes = []
+            for process in processes:
+                formatted_processes.append({
+                    'id': process['package'],  # Use package name as ID
+                    'name': process['name'],
+                    'pid': process['pid'],
+                    'package': process['package']
+                })
+            
+            return formatted_processes
+            
+        except Exception as e:
+            self.logger.error("Error getting processes for device", device_id=device_id, error=str(e))
             return []
 
     def is_system_package(self, package_name: str) -> bool:
@@ -794,16 +832,31 @@ class EmulatorService:
             # Ensure network emulators are visible to ADB
             await self._scan_and_connect_network_devices()
             
-            # Get all available device serials
-            devices = await self.adb.list_devices()
+            # Get all available device serials with timeout
+            try:
+                devices = await asyncio.wait_for(self.adb.list_devices(), timeout=15.0)
+            except asyncio.TimeoutError:
+                self.logger.warning("ADB device listing timed out, returning empty list")
+                return []
+            except Exception as e:
+                self.logger.error("Error listing ADB devices", error=str(e))
+                return []
             
             if not devices:
                 self.logger.info("No ADB devices found")
                 return []
             
-            # Gather rich details for all devices in parallel
-            tasks = [self._get_rich_device_details(serial) for serial in devices]
-            detailed_devices = await asyncio.gather(*tasks, return_exceptions=True)
+            # Gather rich details for all devices in parallel with timeout
+            try:
+                tasks = [self._get_rich_device_details(serial) for serial in devices]
+                detailed_devices = await asyncio.wait_for(
+                    asyncio.gather(*tasks, return_exceptions=True), 
+                    timeout=30.0  # 30 second timeout for device details gathering
+                )
+            except asyncio.TimeoutError:
+                self.logger.warning("Device details gathering timed out, returning basic device list")
+                # Return basic device info if details gathering times out
+                return [{'serial': device, 'model': 'Unknown Device', 'status': 'Online'} for device in devices]
             
             # Filter out any exceptions and log them
             valid_devices = []
@@ -811,6 +864,13 @@ class EmulatorService:
                 if isinstance(result, Exception):
                     self.logger.warning("Failed to get details for device", 
                                        device=devices[i], error=str(result))
+                    # Add basic device info even if details failed
+                    valid_devices.append({
+                        'serial': devices[i],
+                        'model': 'Unknown Device',
+                        'status': 'Error',
+                        'is_network_device': ':' in devices[i]
+                    })
                 else:
                     valid_devices.append(result)
             

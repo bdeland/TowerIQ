@@ -49,7 +49,9 @@ impl ApiClient {
     }
 
     async fn get_status(&self) -> Result<StatusResponse, Box<dyn std::error::Error>> {
-        let client = reqwest::Client::new();
+        let client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(10)) // 10 second timeout
+            .build()?;
         let response = client
             .get(&format!("{}/api/status", self.base_url))
             .send()
@@ -60,7 +62,9 @@ impl ApiClient {
     }
 
     async fn connect_device(&self, device_serial: String) -> Result<serde_json::Value, Box<dyn std::error::Error>> {
-        let client = reqwest::Client::new();
+        let client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(30)) // 30 second timeout
+            .build()?;
         let request = ConnectionRequest { device_serial };
         
         let response = client
@@ -74,7 +78,9 @@ impl ApiClient {
     }
 
     async fn set_test_mode(&self, test_mode: bool, test_mode_replay: bool, test_mode_generate: bool) -> Result<serde_json::Value, Box<dyn std::error::Error>> {
-        let client = reqwest::Client::new();
+        let client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(10)) // 10 second timeout
+            .build()?;
         let request = TestModeRequest {
             test_mode,
             test_mode_replay,
@@ -84,6 +90,45 @@ impl ApiClient {
         let response = client
             .post(&format!("{}/api/test-mode", self.base_url))
             .json(&request)
+            .send()
+            .await?;
+        
+        let result: serde_json::Value = response.json().await?;
+        Ok(result)
+    }
+
+    async fn scan_devices(&self) -> Result<serde_json::Value, Box<dyn std::error::Error>> {
+        let client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(30)) // 30 second timeout
+            .build()?;
+        let response = client
+            .get(&format!("{}/api/devices", self.base_url))
+            .send()
+            .await?;
+        
+        let result: serde_json::Value = response.json().await?;
+        Ok(result)
+    }
+
+    async fn get_processes(&self, device_id: String) -> Result<serde_json::Value, Box<dyn std::error::Error>> {
+        let client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(30)) // 30 second timeout
+            .build()?;
+        let response = client
+            .get(&format!("{}/api/devices/{}/processes", self.base_url, device_id))
+            .send()
+            .await?;
+        
+        let result: serde_json::Value = response.json().await?;
+        Ok(result)
+    }
+
+    async fn get_hook_scripts(&self) -> Result<serde_json::Value, Box<dyn std::error::Error>> {
+        let client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(10)) // 10 second timeout
+            .build()?;
+        let response = client
+            .get(&format!("{}/api/hook-scripts", self.base_url))
             .send()
             .await?;
         
@@ -112,6 +157,32 @@ async fn set_test_mode(test_mode: bool, test_mode_replay: bool, test_mode_genera
 }
 
 #[tauri::command]
+async fn scan_devices() -> Result<serde_json::Value, String> {
+    let client = ApiClient::new();
+    
+    // Add timeout to prevent hanging
+    match tokio::time::timeout(
+        std::time::Duration::from_secs(60), // 60 second timeout
+        client.scan_devices()
+    ).await {
+        Ok(result) => result.map_err(|e| e.to_string()),
+        Err(_) => Err("Device scanning timed out after 60 seconds".to_string())
+    }
+}
+
+#[tauri::command]
+async fn get_processes(device_id: String) -> Result<serde_json::Value, String> {
+    let client = ApiClient::new();
+    client.get_processes(device_id).await.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn get_hook_scripts() -> Result<serde_json::Value, String> {
+    let client = ApiClient::new();
+    client.get_hook_scripts().await.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 fn greet(name: &str) -> String {
     format!("Hello, {}! You've been greeted from Rust!", name)
 }
@@ -124,7 +195,10 @@ pub fn run() {
             greet,
             get_backend_status,
             connect_device,
-            set_test_mode
+            set_test_mode,
+            scan_devices,
+            get_processes,
+            get_hook_scripts
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
