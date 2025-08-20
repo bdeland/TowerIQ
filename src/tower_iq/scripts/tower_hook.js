@@ -4,8 +4,9 @@
     "fileName": "tower_hook.js",
     "scriptName": "The Tower - Full Data Logger",
     "scriptDescription": "A comprehensive logger for all major in-game events and currencies.",
+    "targetApp": "The Tower",
     "targetPackage": "com.TechTreeGames.TheTower",
-    "supportedVersions": ["26.5.3"],
+    "supportedVersions": ["27.0.2"],
     "features": [
         "round_start_end_events",
         "per_wave_metric_bundle",
@@ -14,9 +15,10 @@
 }
 */
 
-// tower_hook_integrated_v29.js
+// tower_hook_integrated_v30.js
 
 // This script is a long-running data logger.
+// v30: Added heartbeat and handshake mechanism for robust communication monitoring.
 // v29: Fixed script initialization error by removing duplicated hook implementations
 //      that were causing 'already been replaced by a thunk' errors.
 // v28: Simplified Ad Gem tracking by removing the 'wasAdFreeClaim' field.
@@ -130,6 +132,40 @@ Il2Cpp.perform(() => {
     try {
         const Main = Il2Cpp.domain.assembly("Assembly-CSharp").image.class("Main");
         const Ads = Il2Cpp.domain.assembly("Assembly-CSharp").image.class("Ads");
+
+        // --- NEW: HEARTBEAT & HANDSHAKE ---
+
+        // 1. Heartbeat: Frida -> Application ("I'm alive")
+        const HEARTBEAT_INTERVAL_MS = 15000; // 15 seconds
+        setInterval(() => {
+            const mainInstance = findMainInstance();
+            send({
+                type: "hook_log",
+                payload: {
+                    event: "frida_heartbeat",
+                    timestamp: Date.now(),
+                    message: "Frida script is alive.",
+                    isGameReachable: (mainInstance && !mainInstance.isNull())
+                }
+            });
+        }, HEARTBEAT_INTERVAL_MS);
+        log("INFO", `Heartbeat initiated. Will send a signal every ${HEARTBEAT_INTERVAL_MS / 1000} seconds.`);
+
+        // 2. Handshake Listener: Application -> Frida ("Are you there?")
+        recv('handshake', (message) => {
+            const payloadText = (message && message.payload && message.payload.text) ? message.payload.text : "No text provided.";
+            log("INFO", `Handshake received from application: "${payloadText}"`);
+            // Optionally, send an acknowledgement back.
+            send({
+                type: "hook_log",
+                payload: {
+                    event: "frida_handshake_ack",
+                    timestamp: Date.now(),
+                    message: "Acknowledged handshake from application."
+                }
+            });
+        });
+        log("INFO", "Handshake receiver is active. Ready for messages from the application.");
 
         // --- HOOKS ---
         

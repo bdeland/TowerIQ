@@ -11,6 +11,8 @@ from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum
 from PyQt6.QtCore import QObject, pyqtSignal, QMutex, QMutexLocker
+import threading
+import time
 
 
 class ConnectionState(Enum):
@@ -68,6 +70,36 @@ class ErrorInfo:
             raise ValueError("user_message cannot be empty")
         if self.retry_count < 0:
             raise ValueError("retry_count cannot be negative")
+
+
+@dataclass
+class ScriptStatus:
+    """Status information for the injected Frida script."""
+    is_active: bool
+    last_heartbeat: Optional[datetime] = None
+    heartbeat_interval_seconds: int = 15
+    is_game_reachable: bool = False
+    script_name: Optional[str] = None
+    injection_time: Optional[datetime] = None
+    error_count: int = 0
+    last_error: Optional[str] = None
+
+    def __post_init__(self):
+        """Validate script status after initialization."""
+        if self.heartbeat_interval_seconds <= 0:
+            raise ValueError("heartbeat_interval_seconds must be positive")
+        if self.error_count < 0:
+            raise ValueError("error_count cannot be negative")
+
+    def is_healthy(self) -> bool:
+        """Check if the script is healthy based on heartbeat timing."""
+        if not self.is_active or not self.last_heartbeat:
+            return False
+        
+        # Consider unhealthy if no heartbeat for 3x the expected interval
+        timeout_seconds = self.heartbeat_interval_seconds * 3
+        time_since_heartbeat = (datetime.now() - self.last_heartbeat).total_seconds()
+        return time_since_heartbeat <= timeout_seconds
 
 
 @dataclass
@@ -185,6 +217,11 @@ class SessionManager(QObject):
     state_inconsistency_detected = pyqtSignal(list)  # List of StateInconsistency
     state_recovery_attempted = pyqtSignal(bool)  # True if recovery succeeded
     connection_stages_changed = pyqtSignal(list)
+    
+    # Script status signals
+    script_status_changed = pyqtSignal(object)  # ScriptStatus object
+    script_heartbeat_received = pyqtSignal(datetime)  # Timestamp of heartbeat
+    script_health_changed = pyqtSignal(bool)  # True if healthy, False if unhealthy
 
     def __init__(self):
         super().__init__()
@@ -199,6 +236,15 @@ class SessionManager(QObject):
         self._state_snapshot = None
         self._stage_progress = {}
         self._last_error_info = None
+        
+        # Device connection state (moved from EmulatorService)
+        self._connected_device_serial = None
+        self._device_architecture = None
+        
+        # Heartbeat management
+        self._heartbeat_thread = None
+        self._heartbeat_running = False
+        self._heartbeat_interval = 30  # seconds
         
         # Valid state transitions
         self._valid_transitions = {
@@ -229,6 +275,9 @@ class SessionManager(QObject):
             self._last_error_info = None
             self._state_snapshot = None
             self._connection_stages = []
+            
+            # Initialize script status
+            self._script_status = ScriptStatus(is_active=False)
 
     def _set_property(self, name: str, value: Any, signal: Any = None):
         """Generic thread-safe property setter that emits a signal on change."""
@@ -295,6 +344,21 @@ class SessionManager(QObject):
         self.selected_process_changed.emit()
 
     @property
+    def script_status(self) -> ScriptStatus:
+        with QMutexLocker(self._mutex): return self._script_status
+    @script_status.setter
+    def script_status(self, value: ScriptStatus):
+        with QMutexLocker(self._mutex): 
+            old_health = self._script_status.is_healthy() if self._script_status else False
+            self._script_status = value
+            new_health = value.is_healthy() if value else False
+            
+            # Emit signals
+            self.script_status_changed.emit(value)
+            if old_health != new_health:
+                self.script_health_changed.emit(new_health)
+
+    @property
     def is_emulator_connected(self) -> bool:
         with QMutexLocker(self._mutex):
             return self._connection_main_state in [ConnectionState.CONNECTED, ConnectionState.ACTIVE]
@@ -319,6 +383,21 @@ class SessionManager(QObject):
     @is_hook_compatible.setter
     def is_hook_compatible(self, value: bool):
         with QMutexLocker(self._mutex): self._is_hook_compatible = value
+
+    # Device connection state properties (moved from EmulatorService)
+    @property
+    def connected_device_serial(self) -> Optional[str]:
+        with QMutexLocker(self._mutex): return self._connected_device_serial
+    @connected_device_serial.setter
+    def connected_device_serial(self, value: Optional[str]):
+        with QMutexLocker(self._mutex): self._connected_device_serial = value
+
+    @property
+    def device_architecture(self) -> Optional[str]:
+        with QMutexLocker(self._mutex): return self._device_architecture
+    @device_architecture.setter
+    def device_architecture(self, value: Optional[str]):
+        with QMutexLocker(self._mutex): self._device_architecture = value
 
     @property
     def hook_activation_stage(self) -> str:
@@ -557,11 +636,208 @@ class SessionManager(QObject):
         """Get the last error information."""
         with QMutexLocker(self._mutex):
             return self._last_error_info
+
+    def update_script_heartbeat(self, is_game_reachable: bool = False) -> None:
+        """Update the script status with a new heartbeat."""
+        with QMutexLocker(self._mutex):
+            if self._script_status:
+                self._script_status.last_heartbeat = datetime.now()
+                self._script_status.is_game_reachable = is_game_reachable
+                self._script_status.is_active = True
+                
+                # Emit heartbeat signal
+                self.script_heartbeat_received.emit(self._script_status.last_heartbeat)
+                
+                # Check health and emit if changed
+                is_healthy = self._script_status.is_healthy()
+                self.script_health_changed.emit(is_healthy)
+                
+                # Start heartbeat monitoring if not already running
+                if not self._heartbeat_running:
+                    self._start_heartbeat_monitoring()
+
+    def handle_heartbeat_message(self, message_data: Dict[str, Any]) -> None:
+        """Handle incoming heartbeat message from hook script."""
+        try:
+            is_game_reachable = message_data.get('is_game_reachable', False)
+            error_count = message_data.get('error_count', 0)
+            last_error = message_data.get('last_error')
+            
+            with QMutexLocker(self._mutex):
+                if self._script_status:
+                    # Update heartbeat
+                    self._script_status.last_heartbeat = datetime.now()
+                    self._script_status.is_game_reachable = is_game_reachable
+                    self._script_status.is_active = True
+                    self._script_status.error_count = error_count
+                    if last_error:
+                        self._script_status.last_error = last_error
+                    
+                    # Emit signals
+                    self.script_heartbeat_received.emit(self._script_status.last_heartbeat)
+                    
+                    # Check health and emit if changed
+                    is_healthy = self._script_status.is_healthy()
+                    self.script_health_changed.emit(is_healthy)
+                    
+                    # Start heartbeat monitoring if not already running
+                    if not self._heartbeat_running:
+                        self._start_heartbeat_monitoring()
+                    
+                    self.logger.debug("Heartbeat message processed", 
+                                    is_game_reachable=is_game_reachable,
+                                    error_count=error_count)
+                else:
+                    self.logger.warning("Received heartbeat but no active script")
+                    
+        except Exception as e:
+            self.logger.error("Error processing heartbeat message", error=str(e))
+
+    def _start_heartbeat_monitoring(self):
+        """Start the heartbeat monitoring thread."""
+        if self._heartbeat_running:
+            return
+            
+        self._heartbeat_running = True
+        self._heartbeat_thread = threading.Thread(target=self._heartbeat_monitor_loop, daemon=True)
+        self._heartbeat_thread.start()
+        self.logger.info("Started heartbeat monitoring")
+
+    def _stop_heartbeat_monitoring(self):
+        """Stop the heartbeat monitoring thread."""
+        self._heartbeat_running = False
+        if self._heartbeat_thread and self._heartbeat_thread.is_alive():
+            self._heartbeat_thread.join(timeout=2)
+        self.logger.info("Stopped heartbeat monitoring")
+
+    def _heartbeat_monitor_loop(self):
+        """Monitor script heartbeats and detect timeouts."""
+        while self._heartbeat_running:
+            try:
+                with QMutexLocker(self._mutex):
+                    if not self._script_status or not self._script_status.is_active:
+                        # No active script, stop monitoring
+                        self._heartbeat_running = False
+                        break
+                    
+                    # Check if heartbeat is stale
+                    if self._script_status.last_heartbeat:
+                        time_since_heartbeat = (datetime.now() - self._script_status.last_heartbeat).total_seconds()
+                        timeout_seconds = self._script_status.heartbeat_interval_seconds * 3
+                        
+                        if time_since_heartbeat > timeout_seconds:
+                            # Heartbeat timeout - mark script as inactive
+                            self.logger.warning("Script heartbeat timeout detected", 
+                                              time_since_heartbeat=time_since_heartbeat,
+                                              timeout_seconds=timeout_seconds)
+                            self._script_status.is_active = False
+                            self._script_status.last_error = f"Heartbeat timeout after {time_since_heartbeat:.1f}s"
+                            
+                            # Emit signals
+                            self.script_status_changed.emit(self._script_status)
+                            self.script_health_changed.emit(False)
+                            
+                            # Stop monitoring
+                            self._heartbeat_running = False
+                            break
+                
+                # Sleep for a short interval before next check
+                time.sleep(5)  # Check every 5 seconds
+                
+            except Exception as e:
+                self.logger.error("Error in heartbeat monitor loop", error=str(e))
+                time.sleep(5)  # Continue monitoring even on error
+
+    def set_script_active(self, script_name: str, injection_time: Optional[datetime] = None) -> None:
+        """Set the script as active with injection details."""
+        with QMutexLocker(self._mutex):
+            if injection_time is None:
+                injection_time = datetime.now()
+            
+            self._script_status = ScriptStatus(
+                is_active=True,
+                script_name=script_name,
+                injection_time=injection_time,
+                last_heartbeat=injection_time  # Initial heartbeat
+            )
+            
+            # Emit signals
+            self.script_status_changed.emit(self._script_status)
+            self.script_heartbeat_received.emit(injection_time)
+            self.script_health_changed.emit(True)
+
+    def set_script_inactive(self) -> None:
+        """Set the script as inactive."""
+        with QMutexLocker(self._mutex):
+            self._script_status = ScriptStatus(is_active=False)
+            self.script_status_changed.emit(self._script_status)
+            self.script_health_changed.emit(False)
+            
+        # Stop heartbeat monitoring
+        self._stop_heartbeat_monitoring()
     
     def clear_error_info(self):
         """Clear error information."""
         with QMutexLocker(self._mutex):
             self._last_error_info = None 
+
+    # --- Device Connection Management (moved from EmulatorService) ---
+    
+    async def connect_to_device(self, device_serial: str, emulator_service) -> bool:
+        """
+        Establish a connection to a specific device.
+        
+        Args:
+            device_serial: The serial ID of the device to connect to
+            emulator_service: EmulatorService instance for device operations
+            
+        Returns:
+            True if connection was successful, False otherwise
+        """
+        self.logger.info("Attempting to connect to device", device=device_serial)
+        
+        try:
+            # Test device connection using the private method
+            if not await emulator_service._test_device_connection(device_serial):
+                self.logger.error("Device is not reachable", device=device_serial)
+                return False
+            
+            # Get device architecture
+            properties = await emulator_service._get_device_properties(device_serial, ['ro.product.cpu.abi'])
+            architecture = properties.get('ro.product.cpu.abi', 'unknown')
+            
+            # Update session state
+            with QMutexLocker(self._mutex):
+                self._connected_device_serial = device_serial
+                self._device_architecture = architecture
+            
+            self.logger.info("Successfully connected to device", 
+                            device=device_serial, architecture=architecture)
+            return True
+            
+        except Exception as e:
+            self.logger.error("Failed to connect to device", 
+                             device=device_serial, error=str(e))
+            return False
+    
+    async def disconnect_from_device(self) -> bool:
+        """
+        Disconnect from the currently connected device.
+        
+        Returns:
+            True if disconnection was successful, False otherwise
+        """
+        with QMutexLocker(self._mutex):
+            if not self._connected_device_serial:
+                self.logger.info("No device currently connected")
+                return True
+            
+            device_serial = self._connected_device_serial
+            self._connected_device_serial = None
+            self._device_architecture = None
+        
+        self.logger.info("Successfully disconnected from device", device=device_serial)
+        return True
 
     # --- New connection stages state for UI live updates ---
     def update_connection_stages(self, stages: list):

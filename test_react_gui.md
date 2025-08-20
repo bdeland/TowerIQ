@@ -16,149 +16,158 @@ The React GUI communicates with a Python FastAPI backend server that handles dev
    ```bash
    cd C:\Users\delan\Documents\GitHub\TowerIQ
    ```
-3. **Activate your virtual environment:**
-   ```bash
-   .venv\Scripts\activate
-   ```
-4. **Start the backend server:**
+3. **Start the backend server:**
    ```bash
    python start_backend.py
    ```
-5. **Verify the server is running** - you should see:
-   ```
-   Starting TowerIQ Backend Server...
-   Server will be available at: http://127.0.0.1:8000
-   INFO:     Started server process [xxxx]
-   INFO:     Waiting for application startup.
-   INFO:     Application startup complete.
-   INFO:     Uvicorn running on http://127.0.0.1:8000
-   ```
+4. **Wait for the message:** "TowerIQ is now running"
 
-### Recent Fixes Applied
+### Alternative: Start Backend Only
 
-I've fixed the infinite loop issue you experienced by:
+If you want to start just the backend server for testing:
 
-1. **Reduced network device scanning** - Limited port scanning to only the most common emulator ports
-2. **Added timeouts** - All operations now have proper timeouts to prevent hanging
-3. **Better error handling** - The UI will show informative error messages instead of getting stuck
-4. **Graceful degradation** - If device scanning fails, the app continues to work with basic functionality
-
-## What Was Created
-
-### 1. ConnectionPage Component (`src/gui/TowerIQ/src/pages/ConnectionPage.tsx`)
-- **Vertical Stepper**: 4-step process for device connection
-- **Step 1**: Device Selection - Choose from available devices
-- **Step 2**: Process Selection - Select target process on device
-- **Step 3**: Hook Script Configuration (Optional) - Configure injection scripts
-- **Step 4**: Connection - Establish connection with summary
-
-### 2. Enhanced Backend Hook (`src/gui/TowerIQ/src/hooks/useBackend.ts`)
-- Added connection-related methods: `scanDevices`, `getProcesses`, `getHookScripts`, `startConnectionFlow`
-- Added TypeScript interfaces for `Device`, `Process`, `HookScript`
-- **Now uses real backend integration** with proper error handling and timeouts
-
-### 3. Navigation Integration
-- Added "Connection" to the sidebar navigation
-- Added route `/connection` in the main App component
-- Uses `Link` icon from Material-UI
-
-## Features
-
-### UI Components
-- **Material-UI Stepper**: Vertical orientation with step icons
-- **Device List**: Shows available devices with status chips
-- **Process List**: Shows running processes with PID and package info
-- **Script Selection**: Optional hook script configuration with preview
-- **Connection Summary**: Shows selected options before connecting
-- **Loading States**: Progress indicators and disabled states during operations
-- **Error Handling**: Alert messages for connection failures
-
-### Real Backend Integration
-- **Device Scanning**: Uses `emulator_service.list_devices_with_details()` to get real Android devices
-- **Process Listing**: Uses `emulator_service.get_processes()` to get running third-party apps
-- **Hook Scripts**: Uses `hook_script_manager.get_available_scripts()` to get actual scripts from `test_frida_scripts/` directory
-- **Connection**: Uses real device connection via `connect_device` API endpoint
-
-## How to Test
-
-### 1. Start the Backend Server (REQUIRED)
 ```bash
-# In a new terminal
-cd C:\Users\delan\Documents\GitHub\TowerIQ
-.venv\Scripts\activate
-python start_backend.py
+python src/tower_iq/api_server.py
 ```
 
-### 2. Start the Development Server
-```bash
-# In another terminal
-cd src/gui/TowerIQ
-npm run dev
-```
+## Testing the React GUI
 
-### 3. Navigate to Connection Page
-- Open the app in your browser
-- Click "Connection" in the sidebar navigation
-- You should see the vertical stepper with 4 steps
+### Method 1: Using the Startup Script (Recommended)
 
-### 4. Test the Flow
-1. **Step 1**: Select a device from the list (should load quickly now)
-2. **Step 2**: Choose a process (should load after device selection)
-3. **Step 3**: Optionally enable hook script and select one
-4. **Step 4**: Review summary and click "Connect"
+1. **Open a new terminal**
+2. **Navigate to the project root:**
+   ```bash
+   cd C:\Users\delan\Documents\GitHub\TowerIQ
+   ```
+3. **Run the startup script:**
+   ```bash
+   python start_toweriq.py
+   ```
+4. **Wait for both backend and frontend to start**
+5. **The React GUI should open automatically in your browser**
 
-### 5. Test Features
-- **Refresh buttons**: Click to reload devices/processes
-- **Back/Continue navigation**: Move between steps
-- **Error handling**: Try connecting multiple times (20% failure rate)
-- **Loading states**: Watch for progress indicators
-- **Reset**: Complete the flow and test the reset button
+### Method 2: Manual Tauri Development
+
+1. **Start the backend server first** (see above)
+2. **Open a new terminal**
+3. **Navigate to the Tauri directory:**
+   ```bash
+   cd src/gui/TowerIQ
+   ```
+4. **Install dependencies (if not already done):**
+   ```bash
+   npm install
+   ```
+5. **Start the Tauri development server:**
+   ```bash
+   npx @tauri-apps/cli dev
+   ```
 
 ## Troubleshooting
 
-### If Device Scanning Still Hangs
-1. **Check if backend server is running** at http://127.0.0.1:8000
-2. **Check ADB connectivity** - run `adb devices` in terminal
-3. **Check for Android devices/emulators** - ensure they're connected and visible to ADB
-4. **Check firewall settings** - ensure port 8000 is not blocked
+### No Logs Appearing in Terminal
 
-### If You Get "Backend not initialized" Errors
-- The backend server needs to be running before starting the React GUI
-- Make sure you started `python start_backend.py` first
+If you're not seeing any logs in your terminal, try these steps:
 
-### If You Get Network Timeout Errors
-- The app now has proper timeouts and will show error messages instead of hanging
-- Check your network connection and firewall settings
+1. **Test logging configuration:**
+   ```bash
+   python debug_logging.py
+   ```
+   This will show you if logging is working properly.
 
-## Integration Points
+2. **Check logging settings in config:**
+   The logging configuration is in `config/main_config.yaml`. Make sure:
+   - `logging.console.enabled: true`
+   - `logging.console.level: "DEBUG"` (for maximum visibility)
 
-### Backend Integration Complete
-The React GUI now uses real backend methods:
-- `scanDevices()` - Calls `invoke('scan_devices')` → `emulator_service.list_devices_with_details()`
-- `getProcesses(deviceId)` - Calls `invoke('get_processes', { deviceId })` → `emulator_service.get_processes(deviceId)`
-- `getHookScripts()` - Calls `invoke('get_hook_scripts')` → `hook_script_manager.get_available_scripts()`
-- `startConnectionFlow(deviceId, processId, hookScriptContent)` - Calls `invoke('connect_device', { deviceSerial: deviceId })`
+3. **Force console output:**
+   If you're still not seeing logs, the issue might be with the terminal. Try:
+   - Running in a different terminal (PowerShell, Command Prompt, or Git Bash)
+   - Adding `--verbose` flag if available
 
-### State Management
-- Connection status syncs with backend session state
-- Error messages display from both local and backend errors
-- Loading states prevent multiple simultaneous operations
+### Device Scanning Issues
+
+If device scanning gets stuck or fails:
+
+1. **Check if ADB is working:**
+   ```bash
+   adb devices
+   ```
+   This should show your connected devices.
+
+2. **Check backend server health:**
+   Open `http://localhost:8000/docs` in your browser to see the API documentation.
+
+3. **Check backend logs:**
+   The backend server should show logs in the terminal where you started it.
+
+### Common Issues
+
+1. **"Backend server failed to start"**
+   - Make sure no other process is using port 8000
+   - Check if Python dependencies are installed: `pip install -r requirements.txt`
+
+2. **"Frontend stopped unexpectedly"**
+   - Check if Node.js and npm are installed
+   - Try running `npm install` in the `src/gui/TowerIQ` directory
+
+3. **"Device scanning timed out"**
+   - Make sure your Android device/emulator is connected
+   - Check if ADB is in your PATH
+   - Try restarting the ADB server: `adb kill-server && adb start-server`
+
+## API Endpoints
+
+The backend server provides these endpoints:
+
+- `GET /api/devices` - List available devices
+- `POST /api/devices/{device_id}/connect` - Connect to a device
+- `GET /api/devices/{device_id}/processes` - List running processes
+- `GET /api/status` - Get server status
+- `GET /api/hook-scripts` - Get available hook scripts
+
+## Development Notes
+
+- The React GUI uses Tauri for the desktop app wrapper
+- The backend uses FastAPI for the API server
+- Device scanning has been optimized to prevent infinite loops
+- All API calls have proper timeouts and error handling
+- Logging is configured to show detailed information for debugging
+
+### Status Polling
+
+The React GUI polls the backend status every 30 seconds to check if the backend is still responsive. This is why you see periodic `GET /api/status` requests in the logs. This polling:
+
+- **Purpose**: Ensures the frontend knows if the backend becomes unavailable
+- **Frequency**: Every 30 seconds (reduced from 5 seconds to minimize log spam)
+- **Shared**: Multiple components share the same polling mechanism to avoid duplicate requests
+- **Disable**: Set `DISABLE_POLLING = true` in `src/gui/TowerIQ/src/hooks/useBackend.ts` to disable polling entirely
+
+### Reducing Log Noise
+
+If you want to reduce the status polling logs, you can:
+
+1. **Disable polling entirely** (for development):
+   ```typescript
+   // In src/gui/TowerIQ/src/hooks/useBackend.ts
+   const DISABLE_POLLING = true;
+   ```
+
+2. **Increase polling interval** (for production):
+   ```typescript
+   // Change from 30000ms to 60000ms (1 minute)
+   globalPollingInterval = setInterval(pollStatus, 60000);
+   ```
+
+3. **Filter logs** in your terminal to exclude status requests:
+   ```bash
+   # In PowerShell, filter out status requests
+   python start_toweriq.py | Where-Object { $_ -notmatch "GET /api/status" }
+   ```
 
 ## Next Steps
 
-1. **Test the UI**: Run the dev server and verify the connection flow works with real devices
-2. **Backend Server**: Start the FastAPI backend server (`python start_backend.py`)
-3. **Device Connection**: Ensure ADB is available and devices are connected
-4. **Hook Scripts**: Add hook scripts to `test_frida_scripts/` directory with proper metadata
-
-## Files Modified/Created
-- ✅ `src/gui/TowerIQ/src/pages/ConnectionPage.tsx` (NEW)
-- ✅ `src/gui/TowerIQ/src/hooks/useBackend.ts` (ENHANCED - now uses real backend with timeouts)
-- ✅ `src/gui/TowerIQ/src/App.tsx` (UPDATED - added navigation and routing)
-- ✅ `src/gui/TowerIQ/src-tauri/src/lib.rs` (ENHANCED - added new Tauri commands with timeouts)
-- ✅ `src/tower_iq/api_server.py` (ENHANCED - added device/process/script endpoints)
-- ✅ `src/tower_iq/services/emulator_service.py` (FIXED - reduced network scanning, added timeouts)
-- ✅ `src/tower_iq/services/hook_script_manager.py` (ENHANCED - added get_available_scripts method)
-- ✅ `start_backend.py` (NEW - backend server starter script)
-
-The React GUI connection page is now complete with real backend integration and proper error handling!
+1. Test device discovery and connection
+2. Test process listing and selection
+3. Test hook script injection
+4. Report any issues or unexpected behavior

@@ -1,0 +1,16 @@
+{
+  "name": "toweriq-frida-scripts",
+  "version": "1.0.0",
+  "description": "Frida scripts for TowerIQ",
+  "main": "tower_hook.js",
+  "scripts": {
+    "build": "frida-compile tower_hook.js -o tower_hook_compiled.js",
+    "watch": "frida-compile tower_hook.js -o tower_hook_compiled.js -w"
+  },
+  "dependencies": {
+    "frida-il2cpp-bridge": "^0.12.0"
+  },
+  "devDependencies": {
+    "frida-compile": "^10.0.0"
+  }
+}

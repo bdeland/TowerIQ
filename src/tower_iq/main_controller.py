@@ -133,6 +133,15 @@ class MainController:
         self.session = SessionManager()
         self.emulator_service = EmulatorService(config, logger)
         
+        # Initialize FridaService with event loop and session manager
+        import asyncio
+        try:
+            loop = asyncio.get_event_loop()
+        except RuntimeError:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+        self.frida_service = FridaService(config, logger, loop, self.session)
+        
         # For API mode, we'll skip the Qt-dependent services for now
         # self.connection_flow_controller = ConnectionFlowController(config, logger)
         # self.connection_stage_manager = ConnectionStageManager(config, logger)
@@ -140,7 +149,7 @@ class MainController:
         
         # Initialize hooks directory
         project_root = self.config.get_project_root()
-        hooks_dir = os.path.join(project_root, 'test_frida_scripts')
+        hooks_dir = os.path.join(project_root, 'src', 'tower_iq', 'scripts')
         self.hook_script_manager = HookScriptManager(hooks_dir)
         try:
             self.hook_script_manager.discover_scripts()
@@ -248,6 +257,27 @@ class MainController:
         
         self.logger.info("Device connected", device_serial=device_serial)
     
+    def disconnect_from_device(self):
+        """Disconnect from the currently connected device."""
+        self.logger.info("Disconnecting from device")
+        
+        # Update session state
+        self.session.transition_to_state(ConnectionState.DISCONNECTING)
+        
+        # Clear device info from session
+        self.session.connected_emulator_serial = None
+        
+        # Transition to disconnected state
+        self.session.transition_to_state(ConnectionState.DISCONNECTED)
+        
+        # Notify callbacks
+        self._notify_connection_change({
+            "state": "disconnected",
+            "device_serial": None
+        })
+        
+        self.logger.info("Device disconnected")
+    
     def get_session_state(self) -> Dict[str, Any]:
         """Get current session state."""
         return {
@@ -261,6 +291,33 @@ class MainController:
             "connection_state": self.session.connection_main_state.value,
             "connection_sub_state": self.session.connection_sub_state.value if self.session.connection_sub_state else None
         }
+
+    def get_script_status(self) -> Dict[str, Any]:
+        """Get current script status for API."""
+        script_status = self.session.script_status
+        
+        status_data = {
+            "is_active": script_status.is_active,
+            "heartbeat_interval_seconds": script_status.heartbeat_interval_seconds,
+            "is_game_reachable": script_status.is_game_reachable,
+            "error_count": script_status.error_count,
+        }
+        
+        # Add optional fields if they exist
+        if script_status.last_heartbeat:
+            status_data["last_heartbeat"] = script_status.last_heartbeat.isoformat()
+        if script_status.script_name:
+            status_data["script_name"] = script_status.script_name
+        if script_status.injection_time:
+            status_data["injection_time"] = script_status.injection_time.isoformat()
+        if script_status.last_error:
+            status_data["last_error"] = script_status.last_error
+        
+        return status_data
+
+    def handle_heartbeat_message(self, message_data: Dict[str, Any]) -> None:
+        """Handle incoming heartbeat message from hook script."""
+        self.session.handle_heartbeat_message(message_data)
     
     def get_status(self) -> Dict[str, Any]:
         """Get overall system status."""

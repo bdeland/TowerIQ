@@ -60,8 +60,9 @@ class AdbError(Exception):
 class AdbWrapper:
     """A wrapper for executing ADB commands asynchronously."""
 
-    def __init__(self, logger):
+    def __init__(self, logger, verbose_debug: bool = False):
         self.logger = logger.bind(source="AdbWrapper")
+        self.verbose_debug = verbose_debug
 
     async def run_command(self, *args, timeout: float = 10.0) -> Tuple[str, str]:
         """
@@ -88,7 +89,8 @@ class AdbWrapper:
             stderr = stderr_b.decode().strip()
 
             if process.returncode != 0:
-                self.logger.warning("ADB command failed", args=args, retcode=process.returncode, stderr=stderr)
+                if self.verbose_debug:
+                    self.logger.warning("ADB command failed", args=args, retcode=process.returncode, stderr=stderr)
                 raise AdbError(f"ADB command failed: {' '.join(args)}", stdout, stderr)
 
             return stdout, stderr

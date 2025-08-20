@@ -24,7 +24,7 @@ import {
   Explore as ExploreIcon,
   History as HistoryIcon,
   ChevronLeft as ChevronLeftIcon,
-  Link as ConnectIcon,
+  Smartphone as SmartphoneIcon,
 } from '@mui/icons-material';
 import { HomePage } from './pages/HomePage';
 import { DashboardPage } from './pages/DashboardPage';
@@ -54,7 +54,7 @@ const drawerWidth = 240;
 const navigationItems = [
   { text: 'Home', icon: <HomeIcon />, path: '/' },
   { text: 'Dashboard', icon: <DashboardIcon />, path: '/dashboard' },
-  { text: 'Connection', icon: <ConnectIcon />, path: '/connection' },
+  { text: 'Connection', icon: <SmartphoneIcon />, path: '/connection' },
   { text: 'Explore', icon: <ExploreIcon />, path: '/explore' },
   { text: 'History', icon: <HistoryIcon />, path: '/history' },
   { text: 'Settings', icon: <SettingsIcon />, path: '/settings' },

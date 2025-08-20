@@ -2,1012 +2,701 @@
 TowerIQ Emulator Service
 
 This module provides the EmulatorService class for managing Android emulator
-connections, ADB communication, and frida-server installation/management.
+operations. This service is designed to be stateless - all connection state
+is managed by the SessionManager.
 
-Refactored to use a deterministic approach for frida-server management:
-- Uses the installed Python `frida` library version as the single source of truth.
-- Verifies server health by attempting a real connection via `frida.get_device()`,
-  which is more reliable than checking for a process with `ps`.
+Key principles:
+- Stateless operations only
+- Simplified, focused methods
+- Clear separation of concerns
+- Centralized caching
 """
 
 import asyncio
-import hashlib
-import json
-import lzma
 import subprocess
 from pathlib import Path
-from typing import Any, Optional, Set, Dict
-
-import aiohttp
-from aiohttp import ClientResponseError
+from typing import Any, Optional, Dict, List
+from dataclasses import dataclass
+from datetime import datetime, timedelta
 
 try:
     import frida
-    # Import the correct exception class
-    FridaError = Exception  # Fallback for older frida versions
+    FridaError = Exception
     try:
         from frida import InvalidArgumentError, InvalidOperationError, ServerNotRunningError
-        # Use a union of common Frida exceptions
-        FridaError = (InvalidArgumentError, InvalidOperationError,
-                      ServerNotRunningError, Exception)
+        FridaError = (InvalidArgumentError, InvalidOperationError, ServerNotRunningError, Exception)
     except ImportError:
-        # If specific exceptions aren't available, use base Exception
         FridaError = Exception
 except ImportError:
     frida = None
-    FridaError = Exception  # Define for type checking even if frida is not installed
+    FridaError = Exception
+
+try:
+    from device_detector import DeviceDetector
+    DEVICE_DETECTOR_AVAILABLE = True
+except ImportError:
+    DeviceDetector = None
+    DEVICE_DETECTOR_AVAILABLE = False
 
 from ..core.config import ConfigurationManager
 from ..core.utils import AdbWrapper, AdbError
 from .frida_manager import FridaServerManager, FridaServerSetupError
 
 
+# Module-level constants for configuration
+_EMULATOR_INDICATORS = [
+    'sdk', 'emulator', 'generic', 'android sdk built for',
+    'mumu', 'mumuglobal', 'bluestacks', 'bst', 'nox', 'noxplayer',
+    'ldplayer', 'ld', 'genymotion', 'geny'
+]
+
+_SYSTEM_PACKAGE_PATTERNS = [
+    'com.google.android.',
+    'com.android.',
+    'android.',
+    'com.qualcomm.',
+    'com.samsung.android.',
+    'com.sec.android.',
+    'com.lge.android.',
+    'com.htc.android.',
+    'com.sony.android.',
+    'com.huawei.android.',
+    'com.xiaomi.android.',
+    'com.oppo.android.',
+    'com.vivo.android.',
+    'com.oneplus.android.',
+]
+
+_SERVICE_PATTERNS = [
+    'android.hardware.',
+    'android.hidl.',
+    'android.system.',
+    'media.',
+    'frida-server',
+    'com.android.',
+    'com.google.android.',
+    'com.bluestacks.',
+    'com.uncube.',
+    'android.ext.',
+    'android.process.',
+    'com.google.process.',
+]
+
+# Additional patterns for packages that commonly fail dumpsys queries
+_FAILURE_PATTERNS = [
+    ':background',
+    ':webview_service', 
+    ':quick_launch',
+    ':instant_app_installer',
+    ':sandboxed_process',
+    ':isolated_process',
+    ':persistent',
+    ':unstable',
+    ':ui',
+    ':gms',
+    ':gapps',
+    ':vending',
+    ':systemui',
+    ':inputmethod',
+    ':phone',
+    ':defcontainer',
+    ':gallery3d',
+    ':media',
+    ':launcher3',
+    ':home',
+    ':BstCommandProcessor',
+]
+
+_UNWANTED_SUFFIXES = [
+    ' build', ' eng', ' user', ' userdebug', ' test-keys',
+    ' release-keys', ' dev-keys', ' debug', ' debug-keys'
+]
+
+
+@dataclass
+class Process:
+    """Process information with all details loaded."""
+    package: str
+    name: str
+    pid: int
+    version: str
+    is_system: bool = False
+    
+    def __post_init__(self):
+        """Set default name if not provided."""
+        if not self.name or self.name == self.package:
+            # Extract readable name from package
+            parts = self.package.split('.')
+            if len(parts) > 1:
+                self.name = parts[-1].title()
+            else:
+                self.name = self.package
+
+
+@dataclass
+class Device:
+    """Device information with all details loaded."""
+    serial: str
+    model: str
+    android_version: str
+    api_level: int
+    architecture: str
+    status: str
+    is_network_device: bool
+    brand: Optional[str] = None
+    device_name: Optional[str] = None  # Human-readable device name like "Samsung Galaxy S21 Ultra"
+    ip_address: Optional[str] = None
+    port: Optional[str] = None
+    device_type: str = "device"  # "emulator" or "device"
+    
+    def __post_init__(self):
+        """Set device type and network info based on serial."""
+        if ':' in self.serial:
+            self.is_network_device = True
+            parts = self.serial.split(':')
+            self.ip_address = parts[0]
+            self.port = parts[1] if len(parts) > 1 else None
+        else:
+            self.is_network_device = False
+            
+        # Detect device type
+        self._detect_device_type()
+    
+    def _detect_device_type(self):
+        """Detect if device is emulator or physical device."""
+        model_lower = self.model.lower()
+        serial_lower = self.serial.lower()
+        
+        # Check indicators in model
+        for indicator in _EMULATOR_INDICATORS:
+            if indicator in model_lower:
+                self.device_type = "emulator"
+                return
+        
+        # Check serial patterns
+        if serial_lower.startswith('emulator-') or 'emulator' in serial_lower:
+            self.device_type = "emulator"
+            return
+        
+        # Network devices are typically emulators
+        if self.is_network_device:
+            self.device_type = "emulator"
+            return
+        
+        # Check for generic brand/manufacturer (common in emulators)
+        if hasattr(self, 'brand') and self.brand and self.brand.lower() == 'generic':
+            self.device_type = "emulator"
+            return
+        
+        # Check for emulator indicators in brand/manufacturer
+        if hasattr(self, 'brand') and self.brand:
+            brand_lower = self.brand.lower()
+            if brand_lower in ['generic', 'unknown']:
+                self.device_type = "emulator"
+                return
+        
+        # Default to physical device
+        self.device_type = "device"
+
+
+@dataclass
+class CacheEntry:
+    """Generic cache entry with expiration."""
+    data: Any
+    timestamp: datetime
+    ttl_seconds: int = 300  # 5 minutes default
+
+    def is_expired(self) -> bool:
+        return datetime.now() - self.timestamp > timedelta(seconds=self.ttl_seconds)
+
+
 class EmulatorService:
     """
-    Service for managing Android emulator and ADB communication.
-
-    This service handles device discovery, connection, and frida-server
-    installation and management on Android devices/emulators.
+    Stateless service for Android emulator operations.
+    
+    This service provides stateless operations for device discovery, 
+    process listing, and device information gathering. All connection
+    state is managed by the SessionManager.
     """
 
     def __init__(self, config: ConfigurationManager, logger: Any) -> None:
-        """
-        Initialize the emulator service.
-
-        Args:
-            config: Configuration manager instance
-            logger: Logger instance
-        """
+        """Initialize the emulator service."""
         self.logger = logger.bind(source="EmulatorService")
         self.config = config
-
-        # Connection state
-        self.connected_device: Optional[str] = None
-        self.device_architecture: Optional[str] = None
-        self.adb = AdbWrapper(self.logger)
+        self._verbose_debug = config.get('emulator.verbose_debug', False)
+        self.adb = AdbWrapper(self.logger, self._verbose_debug)
         self.frida_manager = FridaServerManager(self.logger, self.adb)
+        
+        # Device detector is required for device information
+        if DEVICE_DETECTOR_AVAILABLE:
+            self.logger.info("Device detector library available")
+        else:
+            self.logger.error("Device detector library is required but not available")
+        
+        # Centralized caching
+        self._cache: Dict[str, CacheEntry] = {}
+        self._cache_timeout = config.get('emulator.cache_timeout_seconds', 300)
 
-        # Performance optimization: caching
-        self._device_properties_cache: Dict[str, Dict[str, str]] = {}
-        self._app_metadata_cache: Dict[str, Dict[str, Any]] = {}
-        # Load cache timeout from config
-        self._cache_timeout = config.get('emulator.cache_timeout_seconds', 300)  # 5 minutes cache timeout
-        self._cache_timestamps: Dict[str, float] = {}
+    # --- Device Discovery ---
 
-    async def get_device_architecture(self, device_id: str) -> str:
-        """Get the CPU architecture of the specified device."""
-        try:
-            architecture = await self.adb.shell(device_id, "getprop ro.product.cpu.abi")
-            self.logger.info("Device architecture detected",
-                             device=device_id, arch=architecture)
-            self.device_architecture = architecture
-            return architecture
-        except AdbError as e:
-            self.logger.error("Error getting device architecture",
-                              device=device_id, error=str(e))
-            raise RuntimeError(
-                f"Failed to get device architecture: {e}") from e
-
-    async def ensure_frida_server_is_running(self) -> None:
+    async def discover_devices(self, timeout: float = 10.0) -> List[Device]:
         """
-        Ensures a compatible frida-server is running on the connected device.
-
-        This method is idempotent and performs the following steps:
-        1. Checks if a responsive frida-server is already running using a real connection.
-        2. Determines the required server version from the installed `frida` library.
-        3. Downloads the correct server binary if not already cached.
-        4. Pushes the binary to the device if it's missing or outdated.
-        5. Starts the server and verifies it becomes responsive.
-
-        Raises:
-            RuntimeError: If no device is connected.
-            FridaServerSetupError: If the setup process fails at any step.
-        """
-        if not self.connected_device:
-            self.logger.error("Cannot perform action: no device is connected.")
-            raise RuntimeError("An action was requested, but no device is connected.")
-        device_id = self.connected_device
+        Discover all available devices with complete information.
         
-        if frida is None:
-            raise FridaServerSetupError(
-                "Frida library is not installed. Please run 'pip install frida frida-tools'.")
-        self.logger.info(
-            "Starting frida-server setup check...", device=device_id)
-        try:
-            arch = self.device_architecture or await self.get_device_architecture(device_id)
-            target_version = frida.__version__
-            await self.frida_manager.provision(device_id, arch, target_version)
-        except (AdbError, FridaServerSetupError, Exception) as e:
-            self.logger.error(
-                "Frida-server provisioning failed.", error=str(e))
-            raise FridaServerSetupError(
-                f"Failed to set up frida-server: {e}") from e
-
-    async def _scan_and_connect_network_devices(self):
-        """Scans common localhost ports for emulators and tries to connect."""
-        self.logger.info(
-            "Scanning for network-based emulators on localhost...")
-        
-        # Reduce the port range to avoid excessive scanning
-        # Only scan the most common emulator ports
-        ports_to_scan = [5555, 5557, 5559, 5561, 5563, 5565, 7555]
-        
-        # Add timeout to prevent hanging
-        try:
-            tasks = [self._try_adb_connect("127.0.0.1", port)
-                     for port in ports_to_scan]
-            await asyncio.wait_for(asyncio.gather(*tasks, return_exceptions=True), timeout=10.0)
-        except asyncio.TimeoutError:
-            self.logger.warning("Network device scanning timed out, continuing with available devices")
-        except Exception as e:
-            self.logger.warning("Error during network device scanning", error=str(e))
-        
-        self.logger.info("Network scan completed.")
-
-    async def _try_adb_connect(self, ip: str, port: int):
-        """Attempts to 'adb connect' to a given IP and port with a timeout."""
-        target = f"{ip}:{port}"
-        try:
-            process = await asyncio.create_subprocess_exec(
-                "adb", "connect", target,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE
-            )
-            stdout, _ = await asyncio.wait_for(process.communicate(), timeout=1.0)  # Reduced timeout
-            output = stdout.decode().strip()
-            if "connected to" in output or "already connected" in output:
-                self.logger.debug(
-                    f"Successfully connected to emulator at {target}")
-        except asyncio.TimeoutError:
-            self.logger.debug(
-                f"Connection attempt to {target} timed out (port likely closed).")
-        except Exception as e:
-            self.logger.debug(  # Changed from warning to debug to reduce noise
-                f"Error trying to connect to {target}", error=str(e))
-
-    async def get_game_pid(self, package_name: str) -> Optional[int]:
-        """Find the Process ID for the running game package on the connected device."""
-        if not self.connected_device:
-            self.logger.error("Cannot perform action: no device is connected.")
-            raise RuntimeError("An action was requested, but no device is connected.")
-        device_id = self.connected_device
-        
-        try:
-            result = await asyncio.create_subprocess_exec(
-                "adb", "-s", device_id, "shell", "pidof", package_name,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE
-            )
-
-            stdout, _ = await result.communicate()
-
-            if result.returncode == 0:
-                pid_str = stdout.decode().strip()
-                if pid_str and pid_str.isdigit():
-                    return int(pid_str)
-
-            return None
-
-        except Exception as e:
-            self.logger.error("Error getting game PID",
-                              device=device_id, package=package_name, error=str(e))
-            return None
-
-    async def get_installed_third_party_packages(self) -> list[dict]:
-        """Get a list of running third-party apps only, filtered to exclude system packages on the connected device."""
-        if not self.connected_device:
-            self.logger.error("Cannot perform action: no device is connected.")
-            raise RuntimeError("An action was requested, but no device is connected.")
-        device_id = self.connected_device
-        
-        self.logger.info(
-            "Getting running third-party packages", device=device_id)
-
-        try:
-            running_processes = await self._get_running_processes_map(device_id)
-            third_party_packages = await self._get_third_party_packages_list(device_id)
-
-            results = []
-
-            for package_name in third_party_packages:
-                try:
-                    # Only include packages that are currently running
-                    if package_name not in running_processes:
-                        continue
-
-                    # Filter out system packages
-                    if self.is_system_package(package_name):
-                        self.logger.debug(
-                            "Filtering out system package", package=package_name)
-                        continue
-
-                    package_info = await self._get_package_rich_info(device_id, package_name)
-
-                    results.append({
-                        'name': package_info.get('name', package_name),
-                        'package': package_name,
-                        'version': package_info.get('version', 'Unknown'),
-                        'is_running': True,  # All results are running by definition
-                        'pid': running_processes.get(package_name)
-                    })
-                except Exception as e:
-                    self.logger.warning(
-                        "Error getting info for package", package=package_name, error=str(e))
-
-            results.sort(key=lambda x: x['name'].lower())
-            self.logger.info("Retrieved running third-party package information",
-                             device=device_id, count=len(results))
-            return results
-
-        except Exception as e:
-            self.logger.error(
-                "Error getting running third-party packages", device=device_id, error=str(e))
-            return []
-
-    async def get_processes(self, device_id: str) -> list[dict]:
-        """Get running processes for a specific device."""
-        try:
-            # Store the current connected device
-            original_device = self.connected_device
-            self.connected_device = device_id
-            
-            # Get running third-party packages (which are processes)
-            processes = await self.get_installed_third_party_packages()
-            
-            # Restore original connected device
-            self.connected_device = original_device
-            
-            # Convert to the format expected by the frontend
-            formatted_processes = []
-            for process in processes:
-                formatted_processes.append({
-                    'id': process['package'],  # Use package name as ID
-                    'name': process['name'],
-                    'pid': process['pid'],
-                    'package': process['package']
-                })
-            
-            return formatted_processes
-            
-        except Exception as e:
-            self.logger.error("Error getting processes for device", device_id=device_id, error=str(e))
-            return []
-
-    def is_system_package(self, package_name: str) -> bool:
-        """
-        Determine if a package is a system package that should be filtered out.
-
         Args:
-            package_name: Package name to check
-
+            timeout: Maximum time to wait for device discovery operations
+            
         Returns:
-            True if package should be filtered out as a system package
+            List of Device objects with all information loaded
         """
-        system_package_patterns = [
-            # Google system packages
-            'com.google.android.',
-            'com.google.ar.',
-            'com.google.intelligence.',
-
-            # Android system packages
-            'com.android.',
-            'android.',
-
-            # Manufacturer system packages
-            'com.qualcomm.',
-            'com.samsung.android.',
-            'com.samsung.knox.',
-            'com.sec.android.',
-            'com.lge.android.',
-            'com.htc.android.',
-            'com.sony.android.',
-            'com.huawei.android.',
-            'com.xiaomi.android.',
-            'com.oppo.android.',
-            'com.vivo.android.',
-            'com.oneplus.android.',
-
-            # Common system services
-            'com.android.systemui',
-            'com.android.settings',
-            'com.android.launcher',
-            'com.android.phone',
-            'com.android.contacts',
-            'com.android.calendar',
-            'com.android.camera',
-            'com.android.gallery',
-            'com.android.music',
-            'com.android.email',
-            'com.android.browser',
-            'com.android.calculator',
-            'com.android.clock',
-            'com.android.deskclock',
-            'com.android.dialer',
-            'com.android.mms',
-            'com.android.providers.',
-            'com.android.server.',
-
-            # Specific problematic packages mentioned in requirements
-            'com.google.android.safetycore',
-            'com.google.android.gms',
-            'com.google.android.gsf',
-            'com.google.android.webview',
-            'com.google.android.tts',
-            'com.google.android.packageinstaller',
-            'com.google.android.permissioncontroller',
-        ]
-
-        # Check if package name starts with any system pattern
-        for pattern in system_package_patterns:
-            if package_name.startswith(pattern):
-                return True
-
-        # Additional checks for exact matches of problematic packages
-        system_exact_matches = {
-            'system',
-            'android',
-            'com.android.shell',
-            'com.android.externalstorage',
-            'com.android.documentsui',
-            'com.android.defcontainer',
-            'com.android.vpndialogs',
-            'com.android.keychain',
-            'com.android.location.fused',
-            'com.android.managedprovisioning',
-            'com.android.proxyhandler',
-            'com.android.statementservice',
-            'com.android.sharedstoragebackup',
-        }
-
-        return package_name in system_exact_matches
-
-    async def _get_running_processes_map(self, device_id: str) -> dict[str, int]:
-        """Get a mapping of running package names to their PIDs."""
+        self.logger.info("Starting device discovery")
+        
         try:
-            result = await asyncio.create_subprocess_exec(
-                "adb", "-s", device_id, "shell", "ps", "-A",
-                stdout=subprocess.PIPE, stderr=subprocess.PIPE
+            # Get device list with timeout
+            device_serials = await asyncio.wait_for(
+                self._get_device_list(),
+                timeout=timeout
             )
-            stdout, stderr = await result.communicate()
-            if result.returncode != 0:
-                self.logger.warning(
-                    "Failed to get running processes", error=stderr.decode())
-                return {}
+            
+            if not device_serials:
+                self.logger.info("No devices found")
+                return []
+            
+            # Get complete info for all devices concurrently
+            device_tasks = [
+                self._get_complete_device_info(serial, timeout)
+                for serial in device_serials
+            ]
+            
+            devices = await asyncio.gather(*device_tasks, return_exceptions=True)
+            
+            # Filter out None results and exceptions
+            valid_devices = []
+            for device in devices:
+                if isinstance(device, Device):
+                    valid_devices.append(device)
+                elif isinstance(device, Exception):
+                    self.logger.warning("Failed to get device info", error=str(device), error_type=type(device).__name__)
+            
+            self.logger.info("Device discovery completed", count=len(valid_devices))
+            return valid_devices
+            
+        except asyncio.TimeoutError:
+            self.logger.error("Device discovery timed out")
+            return []
+        except Exception as e:
+            self.logger.error("Device discovery failed", error=str(e), error_type=type(e).__name__)
+            return []
 
-            running_processes = {}
-            lines = stdout.decode().strip().split('\n')
-            for line in lines[1:]:  # Skip header
+    async def get_processes(self, device: Device, timeout: float = 10.0) -> List[Process]:
+        """
+        Get all processes on a device with complete information.
+        
+        Args:
+            device: Device to query
+            timeout: Maximum time to wait for process listing operations
+            
+        Returns:
+            List of Process objects with all information loaded
+        """
+        try:
+            # Test device connectivity first
+            if not await asyncio.wait_for(
+                self._test_device_connection(device.serial),
+                timeout=timeout
+            ):
+                self.logger.warning("Device not accessible", device=device.serial)
+                return []
+            
+            # Get all processes with complete information
+            processes = await asyncio.wait_for(
+                self._get_all_processes(device.serial),
+                timeout=timeout
+            )
+            
+            self.logger.info("Retrieved processes", device=device.serial, count=len(processes))
+            return processes
+            
+        except asyncio.TimeoutError:
+            self.logger.error("Process listing timed out", device=device.serial)
+            return []
+        except Exception as e:
+            self.logger.error("Failed to get processes", device=device.serial, error=str(e), error_type=type(e).__name__)
+            return []
+
+    # --- Private Methods ---
+
+    async def _get_device_list(self) -> List[str]:
+        """Get list of available device serials."""
+        try:
+            stdout, _ = await self.adb.run_command("devices", timeout=5.0)
+            devices = []
+            for line in stdout.split('\n')[1:]:  # Skip header
+                if '\tdevice' in line:
+                    devices.append(line.split('\t')[0].strip())
+            return devices
+        except AdbError as e:
+            self.logger.warning("Failed to get device list", error=str(e))
+            return []
+
+    async def _get_complete_device_info(self, serial: str, timeout: float) -> Optional[Device]:
+        """Get complete device information using DeviceDetector."""
+        try:
+            # Get basic device properties needed for DeviceDetector
+            properties = await asyncio.wait_for(
+                self._get_device_properties(serial, [
+                    'ro.product.model',
+                    'ro.build.version.release',
+                    'ro.build.version.sdk',
+                    'ro.product.cpu.abi',
+                    'ro.product.brand',
+                    'ro.product.manufacturer',
+                    'ro.product.name',
+                    'ro.product.device'
+                ]),
+                timeout=timeout
+            )
+            
+            model = properties.get('ro.product.model', 'Unknown Device')
+            brand = properties.get('ro.product.brand', 'Unknown')
+            manufacturer = properties.get('ro.product.manufacturer', 'Unknown')
+            product_name = properties.get('ro.product.name', '')
+            product_device = properties.get('ro.product.device', '')
+            android_version = properties.get('ro.build.version.release', 'Unknown')
+            
+            # Use DeviceDetector to get enhanced device information
+            device_info = await self._get_device_info_with_detector(
+                model, brand, manufacturer, product_name, product_device, android_version
+            )
+            
+            return Device(
+                serial=serial,
+                model=model,
+                android_version=android_version,
+                api_level=int(properties.get('ro.build.version.sdk', '0')),
+                architecture=properties.get('ro.product.cpu.abi', 'unknown'),
+                status='Online',
+                is_network_device=':' in serial,
+                brand=device_info.get('brand', brand),
+                device_name=device_info.get('device_name')
+            )
+        except Exception as e:
+            self.logger.warning("Failed to get device info", device=serial, error=str(e), error_type=type(e).__name__)
+            return None
+
+    async def _get_all_processes(self, device_serial: str) -> List[Process]:
+        """Get all processes with complete information."""
+        try:
+            # Get all running processes with ps command
+            stdout, _ = await self.adb.run_command("-s", device_serial, "shell", "ps", "-A")
+            
+            processes = []
+            for line in stdout.split('\n')[1:]:  # Skip header
                 fields = line.split()
                 if len(fields) >= 9:
                     try:
                         pid = int(fields[1])
                         process_name = fields[-1]
-                        if '.' in process_name and not process_name.startswith('['):
-                            running_processes[process_name] = pid
-                    except (ValueError, IndexError):
+                        
+                        # Only include processes that look like actual packages
+                        if self._is_valid_package_name(process_name):
+                            # Get complete process info
+                            process = await self._get_process_details(device_serial, process_name, pid)
+                            if process:
+                                processes.append(process)
+                    except (ValueError, IndexError) as e:
+                        self.logger.debug("Failed to parse process line", line=line, error=str(e))
                         continue
-            return running_processes
-        except Exception as e:
-            self.logger.error(
-                "Error getting running processes map", error=str(e))
-            return {}
-
-    async def _get_third_party_packages_list(self, device_id: str) -> list[str]:
-        """Get list of third-party (user-installed) package names."""
-        try:
-            result = await asyncio.create_subprocess_exec(
-                "adb", "-s", device_id, "shell", "pm", "list", "packages", "-3",
-                stdout=subprocess.PIPE, stderr=subprocess.PIPE
-            )
-            stdout, stderr = await result.communicate()
-            if result.returncode != 0:
-                self.logger.warning(
-                    "Failed to get third-party packages", error=stderr.decode())
-                return []
-
-            return [
-                line.replace('package:', '').strip()
-                for line in stdout.decode().strip().split('\n')
-                if line.startswith('package:')
-            ]
-        except Exception as e:
-            self.logger.error(
-                "Error getting third-party packages list", error=str(e))
+            
+            # Sort by name
+            processes.sort(key=lambda p: p.name.lower())
+            return processes
+            
+        except AdbError as e:
+            self.logger.warning("Failed to get processes", device=device_serial, error=str(e))
             return []
 
-    async def _get_package_rich_info(self, device_id: str, package_name: str) -> dict:
-        """Get rich information for a specific package."""
+    async def _get_process_details(self, device_serial: str, package: str, pid: int) -> Optional[Process]:
+        """Get complete process details including name and version."""
         try:
-            # Get comprehensive app metadata
-            metadata = await self.get_app_metadata(package_name)
-            return metadata
-        except Exception as e:
-            self.logger.warning("Error getting rich package info",
-                                package=package_name, error=str(e))
-            return {'name': package_name, 'version': 'Unknown'}
-
-    async def get_app_metadata(self, package_name: str) -> dict[str, Any]:
-        """
-        Get comprehensive app metadata including display name, version, and icon for the connected device.
-
-        Args:
-            package_name: Package name to get metadata for
-
-        Returns:
-            Dictionary containing app metadata
+            # Check if it's a system package
+            is_system = self._is_system_package(package)
             
-        Raises:
-            RuntimeError: If no device is connected.
-        """
-        if not self.connected_device:
-            self.logger.error("Cannot perform action: no device is connected.")
-            raise RuntimeError("An action was requested, but no device is connected.")
-        device_id = self.connected_device
-        
-        # Check cache first
-        cache_key = f"{device_id}_{package_name}_metadata"
-        cached_metadata = self._get_cached_app_metadata(cache_key)
-        if cached_metadata:
-            self.logger.debug("Using cached app metadata",
-                              package=package_name)
-            return cached_metadata
-
-        self.logger.debug("Getting app metadata",
-                          device=device_id, package=package_name)
-
-        try:
-            # Get basic package information via dumpsys
-            basic_info = await self._get_basic_package_info(device_id, package_name)
-
-            # Get display name
-            display_name = await self.get_app_display_name(device_id, package_name)
-            if display_name and display_name != package_name:
-                basic_info['name'] = display_name
-
-            # Try to get app icon data
-            icon_data = await self.get_app_icon_data(device_id, package_name)
-            if icon_data:
-                basic_info['icon_data'] = icon_data
-
-            # Cache the results
-            self._cache_app_metadata(cache_key, basic_info)
-
-            self.logger.debug("App metadata gathered and cached",
-                              package=package_name, has_icon=bool(icon_data))
-            return basic_info
-
+            # Skip detailed queries for system packages to reduce noise
+            if is_system:
+                return Process(
+                    package=package,
+                    name=package,  # Use package name as fallback
+                    pid=pid,
+                    version="System",
+                    is_system=True
+                )
+            
+            # Get app name and version concurrently
+            name_task = self._get_package_property(device_serial, package, "application-label:")
+            version_task = self._get_package_property(device_serial, package, "versionName=")
+            
+            name, version = await asyncio.gather(name_task, version_task, return_exceptions=True)
+            
+            # Handle exceptions
+            if isinstance(name, Exception):
+                self.logger.debug("Failed to get app name", package=package, error=str(name))
+                name = None
+            if isinstance(version, Exception):
+                self.logger.debug("Failed to get app version", package=package, error=str(version))
+                version = "Unknown"
+            
+            return Process(
+                package=package,
+                name=str(name) if name else package,
+                pid=pid,
+                version=str(version) if version else "Unknown",
+                is_system=is_system
+            )
+            
         except Exception as e:
-            self.logger.warning("Error getting app metadata",
-                                package=package_name, error=str(e))
-            return {'name': package_name, 'version': 'Unknown'}
+            if self._verbose_debug:
+                self.logger.debug("Failed to get process details", package=package, error=str(e), error_type=type(e).__name__)
+            return None
 
-    async def _get_basic_package_info(self, device_id: str, package_name: str) -> dict[str, Any]:
-        """Get basic package information via dumpsys."""
+    async def _get_package_property(self, device_serial: str, package: str, grep_pattern: str) -> Optional[str]:
+        """Get a specific property from a package using dumpsys."""
+        # Skip processes that don't have package information
+        if not self._is_valid_package_name(package):
+            return None
+            
         try:
-            result = await asyncio.create_subprocess_exec(
-                "adb", "-s", device_id, "shell", f"dumpsys package {package_name}",
-                stdout=subprocess.PIPE, stderr=subprocess.PIPE
-            )
-            stdout, _ = await result.communicate()
-
-            package_info = {
-                'name': package_name,
-                'version': 'Unknown',
-                'version_code': 0,
-                'install_time': None,
-                'last_update_time': None,
-                'is_debuggable': False
-            }
-
-            if result.returncode == 0:
-                output = stdout.decode().strip()
-                for line in output.split('\n'):
-                    line = line.strip()
-                    if line.startswith('versionName='):
-                        package_info['version'] = line.replace(
-                            'versionName=', '').strip()
-                    elif line.startswith('versionCode='):
-                        try:
-                            version_code = line.replace(
-                                'versionCode=', '').strip()
-                            package_info['version_code'] = int(
-                                version_code.split()[0])
-                        except (ValueError, IndexError):
-                            pass
-                    elif line.startswith('application-label:'):
-                        label = line.replace(
-                            'application-label:', '').strip().strip("'\"")
-                        if label:
-                            package_info['name'] = label
-                    elif 'FLAG_DEBUGGABLE' in line:
-                        package_info['is_debuggable'] = True
-
-            return package_info
-        except Exception as e:
-            self.logger.debug("Error getting basic package info",
-                              package=package_name, error=str(e))
-            return {'name': package_name, 'version': 'Unknown'}
-
-    async def get_app_display_name(self, device_id: str, package_name: str) -> str:
-        """
-        Get human-readable app name from package manager.
-
-        Args:
-            device_id: Device serial ID
-            package_name: Package name
-
-        Returns:
-            Human-readable app display name
-        """
-        try:
-            # Try multiple methods to get the display name
-
-            # Method 1: Use pm list packages with -f flag to get APK path, then aapt
-            result = await asyncio.create_subprocess_exec(
-                "adb", "-s", device_id, "shell", f"pm path {package_name}",
-                stdout=subprocess.PIPE, stderr=subprocess.PIPE
-            )
-            stdout, _ = await result.communicate()
-
-            if result.returncode == 0 and stdout:
-                apk_path = stdout.decode().strip().replace('package:', '')
-                if apk_path:
-                    # Try to get label using aapt (if available)
-                    label = await self._get_label_from_aapt(device_id, apk_path)
-                    if label:
-                        return label
-
-            # Method 2: Try to get from dumpsys package (fallback)
-            result = await asyncio.create_subprocess_exec(
-                "adb", "-s", device_id, "shell", f"dumpsys package {package_name} | grep -E 'application-label|label='",
-                stdout=subprocess.PIPE, stderr=subprocess.PIPE
-            )
-            stdout, _ = await result.communicate()
-
-            if result.returncode == 0 and stdout:
-                for line in stdout.decode().strip().split('\n'):
-                    line = line.strip()
-                    if 'application-label:' in line:
-                        label = line.split(
-                            'application-label:')[-1].strip().strip("'\"")
-                        if label and label != package_name:
+            # Try to get from dumpsys with a shorter timeout for faster failure
+            stdout, _ = await self.adb.run_command("-s", device_serial, "shell", 
+                                                 f"dumpsys package {package} | grep '{grep_pattern}'", 
+                                                 timeout=3.0)
+            
+            for line in stdout.split('\n'):
+                if grep_pattern in line:
+                    if grep_pattern == "application-label:":
+                        label = line.split('application-label:')[-1].strip().strip("'\"")
+                        if label and label != package:
                             return label
-                    elif 'label=' in line:
-                        label = line.split('label=')[-1].strip().strip("'\"")
-                        if label and label != package_name:
-                            return label
-
-            # Method 3: Fallback to package name
-            return package_name
-
-        except Exception as e:
-            self.logger.debug("Error getting app display name",
-                              package=package_name, error=str(e))
-            return package_name
-
-    async def _get_label_from_aapt(self, device_id: str, apk_path: str) -> Optional[str]:
-        """Try to get app label using aapt tool."""
-        try:
-            result = await asyncio.create_subprocess_exec(
-                "adb", "-s", device_id, "shell", f"aapt dump badging {apk_path} | grep 'application-label'",
-                stdout=subprocess.PIPE, stderr=subprocess.PIPE
-            )
-            stdout, _ = await result.communicate()
-
-            if result.returncode == 0 and stdout:
-                output = stdout.decode().strip()
-                # Parse application-label:'App Name'
-                if 'application-label:' in output:
-                    label = output.split(
-                        'application-label:')[-1].strip().strip("'\"")
-                    if label:
-                        return label
-
+                    elif grep_pattern == "versionName=":
+                        return line.replace('versionName=', '').strip()
+            
             return None
-        except Exception:
+        except AdbError as e:
+            # Only log at debug level to reduce noise - these failures are expected for system packages
+            if self._verbose_debug:
+                self.logger.debug("Failed to get package property", package=package, pattern=grep_pattern, error=str(e))
             return None
 
-    async def get_app_icon_data(self, device_id: str, package_name: str) -> Optional[bytes]:
-        """
-        Extract app icon as PNG data.
-
-        Args:
-            device_id: Device serial ID
-            package_name: Package name
-
-        Returns:
-            Icon data as bytes, or None if not available
-        """
-        try:
-            # This is a simplified implementation - getting icons from Android is complex
-            # For now, we'll return None and implement icon display later if needed
-            # Full implementation would require extracting icons from APK files
-
-            self.logger.debug(
-                "Icon extraction not yet implemented", package=package_name)
-            return None
-
-        except Exception as e:
-            self.logger.debug("Error getting app icon",
-                              package=package_name, error=str(e))
-            return None
-
-    async def is_connected(self) -> bool:
-        """Check if there's an active device connection."""
-        if not self.connected_device:
+    def _is_valid_package_name(self, process_name: str) -> bool:
+        """Check if a process name looks like a valid package name that can be queried."""
+        # Skip system processes that don't have package information
+        if process_name.startswith('[') or process_name.startswith('/'):
             return False
-        return await self._test_device_connection(self.connected_device)
+            
+        # Skip sandboxed and isolated processes
+        if ':sandboxed_process' in process_name or ':isolated_process' in process_name:
+            return False
+            
+        # Skip system services (they have @ in their names)
+        if '@' in process_name:
+            return False
+            
+        # Skip processes that don't look like packages (no dots or too short)
+        if '.' not in process_name or len(process_name) < 3:
+            return False
+            
+        # Skip processes that look like system services or daemons
+        if process_name.endswith('-service') or process_name.endswith('-daemon'):
+            return False
+            
+        # Skip processes that contain system service patterns
+        if any(pattern in process_name for pattern in _SERVICE_PATTERNS):
+            return False
+            
+        # Skip packages that are known to fail dumpsys queries
+        if any(pattern in process_name for pattern in _FAILURE_PATTERNS):
+            return False
+            
+        return True
 
-    async def get_device_properties(self, device_id: str, properties: list[str]) -> dict[str, str]:
-        """Get device properties using ADB shell getprop."""
-        self.logger.debug("Getting device properties", device_id=device_id, properties=properties)
+    def _is_system_package(self, package: str) -> bool:
+        """Check if package is a system package."""
+        # Include sandboxed and isolated processes as system processes
+        if ':sandboxed_process' in package or ':isolated_process' in package:
+            return True
+            
+        # Check for system package patterns
+        if any(package.startswith(pattern) for pattern in _SYSTEM_PACKAGE_PATTERNS):
+            return True
+            
+        # Check for service patterns
+        if any(pattern in package for pattern in _SERVICE_PATTERNS):
+            return True
+            
+        # Check for failure patterns (these are typically system packages)
+        if any(pattern in package for pattern in _FAILURE_PATTERNS):
+            return True
+            
+        return False
+
+    async def _get_device_properties(self, device_serial: str, properties: List[str]) -> Dict[str, str]:
+        """Get device properties with caching."""
+        cache_key = f"props_{device_serial}_{hash(tuple(sorted(properties)))}"
         
-        cache_key = f"{device_id}_props_{hash(tuple(sorted(properties)))}"
+        # Check cache
+        cached = self._get_cache(cache_key)
+        if cached:
+            return cached
         
-        # Check cache first
-        if self._is_cache_valid(cache_key):
-            cached_props = self._device_properties_cache.get(cache_key, {})
-            if cached_props:
-                self.logger.debug("Using cached device properties", device_id=device_id)
-                return cached_props
-
-        self.logger.debug(f"Gathering device properties from device: {device_id}", properties=properties)
-
-        result = {}
-
+        # Get properties
         try:
-            # Build a single getprop command for efficiency
-            prop_commands = []
-            for prop in properties:
-                prop_commands.append(f"echo '{prop}:'; getprop {prop}")
-
-            # Execute combined command
+            prop_commands = [f"echo '{prop}:'; getprop {prop}" for prop in properties]
             combined_command = "; ".join(prop_commands)
-            self.logger.debug(f"Running ADB shell command: {combined_command}", device=device_id)
-            output = await self.adb.shell(device_id, combined_command)
-            self.logger.debug(f"Raw ADB output for getprop: {output}", device=device_id)
-
-            # Parse the output
-            lines = output.split('\n')
+            
+            stdout, _ = await self.adb.run_command("-s", device_serial, "shell", combined_command)
+            
+            # Parse output
+            result = {}
+            lines = stdout.split('\n')
             current_prop = None
-
+            
             for line in lines:
                 line = line.strip()
                 if line.endswith(':'):
-                    # This is a property name line
                     current_prop = line[:-1]
                 elif current_prop and line:
-                    # This is a property value line
                     result[current_prop] = line
                     current_prop = None
-
-            self.logger.debug(f"Parsed device properties: {result}", device=device_id)
-            # Cache the results
-            self._cache_device_properties(cache_key, result)
-
-            self.logger.debug("Device properties gathered and cached",
-                              device=device_id, count=len(result))
+            
+            # Cache result
+            self._set_cache(cache_key, result)
             return result
-
+            
         except AdbError as e:
-            self.logger.warning(
-                "Error getting device properties", device=device_id, error=str(e))
+            self.logger.warning("Failed to get device properties", device=device_serial, error=str(e))
             return {}
 
-    def _parse_api_level(self, api_level_str: str) -> int:
-        """Parse API level string to integer."""
+    async def _test_device_connection(self, device_serial: str) -> bool:
+        """Test if device is accessible and responsive."""
         try:
-            return int(api_level_str)
-        except (ValueError, TypeError):
-            return 0
-
-    def _detect_emulator(self, device_props: dict[str, str]) -> bool:
-        """
-        Detect if device is an emulator based on properties.
-
-        Args:
-            device_props: Dictionary of device properties
-
-        Returns:
-            True if device appears to be an emulator
-        """
-        # Check for emulator indicators
-        emulator_indicators = [
-            device_props.get('ro.kernel.qemu') == '1',
-            'emulator' in device_props.get('ro.product.model', '').lower(),
-            'sdk' in device_props.get('ro.product.name', '').lower(),
-            'generic' in device_props.get('ro.product.name', '').lower(),
-            device_props.get('ro.build.characteristics') == 'emulator'
-        ]
-
-        return any(emulator_indicators)
-
-    def format_device_status(self, raw_status: str) -> str:
-        """
-        Convert ADB status to user-friendly format.
-
-        Args:
-            raw_status: Raw ADB device status
-
-        Returns:
-            User-friendly status string
-        """
-        status_map = {
-            'device': 'Online',
-            'offline': 'Offline',
-            'unauthorized': 'Unauthorized',
-            'no permissions': 'No Permissions'
-        }
-
-        return status_map.get(raw_status.lower(), raw_status)
-
-    def _is_cache_valid(self, cache_key: str) -> bool:
-        """Check if cache entry is still valid based on timeout."""
-        import time
-        if cache_key not in self._cache_timestamps:
+            # Try a simple command to test connectivity
+            stdout, _ = await self.adb.run_command("-s", device_serial, "shell", "echo", "test")
+            return stdout.strip() == "test"
+        except AdbError as e:
+            self.logger.debug("Device connection test failed", device=device_serial, error=str(e))
             return False
 
-        elapsed = time.time() - self._cache_timestamps[cache_key]
-        return elapsed < self._cache_timeout
+    async def _get_device_info_with_detector(self, model: str, brand: str, manufacturer: str, product_name: str, product_device: str, android_version: str) -> Dict[str, Optional[str]]:
+        """Get enhanced device information using DeviceDetector library."""
+        if not DEVICE_DETECTOR_AVAILABLE or DeviceDetector is None:
+            raise RuntimeError("DeviceDetector library is not available")
+        
+        # Create a user agent string that DeviceDetector can parse using actual Android version
+        user_agent = f"Mozilla/5.0 (Linux; Android {android_version}; {model}) AppleWebKit/537.36"
+        
+        # Use DeviceDetector to parse the device information
+        detector = DeviceDetector(user_agent)
+        device_info = detector.parse()
+        
+        # Extract device information from DeviceDetector result
+        device_data = device_info.get('device', {}) if isinstance(device_info, dict) else {}
+        brand_name = device_data.get('brand', brand) if isinstance(device_data, dict) else brand
+        model_name = device_data.get('model', model) if isinstance(device_data, dict) else model
+        
+        # Generate device name
+        device_name = None
+        if brand_name and brand_name.lower() != 'unknown':
+            if model_name and model_name.lower() != 'unknown device':
+                device_name = f"{brand_name} {model_name}"
+            else:
+                device_name = brand_name
+        else:
+            device_name = model_name if model_name != "Unknown Device" else "Unknown Device"
+        
+        # Clean up the device name
+        device_name = self._clean_device_name(device_name)
+        
+        return {
+            'brand': brand_name,
+            'device_name': device_name
+        }
 
-    def _cache_device_properties(self, cache_key: str, properties: Dict[str, str]):
-        """Cache device properties with timestamp."""
-        import time
-        self._device_properties_cache[cache_key] = properties
-        self._cache_timestamps[cache_key] = time.time()
-        self.logger.debug("Cached device properties",
-                          cache_key=cache_key, count=len(properties))
+    def _clean_device_name(self, device_name: str) -> str:
+        """Clean and format device name for better readability."""
+        if not device_name:
+            return "Unknown Device"
+        
+        # Remove common unwanted suffixes
+        cleaned_name = device_name
+        for suffix in _UNWANTED_SUFFIXES:
+            # Use case-insensitive replacement
+            suffix_lower = suffix.lower()
+            while cleaned_name.lower().endswith(suffix_lower):
+                # Find the actual suffix in the original case
+                end_pos = len(cleaned_name) - len(suffix)
+                if end_pos >= 0:
+                    cleaned_name = cleaned_name[:end_pos]
+                else:
+                    break
+        
+        # Remove extra whitespace
+        cleaned_name = ' '.join(cleaned_name.split())
+        
+        # Capitalize properly
+        cleaned_name = cleaned_name.title()
+        
+        return cleaned_name
 
-    def _cache_app_metadata(self, cache_key: str, metadata: Dict[str, Any]):
-        """Cache app metadata with timestamp."""
-        import time
-        self._app_metadata_cache[cache_key] = metadata
-        self._cache_timestamps[cache_key] = time.time()
-        self.logger.debug("Cached app metadata", cache_key=cache_key)
+    # --- Frida Server Management ---
 
-    def _get_cached_app_metadata(self, cache_key: str) -> Optional[Dict[str, Any]]:
-        """Get cached app metadata if valid."""
-        if self._is_cache_valid(cache_key):
-            return self._app_metadata_cache.get(cache_key)
+    async def ensure_frida_server_is_running(self, device: Optional[Device] = None) -> bool:
+        """
+        Ensure frida-server is running on the connected device.
+        
+        Args:
+            device: Device to provision frida-server on. If None, uses the first available device.
+            
+        Returns:
+            True if frida-server is ready, False otherwise
+        """
+        if not frida:
+            self.logger.error("Frida library not available")
+            return False
+        
+        try:
+            # If no device provided, try to get the first available device
+            if device is None:
+                devices = await self.discover_devices(timeout=5.0)
+                if not devices:
+                    self.logger.error("No devices available for frida-server setup")
+                    return False
+                device = devices[0]
+            
+            # Use the frida manager to provision the server for the specific device
+            target_version = frida.__version__
+            await self.frida_manager.provision(device.serial, device.architecture, target_version)
+            
+            self.logger.info("Frida server setup completed", device=device.serial)
+            return True
+            
+        except Exception as e:
+            self.logger.error("Frida server setup failed", error=str(e), error_type=type(e).__name__)
+            return False
+
+    # --- Caching ---
+
+    def _get_cache(self, key: str) -> Optional[Any]:
+        """Get cached value if not expired."""
+        entry = self._cache.get(key)
+        if entry and not entry.is_expired():
+            return entry.data
+        elif entry and entry.is_expired():
+            del self._cache[key]
         return None
 
-    def clear_cache(self):
-        """Clear all cached data."""
-        self._device_properties_cache.clear()
-        self._app_metadata_cache.clear()
-        self._cache_timestamps.clear()
-        self.logger.info("All caches cleared")
+    def _set_cache(self, key: str, data: Any, ttl_seconds: Optional[int] = None) -> None:
+        """Set cached value with TTL."""
+        ttl = ttl_seconds or self._cache_timeout
+        self._cache[key] = CacheEntry(data=data, timestamp=datetime.now(), ttl_seconds=ttl)
 
-    def get_cache_stats(self) -> Dict[str, Any]:
-        """Get cache statistics for monitoring."""
-        return {
-            "device_properties_cached": len(self._device_properties_cache),
-            "app_metadata_cached": len(self._app_metadata_cache),
-            "total_cache_entries": len(self._cache_timestamps),
-            "cache_timeout_seconds": self._cache_timeout
-        }
 
-    async def _test_device_connection(self, device_id: str) -> bool:
-        """Test if we can communicate with the specified device."""
-        try:
-            output = await self.adb.shell(device_id, "echo test")
-            return "test" in output
-        except AdbError:
-            return False
-
-    async def push_file(self, device_id: str, local_path: Path, device_path: str) -> None:
-        """Push a file to the device, ensuring it's clean and executable."""
-        self.logger.info("Pushing file to device",
-                         local=str(local_path), device=device_path)
-        try:
-            await self.adb.shell(device_id, f"rm -f {device_path}")
-            if not local_path.exists() or not local_path.is_file():
-                raise Exception(
-                    f"Local file does not exist or is not a file: {local_path}")
-            target_dir = str(Path(device_path).parent)
-            await self.adb.shell(device_id, f"mkdir -p {target_dir}")
-            await self.adb.push(device_id, str(local_path), device_path)
-            await self.adb.shell(device_id, f"ls -la {device_path}")
-            await self.adb.shell(device_id, f"chmod 755 {device_path}")
-            self.logger.info(
-                "Successfully pushed and configured file on device.")
-        except (AdbError, Exception) as e:
-            self.logger.error("Error during file push operation", error=str(e))
-            raise
-
-    async def list_devices_with_details(self) -> list[dict]:
-        """
-        Discover all available devices and gather their essential properties for UI display.
-        
-        This is the primary entry point for device listing in the two-phase API.
-        It performs a stateless inspection operation that returns detailed information
-        about all available devices without establishing any stateful connections.
-        
-        Returns:
-            List of dictionaries containing detailed device information
-        """
-        self.logger.info("Starting device discovery with rich details")
-        
-        try:
-            # Ensure network emulators are visible to ADB
-            await self._scan_and_connect_network_devices()
-            
-            # Get all available device serials with timeout
-            try:
-                devices = await asyncio.wait_for(self.adb.list_devices(), timeout=15.0)
-            except asyncio.TimeoutError:
-                self.logger.warning("ADB device listing timed out, returning empty list")
-                return []
-            except Exception as e:
-                self.logger.error("Error listing ADB devices", error=str(e))
-                return []
-            
-            if not devices:
-                self.logger.info("No ADB devices found")
-                return []
-            
-            # Gather rich details for all devices in parallel with timeout
-            try:
-                tasks = [self._get_rich_device_details(serial) for serial in devices]
-                detailed_devices = await asyncio.wait_for(
-                    asyncio.gather(*tasks, return_exceptions=True), 
-                    timeout=30.0  # 30 second timeout for device details gathering
-                )
-            except asyncio.TimeoutError:
-                self.logger.warning("Device details gathering timed out, returning basic device list")
-                # Return basic device info if details gathering times out
-                return [{'serial': device, 'model': 'Unknown Device', 'status': 'Online'} for device in devices]
-            
-            # Filter out any exceptions and log them
-            valid_devices = []
-            for i, result in enumerate(detailed_devices):
-                if isinstance(result, Exception):
-                    self.logger.warning("Failed to get details for device", 
-                                       device=devices[i], error=str(result))
-                    # Add basic device info even if details failed
-                    valid_devices.append({
-                        'serial': devices[i],
-                        'model': 'Unknown Device',
-                        'status': 'Error',
-                        'is_network_device': ':' in devices[i]
-                    })
-                else:
-                    valid_devices.append(result)
-            
-            self.logger.info("Device discovery completed", count=len(valid_devices))
-            return valid_devices
-            
-        except Exception as e:
-            self.logger.error("Error during device discovery", error=str(e))
-            return []
-
-    async def _get_rich_device_details(self, device_id: str) -> dict:
-        """
-        Get all necessary read-only properties for a single device.
-        
-        This method gathers comprehensive device information including model,
-        Android version, API level, architecture, and connection status.
-        
-        Args:
-            device_id: The device serial ID
-            
-        Returns:
-            Dictionary containing all device details
-        """
-        try:
-            # Get essential device properties
-            properties = [
-                'ro.product.model',
-                'ro.build.version.release', 
-                'ro.build.version.sdk',
-                'ro.product.cpu.abi'
-            ]
-            
-            device_props = await self.get_device_properties(device_id, properties)
-            
-            # Determine if device has IP address (network device)
-            is_network_device = ':' in device_id
-            
-            # Build the device details dictionary
-            device_details = {
-                'serial': device_id,
-                'model': device_props.get('ro.product.model', 'Unknown Device'),
-                'android_version': device_props.get('ro.build.version.release', 'Unknown'),
-                'api_level': self._parse_api_level(device_props.get('ro.build.version.sdk', '0')),
-                'architecture': device_props.get('ro.product.cpu.abi', 'unknown'),
-                'status': 'Online',
-                'is_network_device': is_network_device
-            }
-            
-            # Add IP address if it's a network device
-            if is_network_device:
-                device_details['ip_address'] = device_id.split(':')[0]
-                device_details['port'] = device_id.split(':')[1]
-            
-            self.logger.debug("Gathered rich device details", 
-                             device=device_id, details=device_details)
-            return device_details
-            
-        except Exception as e:
-            self.logger.warning("Error getting rich device details", 
-                               device=device_id, error=str(e))
-            # Return basic info even if detailed gathering fails
-            return {
-                'serial': device_id,
-                'model': 'Unknown Device',
-                'android_version': 'Unknown',
-                'api_level': 0,
-                'architecture': 'unknown',
-                'status': 'Error',
-                'is_network_device': ':' in device_id
-            }
-
-    async def connect_to_device(self, device_id: str) -> bool:
-        """
-        Establish a stateful connection to a specific device.
-        
-        This method is part of the two-phase API. After using list_devices_with_details()
-        to inspect available devices, this method formally "connects" to a chosen device,
-        setting the internal state of the service for subsequent actions.
-        
-        Args:
-            device_id: The serial ID of the device to connect to
-            
-        Returns:
-            True if connection was successful, False otherwise
-        """
-        self.logger.info("Attempting to connect to device", device=device_id)
-        
-        try:
-            # Verify the device is still reachable
-            if not await self._test_device_connection(device_id):
-                self.logger.error("Device is not reachable", device=device_id)
-                return False
-            
-            # Set the connected device state
-            self.connected_device = device_id
-            
-            # Pre-emptively get and cache the device's architecture
-            self.device_architecture = await self.get_device_architecture(device_id)
-            
-            self.logger.info("Successfully connected to device", 
-                            device=device_id, architecture=self.device_architecture)
-            return True
-            
-        except Exception as e:
-            self.logger.error("Failed to connect to device", 
-                             device=device_id, error=str(e))
-            return False
-
-    async def disconnect_from_device(self) -> bool:
-        """
-        Disconnect from the currently connected device and reset internal state.
-        
-        This method is part of the two-phase API. It clears the internal state
-        and resets the service to a disconnected state.
-        
-        Returns:
-            True if disconnection was successful, False otherwise
-        """
-        if not self.connected_device:
-            self.logger.info("No device currently connected")
-            return True
-        
-        device_id = self.connected_device
-        self.logger.info("Disconnecting from device", device=device_id)
-        
-        try:
-            # Clear the connected device state
-            self.connected_device = None
-            self.device_architecture = None
-            
-            # Clear any cached data for this device
-            self.clear_cache()
-            
-            self.logger.info("Successfully disconnected from device", device=device_id)
-            return True
-            
-        except Exception as e:
-            self.logger.error("Failed to disconnect from device", 
-                             device=device_id, error=str(e))
-            return False

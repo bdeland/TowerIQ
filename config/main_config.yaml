@@ -74,6 +74,7 @@ system_defaults:
         jitter: true
   emulator:
     cache_timeout_seconds: 300
+    verbose_debug: false  # Set to true to see detailed ADB command debug messages
     timeouts:
       device_discovery: 3.0
       adb_command: 10.0

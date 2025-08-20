@@ -40,3 +40,6 @@ frida-tools
 
 # For device communication
 adb-enhanced
+
+# For device detection and identification
+device_detector

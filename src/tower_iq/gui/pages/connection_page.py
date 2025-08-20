@@ -19,7 +19,7 @@ from PyQt6.QtGui import QColor
 from qfluentwidgets import (
     BodyLabel, CaptionLabel, PushButton, FluentIcon, TableWidget,
     ComboBox, SwitchButton, InfoBar, InfoBarPosition, CardWidget,
-    SimpleCardWidget, ProgressRing
+    SimpleCardWidget, ProgressRing, SearchLineEdit, CheckBox
 )
 
 from ..utils.content_page import ContentPage
@@ -119,6 +119,23 @@ class DeviceSelectionWidget(QWidget):
         
         self.device_table.resizeRowsToContents()
         
+    def show_loading_state(self, loading: bool):
+        """Show or hide loading state."""
+        if loading:
+            # Show skeleton loading state
+            self.device_table.setRowCount(3)  # Show 3 skeleton rows
+            for row in range(3):
+                for col in range(5):
+                    item = QTableWidgetItem("")
+                    item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+                    self.device_table.setItem(row, col, item)
+            
+            # Disable refresh button
+            self.refresh_button.setEnabled(False)
+        else:
+            # Re-enable refresh button
+            self.refresh_button.setEnabled(True)
+            
     def _detect_emulator_type(self, device: Dict[str, Any]) -> str:
         """Detect emulator type based on device properties."""
         is_emulator = device.get('is_emulator', False)
@@ -173,6 +190,7 @@ class ProcessSelectionWidget(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.logger = structlog.get_logger().bind(source="ProcessSelectionWidget")
+        self.all_processes = []  # Store all processes for filtering
         self.setup_ui()
         
     def setup_ui(self):
@@ -180,6 +198,23 @@ class ProcessSelectionWidget(QWidget):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(12)
+        
+        # Search and filter controls
+        search_layout = QHBoxLayout()
+        
+        # Search bar
+        self.search_input = SearchLineEdit(self)
+        self.search_input.setPlaceholderText("Search processes...")
+        self.search_input.textChanged.connect(self._on_search_changed)
+        search_layout.addWidget(self.search_input)
+        
+        # Show only third party processes checkbox
+        self.third_party_checkbox = CheckBox("Show Only Third Party Processes", self)
+        self.third_party_checkbox.setChecked(True)  # Default to checked
+        self.third_party_checkbox.stateChanged.connect(self._on_filter_changed)
+        search_layout.addWidget(self.third_party_checkbox)
+        
+        layout.addLayout(search_layout)
         
         # Process table
         self.process_table = TableWidget(self)
@@ -214,6 +249,50 @@ class ProcessSelectionWidget(QWidget):
         
     def update_processes(self, processes: List[Dict[str, Any]]):
         """Update the process table with new process data."""
+        self.all_processes = processes
+        self._apply_filters()
+        
+    def _apply_filters(self):
+        """Apply search and filter to the process list."""
+        search_term = self.search_input.text().lower()
+        show_only_third_party = self.third_party_checkbox.isChecked()
+        
+        filtered_processes = []
+        
+        for process in self.all_processes:
+            # Check search term
+            matches_search = (
+                search_term in process.get('name', '').lower() or
+                search_term in process.get('package', '').lower()
+            )
+            
+            if not matches_search:
+                continue
+                
+            # Check third party filter
+            if show_only_third_party:
+                package = process.get('package', '')
+                is_third_party = (
+                    package and
+                    not package.startswith('com.android.') and
+                    not package.startswith('android.') and
+                    not package.startswith('system') and
+                    not package.startswith('com.google.android.') and
+                    not package.startswith('com.samsung.') and
+                    not package.startswith('com.sec.') and
+                    not package.startswith('com.qualcomm.')
+                )
+                
+                if not is_third_party:
+                    continue
+            
+            filtered_processes.append(process)
+        
+        # Update table with filtered processes
+        self._populate_table(filtered_processes)
+        
+    def _populate_table(self, processes: List[Dict[str, Any]]):
+        """Populate the table with the given processes."""
         self.process_table.setRowCount(len(processes))
         
         for row, process in enumerate(processes):
@@ -254,6 +333,38 @@ class ProcessSelectionWidget(QWidget):
                 self.process_table.setItem(row, col, item)
         
         self.process_table.resizeRowsToContents()
+        
+    def show_loading_state(self, loading: bool):
+        """Show or hide loading state."""
+        if loading:
+            # Show skeleton loading state
+            self.process_table.setRowCount(5)  # Show 5 skeleton rows
+            for row in range(5):
+                for col in range(5):
+                    item = QTableWidgetItem("")
+                    item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+                    self.process_table.setItem(row, col, item)
+            
+            # Disable search and filter controls
+            self.search_input.setEnabled(False)
+            self.third_party_checkbox.setEnabled(False)
+            self.refresh_button.setEnabled(False)
+        else:
+            # Re-enable controls
+            self.search_input.setEnabled(True)
+            self.third_party_checkbox.setEnabled(True)
+            self.refresh_button.setEnabled(True)
+            
+            # Apply filters to show actual data
+            self._apply_filters()
+        
+    def _on_search_changed(self):
+        """Handle search text change."""
+        self._apply_filters()
+        
+    def _on_filter_changed(self):
+        """Handle filter checkbox change."""
+        self._apply_filters()
         
     def _on_refresh_clicked(self):
         """Handle refresh button click."""

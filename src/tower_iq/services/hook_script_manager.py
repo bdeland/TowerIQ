@@ -87,12 +87,15 @@ class HookScriptManager:
                 file_name = script.get("fileName", "")
                 content = self.get_script_content(file_name)
                 
-                # Create a script object with content
+                # Create a script object with content and compatibility info
                 script_with_content = {
                     "id": file_name,
                     "name": script.get("scriptName", script.get("fileName", "Script")),
-                    "description": script.get("description", "No description available"),
-                    "content": content
+                    "description": script.get("scriptDescription", script.get("description", "No description available")),
+                    "content": content,
+                    "targetPackage": script.get("targetPackage", ""),
+                    "targetApp": script.get("targetApp", ""),
+                    "supportedVersions": script.get("supportedVersions", [])
                 }
                 available_scripts.append(script_with_content)
             except Exception:

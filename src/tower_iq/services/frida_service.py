@@ -317,7 +317,7 @@ class FridaService:
     message handling between the host application and injected scripts.
     """
     
-    def __init__(self, config: ConfigurationManager, logger: Any, loop: asyncio.AbstractEventLoop) -> None:
+    def __init__(self, config: ConfigurationManager, logger: Any, loop: asyncio.AbstractEventLoop, session_manager: Optional[Any] = None) -> None:
         """
         Initialize the Frida service.
         
@@ -325,11 +325,13 @@ class FridaService:
             config: Configuration manager instance
             logger: Logger instance
             loop: Asyncio event loop for message handling
+            session_manager: Session manager for state tracking (optional)
         """
         self.logger = logger.bind(source="FridaService")
         self.config = config
         self._event_loop = loop
         self._message_queue = asyncio.Queue()
+        self._session_manager = session_manager
         
         # Check if Frida is available
         if frida is None:
@@ -546,6 +548,14 @@ class FridaService:
             finally:
                 self.script = None
         
+        # Update session manager with script deactivation
+        if self._session_manager:
+            try:
+                self._session_manager.set_script_inactive()
+                self.logger.debug("Updated session manager with script deactivation")
+            except Exception as e:
+                self.logger.error("Failed to update session manager with script deactivation", error=str(e))
+        
         # Force session cleanup
         if self.session:
             try:
@@ -607,6 +617,29 @@ class FridaService:
             self.script.load()
             
             self.logger.info("Script injected successfully")
+            
+            # Update session manager with script activation
+            if self._session_manager:
+                try:
+                    # Try to extract script name from content (look for TOWERIQ_HOOK_METADATA)
+                    script_name = "Unknown Script"
+                    if "TOWERIQ_HOOK_METADATA" in script_content:
+                        # Simple extraction of script name from metadata
+                        lines = script_content.split('\n')
+                        for i, line in enumerate(lines):
+                            if '"scriptName"' in line:
+                                # Extract the script name from the JSON-like structure
+                                try:
+                                    script_name = line.split('"scriptName"')[1].split('"')[1]
+                                    break
+                                except (IndexError, ValueError):
+                                    pass
+                    
+                    self._session_manager.set_script_active(script_name)
+                    self.logger.debug("Updated session manager with script activation", script_name=script_name)
+                except Exception as e:
+                    self.logger.error("Failed to update session manager with script activation", error=str(e))
+            
             return True
             
         except Exception as e:
@@ -690,6 +723,21 @@ class FridaService:
                     }
                     
                     self.logger.debug(f"Parsed message: {parsed_message}")
+                    
+                    # Handle heartbeat messages immediately if session manager is available
+                    if (self._session_manager and 
+                        parsed_message.get('type') == 'hook_log' and 
+                        parsed_message.get('payload', {}).get('event') == 'frida_heartbeat'):
+                        
+                        payload = parsed_message.get('payload', {})
+                        is_game_reachable = payload.get('isGameReachable', False)
+                        
+                        # Update session manager with heartbeat
+                        try:
+                            self._session_manager.update_script_heartbeat(is_game_reachable)
+                            self.logger.debug("Updated script heartbeat", is_game_reachable=is_game_reachable)
+                        except Exception as e:
+                            self.logger.error("Failed to update script heartbeat", error=str(e))
                     
                     # Put message on async queue - use thread-safe approach
                     self._queue_message_safely(parsed_message)

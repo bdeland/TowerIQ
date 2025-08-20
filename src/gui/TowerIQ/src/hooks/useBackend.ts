@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 
 export interface SessionState {
@@ -15,6 +15,16 @@ export interface Device {
   name: string;
   type: string;
   status: 'connected' | 'disconnected' | 'error';
+  serial: string;
+  model: string;
+  device_name?: string;  // Human-readable device name like "Samsung Galaxy S21 Ultra"
+  brand?: string;        // Device brand like "Samsung", "OnePlus", etc.
+  android_version: string;
+  api_level: number;
+  architecture: string;
+  is_network_device: boolean;
+  ip_address?: string;
+  port?: string;
 }
 
 export interface Process {
@@ -22,6 +32,7 @@ export interface Process {
   name: string;
   pid: number;
   package?: string;
+  version?: string;
 }
 
 export interface HookScript {
@@ -29,6 +40,38 @@ export interface HookScript {
   name: string;
   description: string;
   content: string;
+  targetPackage?: string;
+  targetApp?: string;
+  supportedVersions?: string[];
+}
+
+export interface FridaStatus {
+  is_running: boolean;
+  is_installed: boolean;
+  version: string | null;
+  required_version: string | null;
+  architecture: string | null;
+  needs_update: boolean;
+  error?: string | null;
+}
+
+export interface FridaCompatibility {
+  is_compatible: boolean;
+  current_version: string | null;
+  required_version: string | null;
+  is_running: boolean;
+  error: string | null;
+}
+
+export interface ScriptStatus {
+  is_active: boolean;
+  last_heartbeat?: string;
+  heartbeat_interval_seconds: number;
+  is_game_reachable: boolean;
+  script_name?: string;
+  injection_time?: string;
+  error_count: number;
+  last_error?: string;
 }
 
 export interface BackendStatus {
@@ -40,10 +83,51 @@ export interface BackendError {
   message: string;
 }
 
+// Shared polling state to prevent multiple components from polling simultaneously
+let globalPollingInterval: NodeJS.Timeout | null = null;
+let globalStatus: BackendStatus | null = null;
+let globalStatusListeners: Set<(status: BackendStatus | null) => void> = new Set();
+
+// Development option to disable polling (set to true to disable)
+const DISABLE_POLLING = false;
+
+const startGlobalPolling = () => {
+  if (globalPollingInterval || DISABLE_POLLING) {
+    return; // Already polling or polling disabled
+  }
+
+  const pollStatus = async () => {
+    try {
+      const result = await invoke<BackendStatus>('get_backend_status');
+      globalStatus = result;
+      // Notify all listeners
+      globalStatusListeners.forEach(listener => listener(result));
+    } catch (err) {
+      console.error('Failed to poll backend status:', err);
+      // Notify listeners of error state
+      globalStatusListeners.forEach(listener => listener(null));
+    }
+  };
+
+  // Initial status check
+  pollStatus();
+
+  // Poll every 30 seconds instead of 5 seconds (much less frequent)
+  globalPollingInterval = setInterval(pollStatus, 30000);
+};
+
+const stopGlobalPolling = () => {
+  if (globalPollingInterval) {
+    clearInterval(globalPollingInterval);
+    globalPollingInterval = null;
+  }
+};
+
 export const useBackend = () => {
-  const [status, setStatus] = useState<BackendStatus | null>(null);
+  const [status, setStatus] = useState<BackendStatus | null>(globalStatus);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const isInitialized = useRef(false);
 
   const getStatus = async (): Promise<BackendStatus> => {
     try {
@@ -51,6 +135,7 @@ export const useBackend = () => {
       setError(null);
       const result = await invoke<BackendStatus>('get_backend_status');
       setStatus(result);
+      globalStatus = result; // Update global status
       return result;
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Unknown error';
@@ -67,6 +152,23 @@ export const useBackend = () => {
       setError(null);
       const result = await invoke('connect_device', { deviceSerial });
       // Refresh status after connection
+      await getStatus();
+      return result;
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Unknown error';
+      setError(errorMessage);
+      throw new Error(errorMessage);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const disconnectDevice = async (): Promise<any> => {
+    try {
+      setLoading(true);
+      setError(null);
+      const result = await invoke('disconnect_device');
+      // Refresh status after disconnection
       await getStatus();
       return result;
     } catch (err) {
@@ -103,23 +205,30 @@ export const useBackend = () => {
     }
   };
 
-  // Poll for status updates
+  // Shared polling mechanism
   useEffect(() => {
-    const pollStatus = async () => {
-      try {
-        await getStatus();
-      } catch (err) {
-        console.error('Failed to poll backend status:', err);
-      }
-    };
-
-    // Initial status check
-    pollStatus();
-
-    // Poll every 5 seconds
-    const interval = setInterval(pollStatus, 5000);
-
-    return () => clearInterval(interval);
+    if (!isInitialized.current) {
+      isInitialized.current = true;
+      
+      // Add this component as a listener
+      const statusListener = (newStatus: BackendStatus | null) => {
+        setStatus(newStatus);
+      };
+      globalStatusListeners.add(statusListener);
+      
+      // Start global polling if not already started
+      startGlobalPolling();
+      
+      // Cleanup function
+      return () => {
+        globalStatusListeners.delete(statusListener);
+        
+        // If no more listeners, stop polling
+        if (globalStatusListeners.size === 0) {
+          stopGlobalPolling();
+        }
+      };
+    }
   }, []);
 
   const scanDevices = async (): Promise<Device[]> => {
@@ -151,7 +260,13 @@ export const useBackend = () => {
     try {
       setLoading(true);
       setError(null);
-      const result = await invoke<{processes: Process[]}>('get_processes', { deviceId });
+      const result = await invoke<{processes: Process[], message?: string}>('get_processes', { deviceId });
+      
+      // Log message if provided
+      if (result.message) {
+        console.log('Process listing message:', result.message);
+      }
+      
       return result.processes;
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Unknown error';
@@ -201,16 +316,177 @@ export const useBackend = () => {
     }
   };
 
+  const getFridaStatus = async (deviceId: string): Promise<FridaStatus> => {
+    try {
+      setLoading(true);
+      setError(null);
+      const result = await invoke<{frida_status: FridaStatus}>('get_frida_status', { deviceId });
+      return result.frida_status;
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Unknown error';
+      setError(errorMessage);
+      throw new Error(errorMessage);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const provisionFridaServer = async (deviceId: string): Promise<any> => {
+    try {
+      setLoading(true);
+      setError(null);
+      const result = await invoke('provision_frida_server', { deviceId });
+      return result;
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Unknown error';
+      setError(errorMessage);
+      throw new Error(errorMessage);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const checkFridaCompatibility = async (deviceId: string): Promise<FridaCompatibility> => {
+    try {
+      setLoading(true);
+      setError(null);
+      const result = await invoke<{compatibility: FridaCompatibility}>('check_frida_compatibility', { deviceId });
+      return result.compatibility;
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Unknown error';
+      setError(errorMessage);
+      throw new Error(errorMessage);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const startFridaServer = async (deviceId: string): Promise<any> => {
+    try {
+      setLoading(true);
+      setError(null);
+      const result = await invoke('start_frida_server', { deviceId });
+      return result;
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Unknown error';
+      setError(errorMessage);
+      throw new Error(errorMessage);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const stopFridaServer = async (deviceId: string): Promise<any> => {
+    try {
+      setLoading(true);
+      setError(null);
+      const result = await invoke('stop_frida_server', { deviceId });
+      return result;
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Unknown error';
+      setError(errorMessage);
+      throw new Error(errorMessage);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const installFridaServer = async (deviceId: string): Promise<any> => {
+    try {
+      setLoading(true);
+      setError(null);
+      const result = await invoke('install_frida_server', { deviceId });
+      return result;
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Unknown error';
+      setError(errorMessage);
+      throw new Error(errorMessage);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const removeFridaServer = async (deviceId: string): Promise<any> => {
+    try {
+      setLoading(true);
+      setError(null);
+      const result = await invoke('remove_frida_server', { deviceId });
+      return result;
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Unknown error';
+      setError(errorMessage);
+      throw new Error(errorMessage);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const activateHook = async (deviceId: string, processInfo: any, scriptContent: string): Promise<any> => {
+    try {
+      setLoading(true);
+      setError(null);
+      const result = await invoke('activate_hook', { deviceId, processInfo, scriptContent });
+      return result;
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Unknown error';
+      setError(errorMessage);
+      throw new Error(errorMessage);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const deactivateHook = async (deviceId: string, processInfo: any): Promise<any> => {
+    try {
+      setLoading(true);
+      setError(null);
+      const result = await invoke('deactivate_hook', { deviceId, processInfo });
+      return result;
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Unknown error';
+      setError(errorMessage);
+      throw new Error(errorMessage);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const getScriptStatus = async (): Promise<ScriptStatus> => {
+    try {
+      setLoading(true);
+      setError(null);
+      const result = await invoke<ScriptStatus>('get_script_status');
+      return result;
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Unknown error';
+      setError(errorMessage);
+      throw new Error(errorMessage);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return {
     status,
     loading,
     error,
     getStatus,
     connectDevice,
+    disconnectDevice,
     setTestMode,
     scanDevices,
     getProcesses,
     getHookScripts,
     startConnectionFlow,
+    getFridaStatus,
+    provisionFridaServer,
+    checkFridaCompatibility,
+    startFridaServer,
+    stopFridaServer,
+    installFridaServer,
+    removeFridaServer,
+    activateHook,
+    deactivateHook,
+    getScriptStatus,
   };
 };

@@ -16,21 +16,15 @@ import requests
 import threading
 import structlog
 
-# Configure structlog for the startup script
-structlog.configure(
-    processors=[
-        structlog.stdlib.add_logger_name,
-        structlog.stdlib.add_log_level,
-        structlog.processors.TimeStamper(fmt="%Y-%m-%d %H:%M:%S.%f"),
-        structlog.processors.StackInfoRenderer(),
-        structlog.processors.format_exc_info,
-        structlog.processors.UnicodeDecoder(),
-        structlog.processors.JSONRenderer()
-    ],
-    logger_factory=structlog.stdlib.LoggerFactory(),
-    wrapper_class=structlog.stdlib.BoundLogger,
-    cache_logger_on_first_use=True,
-)
+# Import the same logging configuration as the main application
+sys.path.insert(0, str(Path(__file__).parent / "src"))
+from tower_iq.core.config import ConfigurationManager
+from tower_iq.core.logging_config import setup_logging
+
+# Initialize configuration and logging the same way as the main app
+app_root = Path(__file__).parent
+config = ConfigurationManager(str(app_root / 'config' / 'main_config.yaml'))
+setup_logging(config)
 
 logger = structlog.get_logger(__name__)
 
@@ -64,18 +58,17 @@ def start_backend_server():
         return None
     
     try:
-        # Start the FastAPI server
+        # Start the FastAPI server with real-time output
         process = subprocess.Popen([
             sys.executable, str(api_server_path)
-        ], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        ], stdout=None, stderr=None, text=True)  # Don't capture output - show it in real-time
         
         logger.info("Backend server started", pid=process.pid)
         
         # Check if process is still running after a moment
         time.sleep(2)
         if process.poll() is not None:
-            stdout, stderr = process.communicate()
-            logger.error("Backend server process exited immediately", stdout=stdout, stderr=stderr)
+            logger.error("Backend server process exited immediately")
             return None
         
         return process

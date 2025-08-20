@@ -1,6 +1,4 @@
 use serde::{Deserialize, Serialize};
-use tauri::State;
-use std::sync::Mutex;
 
 // API response types
 #[derive(Debug, Serialize, Deserialize)]
@@ -65,11 +63,24 @@ impl ApiClient {
         let client = reqwest::Client::builder()
             .timeout(std::time::Duration::from_secs(30)) // 30 second timeout
             .build()?;
-        let request = ConnectionRequest { device_serial };
-        
         let response = client
-            .post(&format!("{}/api/connect-device", self.base_url))
-            .json(&request)
+            .post(&format!("{}/api/connect", self.base_url))
+            .json(&serde_json::json!({
+                "device_serial": device_serial
+            }))
+            .send()
+            .await?;
+        
+        let result: serde_json::Value = response.json().await?;
+        Ok(result)
+    }
+
+    async fn disconnect_device(&self) -> Result<serde_json::Value, Box<dyn std::error::Error>> {
+        let client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(30)) // 30 second timeout
+            .build()?;
+        let response = client
+            .post(&format!("{}/api/disconnect", self.base_url))
             .send()
             .await?;
         
@@ -135,6 +146,152 @@ impl ApiClient {
         let result: serde_json::Value = response.json().await?;
         Ok(result)
     }
+
+    async fn get_frida_status(&self, device_id: String) -> Result<serde_json::Value, Box<dyn std::error::Error>> {
+        let client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(30)) // 30 second timeout
+            .build()?;
+        let response = client
+            .get(&format!("{}/api/devices/{}/frida-status", self.base_url, device_id))
+            .send()
+            .await?;
+        
+        let result: serde_json::Value = response.json().await?;
+        Ok(result)
+    }
+
+    async fn provision_frida_server(&self, device_id: String) -> Result<serde_json::Value, Box<dyn std::error::Error>> {
+        let client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(120)) // 2 minute timeout for provisioning
+            .build()?;
+        let response = client
+            .post(&format!("{}/api/devices/{}/frida-provision", self.base_url, device_id))
+            .send()
+            .await?;
+        
+        let result: serde_json::Value = response.json().await?;
+        Ok(result)
+    }
+
+    async fn check_frida_compatibility(&self, device_id: String) -> Result<serde_json::Value, Box<dyn std::error::Error>> {
+        let client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(30)) // 30 second timeout
+            .build()?;
+        let response = client
+            .post(&format!("{}/api/devices/{}/frida-check-compatibility", self.base_url, device_id))
+            .send()
+            .await?;
+        
+        let result: serde_json::Value = response.json().await?;
+        Ok(result)
+    }
+
+    async fn start_frida_server(&self, device_id: String) -> Result<serde_json::Value, Box<dyn std::error::Error>> {
+        let client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(30)) // 30 second timeout
+            .build()?;
+        let response = client
+            .post(&format!("{}/api/devices/{}/frida-start", self.base_url, device_id))
+            .send()
+            .await?;
+        
+        let result: serde_json::Value = response.json().await?;
+        Ok(result)
+    }
+
+    async fn stop_frida_server(&self, device_id: String) -> Result<serde_json::Value, Box<dyn std::error::Error>> {
+        let client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(30)) // 30 second timeout
+            .build()?;
+        let response = client
+            .post(&format!("{}/api/devices/{}/frida-stop", self.base_url, device_id))
+            .send()
+            .await?;
+        
+        let result: serde_json::Value = response.json().await?;
+        Ok(result)
+    }
+
+    async fn install_frida_server(&self, device_id: String) -> Result<serde_json::Value, Box<dyn std::error::Error>> {
+        let client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(120)) // 2 minute timeout for installation
+            .build()?;
+        let response = client
+            .post(&format!("{}/api/devices/{}/frida-install", self.base_url, device_id))
+            .send()
+            .await?;
+        
+        let result: serde_json::Value = response.json().await?;
+        Ok(result)
+    }
+
+    async fn remove_frida_server(&self, device_id: String) -> Result<serde_json::Value, Box<dyn std::error::Error>> {
+        let client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(30)) // 30 second timeout
+            .build()?;
+        let response = client
+            .post(&format!("{}/api/devices/{}/frida-remove", self.base_url, device_id))
+            .send()
+            .await?;
+        
+        let result: serde_json::Value = response.json().await?;
+        Ok(result)
+    }
+
+    async fn activate_hook(&self, device_id: String, process_info: serde_json::Value, script_content: String) -> Result<serde_json::Value, Box<dyn std::error::Error>> {
+        let client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(30)) // 30 second timeout
+            .build()?;
+        
+        let request_body = serde_json::json!({
+            "device_id": device_id,
+            "process_info": process_info,
+            "script_content": script_content
+        });
+        
+        let response = client
+            .post(&format!("{}/api/activate-hook", self.base_url))
+            .json(&request_body)
+            .send()
+            .await?;
+        
+        let result: serde_json::Value = response.json().await?;
+        Ok(result)
+    }
+
+    async fn deactivate_hook(&self, device_id: String, process_info: serde_json::Value) -> Result<serde_json::Value, Box<dyn std::error::Error>> {
+        let client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(30)) // 30 second timeout
+            .build()?;
+        
+        let request_body = serde_json::json!({
+            "device_id": device_id,
+            "process_info": process_info
+        });
+        
+        let response = client
+            .post(&format!("{}/api/deactivate-hook", self.base_url))
+            .json(&request_body)
+            .send()
+            .await?;
+        
+        let result: serde_json::Value = response.json().await?;
+        Ok(result)
+    }
+
+    async fn get_script_status(&self) -> Result<serde_json::Value, Box<dyn std::error::Error>> {
+        let client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(10)) // 10 second timeout
+            .build()?;
+        
+        let response = client
+            .get(&format!("{}/api/script-status", self.base_url))
+            .send()
+            .await?;
+        
+        let result: serde_json::Value = response.json().await?;
+        Ok(result)
+    }
 }
 
 // Tauri commands
@@ -148,6 +305,12 @@ async fn get_backend_status() -> Result<StatusResponse, String> {
 async fn connect_device(device_serial: String) -> Result<serde_json::Value, String> {
     let client = ApiClient::new();
     client.connect_device(device_serial).await.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn disconnect_device() -> Result<serde_json::Value, String> {
+    let client = ApiClient::new();
+    client.disconnect_device().await.map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -183,6 +346,66 @@ async fn get_hook_scripts() -> Result<serde_json::Value, String> {
 }
 
 #[tauri::command]
+async fn get_frida_status(device_id: String) -> Result<serde_json::Value, String> {
+    let client = ApiClient::new();
+    client.get_frida_status(device_id).await.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn provision_frida_server(device_id: String) -> Result<serde_json::Value, String> {
+    let client = ApiClient::new();
+    client.provision_frida_server(device_id).await.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn check_frida_compatibility(device_id: String) -> Result<serde_json::Value, String> {
+    let client = ApiClient::new();
+    client.check_frida_compatibility(device_id).await.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn start_frida_server(device_id: String) -> Result<serde_json::Value, String> {
+    let client = ApiClient::new();
+    client.start_frida_server(device_id).await.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn stop_frida_server(device_id: String) -> Result<serde_json::Value, String> {
+    let client = ApiClient::new();
+    client.stop_frida_server(device_id).await.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn install_frida_server(device_id: String) -> Result<serde_json::Value, String> {
+    let client = ApiClient::new();
+    client.install_frida_server(device_id).await.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn remove_frida_server(device_id: String) -> Result<serde_json::Value, String> {
+    let client = ApiClient::new();
+    client.remove_frida_server(device_id).await.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn activate_hook(device_id: String, process_info: serde_json::Value, script_content: String) -> Result<serde_json::Value, String> {
+    let client = ApiClient::new();
+    client.activate_hook(device_id, process_info, script_content).await.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn deactivate_hook(device_id: String, process_info: serde_json::Value) -> Result<serde_json::Value, String> {
+    let client = ApiClient::new();
+    client.deactivate_hook(device_id, process_info).await.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn get_script_status() -> Result<serde_json::Value, String> {
+    let client = ApiClient::new();
+    client.get_script_status().await.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 fn greet(name: &str) -> String {
     format!("Hello, {}! You've been greeted from Rust!", name)
 }
@@ -195,10 +418,21 @@ pub fn run() {
             greet,
             get_backend_status,
             connect_device,
+            disconnect_device,
             set_test_mode,
             scan_devices,
             get_processes,
-            get_hook_scripts
+            get_hook_scripts,
+            get_frida_status,
+            provision_frida_server,
+            check_frida_compatibility,
+            start_frida_server,
+            stop_frida_server,
+            install_frida_server,
+            remove_frida_server,
+            activate_hook,
+            deactivate_hook,
+            get_script_status
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
