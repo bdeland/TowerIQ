@@ -162,23 +162,10 @@ impl ApiClient {
 
     async fn provision_frida_server(&self, device_id: String) -> Result<serde_json::Value, Box<dyn std::error::Error>> {
         let client = reqwest::Client::builder()
-            .timeout(std::time::Duration::from_secs(120)) // 2 minute timeout for provisioning
-            .build()?;
-        let response = client
-            .post(&format!("{}/api/devices/{}/frida-provision", self.base_url, device_id))
-            .send()
-            .await?;
-        
-        let result: serde_json::Value = response.json().await?;
-        Ok(result)
-    }
-
-    async fn check_frida_compatibility(&self, device_id: String) -> Result<serde_json::Value, Box<dyn std::error::Error>> {
-        let client = reqwest::Client::builder()
             .timeout(std::time::Duration::from_secs(30)) // 30 second timeout
             .build()?;
         let response = client
-            .post(&format!("{}/api/devices/{}/frida-check-compatibility", self.base_url, device_id))
+            .post(&format!("{}/api/devices/{}/frida-provision", self.base_url, device_id))
             .send()
             .await?;
         
@@ -358,12 +345,6 @@ async fn provision_frida_server(device_id: String) -> Result<serde_json::Value, 
 }
 
 #[tauri::command]
-async fn check_frida_compatibility(device_id: String) -> Result<serde_json::Value, String> {
-    let client = ApiClient::new();
-    client.check_frida_compatibility(device_id).await.map_err(|e| e.to_string())
-}
-
-#[tauri::command]
 async fn start_frida_server(device_id: String) -> Result<serde_json::Value, String> {
     let client = ApiClient::new();
     client.start_frida_server(device_id).await.map_err(|e| e.to_string())
@@ -425,7 +406,6 @@ pub fn run() {
             get_hook_scripts,
             get_frida_status,
             provision_frida_server,
-            check_frida_compatibility,
             start_frida_server,
             stop_frida_server,
             install_frida_server,

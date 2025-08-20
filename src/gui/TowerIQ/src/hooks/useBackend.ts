@@ -46,21 +46,13 @@ export interface HookScript {
 }
 
 export interface FridaStatus {
-  is_running: boolean;
   is_installed: boolean;
-  version: string | null;
-  required_version: string | null;
-  architecture: string | null;
-  needs_update: boolean;
-  error?: string | null;
-}
-
-export interface FridaCompatibility {
-  is_compatible: boolean;
-  current_version: string | null;
-  required_version: string | null;
   is_running: boolean;
-  error: string | null;
+  needs_update: boolean;
+  architecture?: string;
+  version?: string;
+  required_version?: string;
+  error?: string | null;
 }
 
 export interface ScriptStatus {
@@ -346,21 +338,6 @@ export const useBackend = () => {
     }
   };
 
-  const checkFridaCompatibility = async (deviceId: string): Promise<FridaCompatibility> => {
-    try {
-      setLoading(true);
-      setError(null);
-      const result = await invoke<{compatibility: FridaCompatibility}>('check_frida_compatibility', { deviceId });
-      return result.compatibility;
-    } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'Unknown error';
-      setError(errorMessage);
-      throw new Error(errorMessage);
-    } finally {
-      setLoading(false);
-    }
-  };
-
   const startFridaServer = async (deviceId: string): Promise<any> => {
     try {
       setLoading(true);
@@ -480,7 +457,6 @@ export const useBackend = () => {
     startConnectionFlow,
     getFridaStatus,
     provisionFridaServer,
-    checkFridaCompatibility,
     startFridaServer,
     stopFridaServer,
     installFridaServer,

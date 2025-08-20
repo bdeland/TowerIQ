@@ -457,115 +457,17 @@ async def provision_frida_server(device_id: str):
         if not device:
             raise HTTPException(status_code=404, detail="Device not found")
         
-        # Provision Frida server using the FridaServerManager
+        # Provision Frida server
         try:
-            # Get required Frida version
-            try:
-                import frida
-                target_version = frida.__version__
-            except ImportError:
-                raise HTTPException(status_code=500, detail="Frida library not available")
-            
-            # Use the FridaServerManager to provision the server
-            await controller.emulator_service.frida_manager.provision(
-                device_id, device.architecture, target_version
-            )
-            
-            return {"message": "Frida server provisioned successfully", "device_id": device_id}
-            
+            await controller.emulator_service.provision_frida_server(device_id)
+            return {"message": "Frida server provisioned successfully"}
         except Exception as e:
             logger.error("Error provisioning Frida server", device_id=device_id, error=str(e))
             raise HTTPException(status_code=500, detail=f"Failed to provision Frida server: {str(e)}")
             
     except Exception as e:
-        logger.error("Error in Frida server provision", device_id=device_id, error=str(e))
+        logger.error("Error in Frida server provisioning", device_id=device_id, error=str(e))
         raise HTTPException(status_code=500, detail=f"Failed to provision Frida server: {str(e)}")
-
-@app.post("/api/devices/{device_id}/frida-check-compatibility")
-async def check_frida_compatibility(device_id: str):
-    """Check Frida server compatibility for a specific device."""
-    try:
-        if not controller:
-            raise HTTPException(status_code=500, detail="Controller not available")
-        
-        # Get the device to check Frida compatibility
-        devices = await controller.emulator_service.discover_devices()
-        device = next((d for d in devices if d.serial == device_id), None)
-        if not device:
-            raise HTTPException(status_code=404, detail="Device not found")
-        
-        # Check Frida compatibility
-        try:
-            # Get required Frida version
-            try:
-                import frida
-                required_version = frida.__version__
-            except ImportError:
-                return {
-                    "compatibility": {
-                        "is_compatible": False,
-                        "current_version": None,
-                        "required_version": None,
-                        "error": "Frida library not available"
-                    }
-                }
-            
-            # Check if frida-server is running and get its version
-            try:
-                pid_output = await controller.emulator_service.adb.shell(
-                    device_id, "pidof frida-server"
-                )
-                is_running = bool(pid_output.strip())
-            except Exception:
-                is_running = False
-            
-            # Get current version if server is installed
-            current_version = None
-            try:
-                version_output = await controller.emulator_service.adb.shell(
-                    device_id, "frida-server --version"
-                )
-                current_version = version_output.strip()
-            except Exception:
-                pass
-            
-            # Compare versions
-            is_compatible = False
-            if current_version and required_version:
-                # Clean up version strings for comparison
-                current_clean = current_version.replace('frida-server', '').replace('frida', '').strip()
-                required_clean = required_version.replace('frida-server', '').replace('frida', '').strip()
-                
-                # Simple version comparison (assumes semantic versioning)
-                is_compatible = current_clean == required_clean
-                
-                logger.info("Frida version comparison",
-                           current=current_clean, required=required_clean, compatible=is_compatible)
-            
-            return {
-                "compatibility": {
-                    "is_compatible": is_compatible,
-                    "current_version": current_version,
-                    "required_version": required_version,
-                    "is_running": is_running,
-                    "error": None
-                }
-            }
-            
-        except Exception as e:
-            logger.error("Error checking Frida compatibility", device_id=device_id, error=str(e))
-            return {
-                "compatibility": {
-                    "is_compatible": False,
-                    "current_version": None,
-                    "required_version": None,
-                    "error": str(e)
-                }
-            }
-            
-    except Exception as e:
-        logger.error("Error in Frida compatibility check", device_id=device_id, error=str(e))
-        raise HTTPException(status_code=500, detail=f"Failed to check Frida compatibility: {str(e)}")
 
 @app.post("/api/devices/{device_id}/frida-start")
 async def start_frida_server(device_id: str):

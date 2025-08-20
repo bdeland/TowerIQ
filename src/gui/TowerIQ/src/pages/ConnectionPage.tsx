@@ -54,7 +54,7 @@ import {
   ExpandMore as ExpandMoreIcon,
   InfoOutline as InfoOutlineIcon,
 } from '@mui/icons-material';
-import { useBackend, Device, Process, HookScript, FridaStatus, FridaCompatibility, ScriptStatus } from '../hooks/useBackend';
+import { useBackend, Device, Process, HookScript, FridaStatus, ScriptStatus } from '../hooks/useBackend';
 import { ScriptStatusWidget } from '../components/ScriptStatusWidget';
 
 // Styled Accordion Components
@@ -104,14 +104,14 @@ const steps = [
     icon: <DeviceIcon />,
   },
   {
-    label: 'Configure Frida Server',
-    description: 'Check and configure the Frida server on the selected device.',
-    icon: <DeveloperModeIcon />,
-  },
-  {
     label: 'Select Process',
     description: 'Choose the target process to attach to on the selected device.',
     icon: <ProcessIcon />,
+  },
+  {
+    label: 'Configure Frida Server',
+    description: 'Check and configure the Frida server on the selected device.',
+    icon: <DeveloperModeIcon />,
   },
   {
     label: 'Configure Hook Script',
@@ -120,9 +120,9 @@ const steps = [
     optional: true,
   },
   {
-    label: 'Establish Connection',
-    description: 'Connect to the device and attach to the selected process.',
-    icon: <ConnectIcon />,
+    label: 'Review and Go',
+    description: 'Review your configuration and start the monitoring session.',
+    icon: <PlayIcon />,
   },
 ];
 
@@ -151,7 +151,6 @@ export function ConnectionPage() {
     disconnectDevice,
     getFridaStatus,
     provisionFridaServer,
-    checkFridaCompatibility,
     startFridaServer,
     stopFridaServer,
     installFridaServer,
@@ -173,11 +172,14 @@ export function ConnectionPage() {
 
   // Frida-related state
   const [fridaStatus, setFridaStatus] = useState<FridaStatus | null>(null);
-  const [fridaCompatibility, setFridaCompatibility] = useState<FridaCompatibility | null>(null);
   const [hookActivationStatus, setHookActivationStatus] = useState<'idle' | 'activating' | 'active' | 'deactivating' | 'error'>('idle');
   const [hookError, setHookError] = useState<string | null>(null);
   const [fridaLoading, setFridaLoading] = useState(false);
   const [fridaError, setFridaError] = useState<string | null>(null);
+
+  // New automated Frida check state
+  type FridaCheckState = 'idle' | 'checking' | 'needs_action' | 'provisioning' | 'success' | 'error';
+  const [fridaCheckState, setFridaCheckState] = useState<FridaCheckState>('idle');
 
   // Script status state
   const [scriptStatus, setScriptStatus] = useState<ScriptStatus | null>(null);
@@ -415,35 +417,27 @@ export function ConnectionPage() {
     if (!selectedProcess) return { 
       isCompatible: false, 
       packageMatch: false, 
-      versionMatch: false, 
       packageMismatch: '', 
-      versionMismatch: '',
-      compatibilityMessage: `This script is compatible with ${script.targetApp || script.targetPackage || 'Unknown'} (${script.targetPackage || 'Unknown'}) version ${script.supportedVersions?.join(', ') || 'Unknown'}. Please select a process first.`
+      compatibilityMessage: `This script is compatible with ${script.targetApp || script.targetPackage || 'Unknown'} (${script.targetPackage || 'Unknown'}). Please select a process first.`
     };
     
     const packageMatch = script.targetPackage === selectedProcess.package;
-    const versionMatch = script.supportedVersions?.includes(selectedProcess.version || '') || false;
-    const isCompatible = packageMatch && versionMatch;
+    const isCompatible = packageMatch; // Only check package match, version is handled by deployment
     
     // Build plain English compatibility messages
     let compatibilityMessage = '';
     let packageMismatch = '';
-    let versionMismatch = '';
     
-    if (packageMatch && versionMatch) {
-      compatibilityMessage = `This script is compatible with ${script.targetApp || script.targetPackage} (${script.targetPackage}) version ${script.supportedVersions?.join(', ') || 'Unknown'}. You have selected ${selectedProcess.name} version ${selectedProcess.version || 'Unknown'}.`;
-    } else if (packageMatch && !versionMatch) {
-      packageMismatch = `This script is compatible with ${script.targetApp || script.targetPackage} (${script.targetPackage}) version ${script.supportedVersions?.join(', ') || 'Unknown'}. You have selected ${selectedProcess.name} version ${selectedProcess.version || 'Unknown'}.`;
+    if (packageMatch) {
+      compatibilityMessage = `This script is compatible with ${script.targetApp || script.targetPackage} (${script.targetPackage}). You have selected ${selectedProcess.name}.`;
     } else {
-      packageMismatch = `This script is compatible with ${script.targetApp || script.targetPackage || 'Unknown'} (${script.targetPackage || 'Unknown'}) version ${script.supportedVersions?.join(', ') || 'Unknown'}. You have selected ${selectedProcess.name} (${selectedProcess.package || 'Unknown'}) version ${selectedProcess.version || 'Unknown'}.`;
+      packageMismatch = `This script is compatible with ${script.targetApp || script.targetPackage || 'Unknown'} (${script.targetPackage || 'Unknown'}). You have selected ${selectedProcess.name} (${selectedProcess.package || 'Unknown'}).`;
     }
     
     return {
       isCompatible,
       packageMatch,
-      versionMatch,
       packageMismatch,
-      versionMismatch,
       compatibilityMessage
     };
   };
@@ -493,10 +487,6 @@ export function ConnectionPage() {
       
       const status = await getFridaStatus(selectedDevice.id);
       setFridaStatus(status);
-      
-      // Also check compatibility
-      const compatibility = await checkFridaCompatibility(selectedDevice.id);
-      setFridaCompatibility(compatibility);
       
     } catch (err) {
       console.error('Failed to check Frida status:', err);
@@ -649,6 +639,75 @@ export function ConnectionPage() {
     }
   }, [selectedDevice]);
 
+  // Automated Frida check when process is selected
+  useEffect(() => {
+    if (selectedDevice && selectedProcess) {
+      setFridaCheckState('checking');
+      handleCheckFridaStatus().then(() => {
+        // Update fridaCheckState based on the result
+        if (fridaStatus) {
+          if (fridaStatus.is_running) {
+            setFridaCheckState('success');
+          } else {
+            setFridaCheckState('needs_action');
+          }
+        }
+      }).catch(() => {
+        setFridaCheckState('error');
+      });
+    }
+  }, [selectedProcess]);
+
+  // Auto-progress from Frida step when successful
+  useEffect(() => {
+    if (activeStep === 2 && fridaCheckState === 'success') {
+      // Auto-progress after 1 second
+      const timer = setTimeout(() => {
+        handleNext();
+      }, 1000);
+      
+      return () => clearTimeout(timer);
+    }
+  }, [activeStep, fridaCheckState]);
+
+  // Auto-provision function
+  const handleAutoProvision = async () => {
+    if (!selectedDevice) return;
+    
+    try {
+      setFridaLoading(true);
+      setFridaError(null);
+      
+      // Check if Frida needs to be installed/updated
+      if (!fridaStatus?.is_installed || fridaStatus?.needs_update) {
+        await provisionFridaServer(selectedDevice.id);
+      }
+      
+      // Check if Frida needs to be started
+      if (!fridaStatus?.is_running) {
+        await startFridaServer(selectedDevice.id);
+      }
+      
+      // Refresh status and check final result
+      await handleCheckFridaStatus();
+      
+      if (fridaStatus) {
+        if (fridaStatus.is_running) {
+          setFridaCheckState('success');
+        } else {
+          setFridaCheckState('needs_action');
+        }
+      }
+      
+    } catch (err) {
+      console.error('Failed to auto-provision Frida server:', err);
+      setFridaCheckState('error');
+      setFridaError(err instanceof Error ? err.message : 'Failed to auto-provision Frida server');
+    } finally {
+      setFridaLoading(false);
+    }
+  };
+
   const handleConnect = async () => {
     if (!selectedDevice) {
       setErrorMessage('Please select a device first');
@@ -689,11 +748,11 @@ export function ConnectionPage() {
         // Can proceed to next step if device is selected and connected
         return selectedDevice !== null && status?.session.is_connected;
       case 1:
-        // Can proceed to next step if Frida server is configured or not needed
-        return fridaStatus !== null && (fridaStatus.is_running || fridaStatus.error === null);
-      case 2:
         // Can proceed to next step if process is selected
         return selectedProcess !== null;
+      case 2:
+        // Can proceed to next step if Frida server is successfully configured
+        return fridaCheckState === 'success';
       case 3:
         // Can proceed to next step if hook script is not required or is selected
         return !useHookScript || selectedScript !== null;
@@ -992,196 +1051,8 @@ const deviceTableConfig = {
                   </Card>
                 )}
 
-                {/* Step 1: Frida Server Configuration */}
+                {/* Step 1: Process Selection */}
                 {index === 1 && (
-                  <Card variant="outlined">
-                    <CardContent>
-                      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
-                        <Typography variant="h6">Frida Server Configuration</Typography>
-                        <IconButton onClick={handleCheckFridaStatus} disabled={fridaLoading || !selectedDevice}>
-                          {fridaLoading ? <CircularProgress size={20} /> : <RefreshIcon />}
-                        </IconButton>
-                      </Box>
-                      
-                      {!selectedDevice ? (
-                        <Alert severity="info" sx={{ mb: 2 }}>
-                          Please select a device first to configure Frida server.
-                        </Alert>
-                      ) : fridaLoading ? (
-                        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                          <Skeleton variant="rectangular" height={60} />
-                          <Skeleton variant="rectangular" height={40} />
-                          <Skeleton variant="rectangular" height={40} />
-                        </Box>
-                      ) : fridaError ? (
-                        <Alert severity="error" sx={{ mb: 2 }}>
-                          {fridaError}
-                        </Alert>
-                      ) : fridaStatus ? (
-                        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                          {/* Frida Server Status */}
-                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                            <Typography variant="subtitle1">Server Status:</Typography>
-                            <Chip
-                              label={fridaStatus.is_running ? 'Running' : 'Not Running'}
-                              color={fridaStatus.is_running ? 'success' : 'error'}
-                              size="small"
-                            />
-                          </Box>
-                          
-                          {/* Installation Status */}
-                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                            <Typography variant="subtitle1">Installation:</Typography>
-                            <Chip
-                              label={fridaStatus.is_installed ? 'Installed' : 'Not Installed'}
-                              color={fridaStatus.is_installed ? 'success' : 'warning'}
-                              size="small"
-                            />
-                          </Box>
-                          
-                          {/* Architecture */}
-                          {fridaStatus.architecture && (
-                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                              <Typography variant="subtitle1">Architecture:</Typography>
-                              <Typography variant="body2" color="text.secondary">
-                                {fridaStatus.architecture}
-                              </Typography>
-                            </Box>
-                          )}
-                          
-                          {/* Version Information */}
-                          {fridaStatus.version && (
-                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                              <Typography variant="subtitle1">Current Version:</Typography>
-                              <Typography variant="body2" color="text.secondary">
-                                {fridaStatus.version}
-                              </Typography>
-                            </Box>
-                          )}
-                          
-                          {fridaStatus.required_version && (
-                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                              <Typography variant="subtitle1">Required Version:</Typography>
-                              <Typography variant="body2" color="text.secondary">
-                                {fridaStatus.required_version}
-                              </Typography>
-                            </Box>
-                          )}
-                          
-                          {/* Compatibility Information */}
-                          {fridaCompatibility && (
-                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                              <Typography variant="subtitle1">Compatibility:</Typography>
-                              <Chip
-                                label={fridaCompatibility.is_compatible ? 'Compatible' : 'Incompatible'}
-                                color={fridaCompatibility.is_compatible ? 'success' : 'error'}
-                                size="small"
-                              />
-                            </Box>
-                          )}
-                          
-                          {/* Action Buttons */}
-                          <Box sx={{ mt: 2, display: 'flex', flexDirection: 'column', gap: 1 }}>
-                            {/* Primary Actions */}
-                            <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
-                              {!fridaStatus.is_running ? (
-                                <Button
-                                  variant="contained"
-                                  color="primary"
-                                  onClick={handleStartFridaServer}
-                                  disabled={fridaLoading}
-                                  startIcon={fridaLoading ? <CircularProgress size={16} /> : <PlayIcon />}
-                                >
-                                  {fridaLoading ? 'Starting...' : 'Start Server'}
-                                </Button>
-                              ) : (
-                                <Button
-                                  variant="contained"
-                                  color="error"
-                                  onClick={handleStopFridaServer}
-                                  disabled={fridaLoading}
-                                  startIcon={fridaLoading ? <CircularProgress size={16} /> : <StopIcon />}
-                                >
-                                  {fridaLoading ? 'Stopping...' : 'Stop Server'}
-                                </Button>
-                              )}
-                              
-                              <Button
-                                variant="outlined"
-                                onClick={handleProvisionFridaServer}
-                                disabled={fridaLoading}
-                                startIcon={fridaLoading ? <CircularProgress size={16} /> : <PlayIcon />}
-                              >
-                                {fridaLoading ? 'Provisioning...' : 'Provision Server'}
-                              </Button>
-                            </Box>
-                            
-                            {/* Secondary Actions */}
-                            <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
-                              <Button
-                                variant="outlined"
-                                color="secondary"
-                                onClick={handleInstallFridaServer}
-                                disabled={fridaLoading}
-                                startIcon={fridaLoading ? <CircularProgress size={16} /> : <DeveloperModeIcon />}
-                              >
-                                {fridaLoading ? 'Installing...' : 'Install Only'}
-                              </Button>
-                              
-                              <Button
-                                variant="outlined"
-                                color="warning"
-                                onClick={handleRemoveFridaServer}
-                                disabled={fridaLoading}
-                                startIcon={fridaLoading ? <CircularProgress size={16} /> : <RemoveIcon />}
-                              >
-                                {fridaLoading ? 'Removing...' : 'Remove Server'}
-                              </Button>
-                            </Box>
-                          </Box>
-                          
-                          {/* Status Messages */}
-                          {fridaStatus.is_running && (
-                            <Alert severity="success" sx={{ mt: 2 }}>
-                              Frida server is running and ready for use.
-                            </Alert>
-                          )}
-                          
-                          {!fridaStatus.is_installed && (
-                            <Alert severity="warning" sx={{ mt: 2 }}>
-                              Frida server is not installed. Click "Install Only" or "Provision Server" to install.
-                            </Alert>
-                          )}
-                          
-                          {fridaStatus.is_installed && !fridaStatus.is_running && (
-                            <Alert severity="info" sx={{ mt: 2 }}>
-                              Frida server is installed but not running. Click "Start Server" to start it.
-                            </Alert>
-                          )}
-                          
-                          {fridaStatus.needs_update && (
-                            <Alert severity="warning" sx={{ mt: 2 }}>
-                              Frida server needs to be updated. Click "Provision Server" to update.
-                            </Alert>
-                          )}
-                          
-                          {fridaStatus.error && (
-                            <Alert severity="error" sx={{ mt: 2 }}>
-                              Error: {fridaStatus.error}
-                            </Alert>
-                          )}
-                        </Box>
-                      ) : (
-                        <Alert severity="info" sx={{ mb: 2 }}>
-                          Click the refresh button to check Frida server status.
-                        </Alert>
-                      )}
-                    </CardContent>
-                  </Card>
-                )}
-
-                {/* Step 2: Process Selection */}
-                {index === 2 && (
                   <Card variant="outlined">
                     <CardContent>
                       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
@@ -1308,6 +1179,208 @@ const deviceTableConfig = {
                   </Card>
                 )}
 
+                {/* Step 2: Frida Server Configuration */}
+                {index === 2 && (
+                  <Card variant="outlined">
+                    <CardContent>
+                      {!selectedDevice ? (
+                        <Alert severity="info" sx={{ mb: 2 }}>
+                          Please select a device first to configure Frida server.
+                        </Alert>
+                      ) : !selectedProcess ? (
+                        <Alert severity="info" sx={{ mb: 2 }}>
+                          Please select a process first to check Frida environment.
+                        </Alert>
+                      ) : (
+                        <>
+                          {/* Conditional rendering based on fridaCheckState */}
+                          {fridaCheckState === 'checking' && (
+                            <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', py: 4 }}>
+                              <CircularProgress size={40} sx={{ mb: 2 }} />
+                              <Typography variant="h6" gutterBottom>
+                                Checking Frida Environment
+                              </Typography>
+                              <Typography variant="body2" color="text.secondary">
+                                Checking Frida environment on {selectedDevice.name}...
+                              </Typography>
+                            </Box>
+                          )}
+
+                          {fridaCheckState === 'needs_action' && (
+                            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+                              <Alert severity="warning" sx={{ mb: 2 }}>
+                                <Typography variant="h6" gutterBottom>
+                                  Frida Server Needs Configuration
+                                </Typography>
+                                <Typography variant="body2">
+                                  The following issues were detected:
+                                </Typography>
+                                <ul style={{ margin: '8px 0', paddingLeft: '20px' }}>
+                                  {!fridaStatus?.is_installed && (
+                                    <li>Frida server is not installed</li>
+                                  )}
+                                  {fridaStatus?.needs_update && (
+                                    <li>Frida server needs to be updated</li>
+                                  )}
+                                  {!fridaStatus?.is_running && (
+                                    <li>Frida server is not running</li>
+                                  )}
+                                </ul>
+                              </Alert>
+
+                              <Box sx={{ display: 'flex', justifyContent: 'center' }}>
+                                <Button
+                                  variant="contained"
+                                  color="primary"
+                                  size="large"
+                                  onClick={handleAutoProvision}
+                                  disabled={fridaLoading}
+                                  startIcon={fridaLoading ? <CircularProgress size={20} /> : <PlayIcon />}
+                                  sx={{ minWidth: 200, py: 1.5 }}
+                                >
+                                  {fridaLoading ? 'Auto-Provisioning...' : 'Auto-Provision Server'}
+                                </Button>
+                              </Box>
+
+                              {/* Advanced Controls Accordion */}
+                              <Accordion>
+                                <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+                                  <Typography variant="subtitle1">Advanced Controls</Typography>
+                                </AccordionSummary>
+                                <AccordionDetails>
+                                  <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                                    {/* Manual Action Buttons */}
+                                    <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+                                      {!fridaStatus?.is_running ? (
+                                        <Button
+                                          variant="outlined"
+                                          color="primary"
+                                          onClick={handleStartFridaServer}
+                                          disabled={fridaLoading}
+                                          startIcon={fridaLoading ? <CircularProgress size={16} /> : <PlayIcon />}
+                                        >
+                                          {fridaLoading ? 'Starting...' : 'Start Server'}
+                                        </Button>
+                                      ) : (
+                                        <Button
+                                          variant="outlined"
+                                          color="error"
+                                          onClick={handleStopFridaServer}
+                                          disabled={fridaLoading}
+                                          startIcon={fridaLoading ? <CircularProgress size={16} /> : <StopIcon />}
+                                        >
+                                          {fridaLoading ? 'Stopping...' : 'Stop Server'}
+                                        </Button>
+                                      )}
+                                      
+                                      <Button
+                                        variant="outlined"
+                                        onClick={handleProvisionFridaServer}
+                                        disabled={fridaLoading}
+                                        startIcon={fridaLoading ? <CircularProgress size={16} /> : <PlayIcon />}
+                                      >
+                                        {fridaLoading ? 'Provisioning...' : 'Provision Server'}
+                                      </Button>
+                                    </Box>
+                                    
+                                    <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+                                      <Button
+                                        variant="outlined"
+                                        color="secondary"
+                                        onClick={handleInstallFridaServer}
+                                        disabled={fridaLoading}
+                                        startIcon={fridaLoading ? <CircularProgress size={16} /> : <DeveloperModeIcon />}
+                                      >
+                                        {fridaLoading ? 'Installing...' : 'Install Only'}
+                                      </Button>
+                                      
+                                      <Button
+                                        variant="outlined"
+                                        color="warning"
+                                        onClick={handleRemoveFridaServer}
+                                        disabled={fridaLoading}
+                                        startIcon={fridaLoading ? <CircularProgress size={16} /> : <RemoveIcon />}
+                                      >
+                                        {fridaLoading ? 'Removing...' : 'Remove Server'}
+                                      </Button>
+                                    </Box>
+
+                                    {/* Status Information */}
+                                    {fridaStatus && (
+                                      <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1, mt: 2 }}>
+                                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                                          <Typography variant="body2">Server Status:</Typography>
+                                          <Chip
+                                            label={fridaStatus.is_running ? 'Running' : 'Not Running'}
+                                            color={fridaStatus.is_running ? 'success' : 'error'}
+                                            size="small"
+                                          />
+                                        </Box>
+                                        
+                                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                                          <Typography variant="body2">Installation:</Typography>
+                                          <Chip
+                                            label={fridaStatus.is_installed ? 'Installed' : 'Not Installed'}
+                                            color={fridaStatus.is_installed ? 'success' : 'warning'}
+                                            size="small"
+                                          />
+                                        </Box>
+                                      </Box>
+                                    )}
+                                  </Box>
+                                </AccordionDetails>
+                              </Accordion>
+                            </Box>
+                          )}
+
+                          {fridaCheckState === 'provisioning' && (
+                            <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', py: 4 }}>
+                              <CircularProgress size={40} sx={{ mb: 2 }} />
+                              <Typography variant="h6" gutterBottom>
+                                Automated Provisioning in Progress
+                              </Typography>
+                              <Typography variant="body2" color="text.secondary">
+                                Installing and configuring Frida server...
+                              </Typography>
+                            </Box>
+                          )}
+
+                          {fridaCheckState === 'success' && (
+                            <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', py: 4 }}>
+                              <CheckCircleIcon sx={{ fontSize: 60, color: 'success.main', mb: 2 }} />
+                              <Typography variant="h6" gutterBottom color="success.main">
+                                Frida Environment is Ready
+                              </Typography>
+                              <Typography variant="body2" color="text.secondary">
+                                Frida server is running.
+                              </Typography>
+                            </Box>
+                          )}
+
+                          {fridaCheckState === 'error' && (
+                            <Alert severity="error" sx={{ mb: 2 }}>
+                              <Typography variant="h6" gutterBottom>
+                                Frida Configuration Error
+                              </Typography>
+                              <Typography variant="body2">
+                                {fridaError || 'An error occurred while checking or configuring Frida server.'}
+                              </Typography>
+                              <Button
+                                variant="outlined"
+                                color="primary"
+                                onClick={() => setFridaCheckState('checking')}
+                                sx={{ mt: 2 }}
+                              >
+                                Retry Check
+                              </Button>
+                            </Alert>
+                          )}
+                        </>
+                      )}
+                    </CardContent>
+                  </Card>
+                )}
+
                 {/* Step 3: Hook Script Configuration */}
                 {index === 3 && (
                   <Card variant="outlined">
@@ -1346,37 +1419,11 @@ const deviceTableConfig = {
                                           </Typography>
                                           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mt: 1 }}>
                                             <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                                              {compatibility.packageMatch ? (
-                                                <CheckCircleIcon fontSize="small" color="success" />
-                                              ) : (
-                                                <CancelIcon fontSize="small" color="error" />
-                                              )}
                                               <Typography variant="caption" color={compatibility.packageMatch ? "success.main" : "error.main"}>
                                                 App: {script.targetApp || script.targetPackage || 'Unknown'}
                                               </Typography>
                                             </Box>
-                                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                                              {compatibility.versionMatch ? (
-                                                <CheckCircleIcon fontSize="small" color="success" />
-                                              ) : (
-                                                <CancelIcon fontSize="small" color="error" />
-                                              )}
-                                              <Typography variant="caption" color={compatibility.versionMatch ? "success.main" : "error.main"}>
-                                                Version: {script.supportedVersions?.join(', ') || 'Unknown'}
-                                              </Typography>
-                                            </Box>
                                           </Box>
-                                          {!compatibility.isCompatible && (
-                                            <Box sx={{ mt: 1 }}>
-                                              <Typography 
-                                                variant="caption" 
-                                                color="error.main" 
-                                                display="block"
-                                              >
-                                                {compatibility.compatibilityMessage || compatibility.packageMismatch}
-                                              </Typography>
-                                            </Box>
-                                          )}
                                         </Box>
                                       }
                                     />
@@ -1484,86 +1531,119 @@ const deviceTableConfig = {
                   </Card>
                 )}
 
-                {/* Step 4: Connection */}
+                {/* Step 4: Review and Go */}
                 {index === 4 && (
                   <Card variant="outlined">
                     <CardContent>
-                      <Typography variant="h6" gutterBottom>Connection Summary</Typography>
-                      
-                      <Box sx={{ mb: 2 }}>
-                        <Typography variant="body2" color="text.secondary">
-                          Device: {selectedDevice?.name}
-                        </Typography>
-                        <Typography variant="body2" color="text.secondary">
-                          Process: {selectedProcess?.name} (PID: {selectedProcess?.pid})
-                        </Typography>
-                        {useHookScript && selectedScript && (
-                          <Typography variant="body2" color="text.secondary">
-                            Script: {selectedScript.name}
+                      {!status?.session.is_connected ? (
+                        /* Pre-Connection Summary View */
+                        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+                          <Typography variant="h5" gutterBottom color="primary.main">
+                            Configuration Complete & Ready to Go
                           </Typography>
-                        )}
-                        {hookActivationStatus !== 'idle' && (
-                          <Typography variant="body2" color="text.secondary">
-                            Hook Status: 
-                            <Chip
-                              label={
-                                hookActivationStatus === 'activating' ? 'Activating...' :
-                                hookActivationStatus === 'active' ? 'Active' :
-                                hookActivationStatus === 'deactivating' ? 'Deactivating...' :
-                                'Error'
-                              }
-                              color={
-                                hookActivationStatus === 'active' ? 'success' :
-                                hookActivationStatus === 'error' ? 'error' :
-                                'default'
-                              }
-                              size="small"
-                              sx={{ ml: 1 }}
-                            />
+                          
+                          <List sx={{ bgcolor: 'background.paper', borderRadius: 1, border: 1, borderColor: 'divider' }}>
+                            <ListItem>
+                              <ListItemIcon>
+                                <DeviceIcon color="primary" />
+                              </ListItemIcon>
+                              <ListItemText
+                                primary="Device"
+                                secondary={selectedDevice?.name || 'No device selected'}
+                              />
+                            </ListItem>
+                            <ListItem>
+                              <ListItemIcon>
+                                <ProcessIcon color="primary" />
+                              </ListItemIcon>
+                              <ListItemText
+                                primary="Target Process"
+                                secondary={selectedProcess ? `${selectedProcess.name} (PID: ${selectedProcess.pid})` : 'No process selected'}
+                              />
+                            </ListItem>
+                            <ListItem>
+                              <ListItemIcon>
+                                <ScriptIcon color="primary" />
+                              </ListItemIcon>
+                              <ListItemText
+                                primary="Hook Script"
+                                secondary={selectedScript?.name || 'None'}
+                              />
+                            </ListItem>
+                          </List>
+                          
+                          <Box sx={{ display: 'flex', justifyContent: 'center', mt: 2 }}>
+                            <Button
+                              variant="contained"
+                              color="primary"
+                              size="large"
+                              onClick={handleConnect}
+                              disabled={connectionStatus === 'connecting'}
+                              startIcon={connectionStatus === 'connecting' ? <CircularProgress size={20} /> : <PlayIcon />}
+                              sx={{ minWidth: 200, py: 1.5 }}
+                            >
+                              {connectionStatus === 'connecting' ? 'Starting...' : 'Start Monitoring'}
+                            </Button>
+                          </Box>
+                        </Box>
+                      ) : (
+                        /* Post-Connection Live Dashboard View */
+                        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+                          <Typography variant="h5" gutterBottom color="success.main">
+                            Monitoring Active
                           </Typography>
-                        )}
-                      </Box>
-
-                      {/* Script Status Widget */}
-                      {status?.session.is_connected && (
-                        <Box sx={{ mb: 2 }}>
+                          
+                          {/* Script Status Widget */}
                           <ScriptStatusWidget 
                             scriptStatus={scriptStatus} 
                             isLoading={scriptStatusLoading}
                             onRefresh={refreshScriptStatus}
                           />
+                          
+                          <Box sx={{ display: 'flex', justifyContent: 'center', mt: 2 }}>
+                            <Button
+                              variant="contained"
+                              color="error"
+                              size="large"
+                              onClick={handleDisconnect}
+                              disabled={connectionStatus === 'connecting'}
+                              startIcon={connectionStatus === 'connecting' ? <CircularProgress size={20} /> : <StopIcon />}
+                              sx={{ minWidth: 200, py: 1.5 }}
+                            >
+                              {connectionStatus === 'connecting' ? 'Stopping...' : 'Stop Monitoring'}
+                            </Button>
+                          </Box>
                         </Box>
                       )}
-
-                      <Alert severity="success">
-                        All configuration is complete. You can now start monitoring the selected process.
-                      </Alert>
                     </CardContent>
                   </Card>
                 )}
 
                 <Box sx={{ mb: 2, mt: 2, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                   <Box>
-                    <Tooltip 
-                      title={
-                        index === 0 && !canProceedToNext() ? "Please connect to a device to continue" :
-                        index === 1 && !canProceedToNext() ? "Please configure Frida server to continue" :
-                        ""
-                      }
-                      open={(index === 0 || index === 1) && !canProceedToNext() ? undefined : false}
-                    >
-                      <span>
-                        <Button
-                          variant="contained"
-                          onClick={handleNext}
-                          disabled={!canProceedToNext()}
-                          sx={{ mt: 1, mr: 1 }}
-                        >
-                          {index === steps.length - 1 ? 'Finish' : 'Continue'}
-                        </Button>
-                      </span>
-                    </Tooltip>
-                    {index > 0 && (
+                    {index !== 4 && (
+                      <Tooltip 
+                        title={
+                          index === 0 && !canProceedToNext() ? "Please connect to a device to continue" :
+                          index === 1 && !canProceedToNext() ? "Please select a process to continue" :
+                          index === 2 && !canProceedToNext() ? "Please configure Frida server to continue" :
+                          ""
+                        }
+                        open={(index === 0 || index === 1 || index === 2) && !canProceedToNext() ? undefined : false}
+                      >
+                        <span>
+                          <Button
+                            variant="contained"
+                            onClick={handleNext}
+                            disabled={!canProceedToNext()}
+                            sx={{ mt: 1, mr: 1 }}
+                          >
+                            Continue
+                          </Button>
+                        </span>
+                      </Tooltip>
+                    )}
+                    {index > 0 && index !== 4 && (
                       <Button
                         onClick={handleBack}
                         sx={{ mt: 1, mr: 1 }}
