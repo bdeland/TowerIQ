@@ -12,7 +12,6 @@ import {
   ListItemIcon,
   ListItemText,
   Toolbar,
-  Typography,
   ThemeProvider,
   createTheme,
 } from '@mui/material';
@@ -33,6 +32,7 @@ import { HistoryPage } from './pages/HistoryPage';
 import { SettingsPage } from './pages/SettingsPage';
 import { ConnectionPage } from './pages/ConnectionPage';
 import { Breadcrumbs } from './components/Breadcrumbs';
+import { SearchBar } from './components/SearchBar';
 import './App.css';
 
 // Create a theme for the dashboard
@@ -97,28 +97,52 @@ function DashboardLayout() {
             transition: 'width 0.3s ease, margin-left 0.3s ease',
           }}
         >
-          <Toolbar>
-            <IconButton
-              color="inherit"
-              aria-label="open drawer"
-              edge="start"
-              onClick={handleDrawerOpen}
-              sx={{ mr: 2, display: { sm: 'none' } }}
-            >
-              <MenuIcon />
-            </IconButton>
-            <IconButton
-              color="inherit"
-              aria-label="toggle sidebar"
-              edge="start"
-              onClick={toggleSidebar}
-              sx={{ mr: 2, display: { xs: 'none', sm: 'block' } }}
-            >
-              <MenuIcon />
-            </IconButton>
-            <Typography variant="h6" noWrap component="div">
-              TowerIQ
-            </Typography>
+          <Toolbar sx={{ 
+            display: 'flex', 
+            alignItems: 'center', 
+            justifyContent: 'space-between',
+            paddingLeft: 0,
+            paddingRight: 2 
+          }}>
+            <Box sx={{ 
+              display: 'flex', 
+              alignItems: 'center',
+              width: '100%'
+            }}>
+              <IconButton
+                color="inherit"
+                aria-label="open drawer"
+                edge="start"
+                onClick={handleDrawerOpen}
+                sx={{ mr: 2, display: { sm: 'none' } }}
+              >
+                <MenuIcon />
+              </IconButton>
+              <IconButton
+                color="inherit"
+                aria-label="toggle sidebar"
+                edge="start"
+                onClick={toggleSidebar}
+                sx={{ mr: 2, display: { xs: 'none', sm: 'block' } }}
+              >
+                <MenuIcon />
+              </IconButton>
+
+              <Box sx={{
+                marginLeft: { 
+                  sm: sidebarCollapsed ? '42px' : `${drawerWidth - 64}px`
+                },
+                paddingLeft: 2,
+                transition: 'margin-left 0.3s ease',
+                flexGrow: 1,
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center'
+              }}>
+                <Breadcrumbs sidebarCollapsed={sidebarCollapsed} />
+                <SearchBar />
+              </Box>
+            </Box>
           </Toolbar>
         </AppBar>
 
@@ -215,14 +239,24 @@ function DashboardLayout() {
           component="main"
           sx={{
             flexGrow: 1,
-            p: 3,
+            pt: 10, // Add top padding to account for AppBar height
+            pb: 2,
+            px: 2,
             width: { sm: sidebarCollapsed ? 'calc(100% - 64px)' : `calc(100% - ${drawerWidth}px)` },
-            ml: { sm: sidebarCollapsed ? '64px' : 0 },
+            ml: { sm: sidebarCollapsed ? '42px' : 0 },
             transition: 'width 0.3s ease, margin-left 0.3s ease',
+            height: '100vh',
+            overflowY: 'auto',
+            display: 'flex',
+            flexDirection: 'column',
+            '&::-webkit-scrollbar': {
+              display: 'none'
+            },
+            scrollbarWidth: 'none',
+            msOverflowStyle: 'none'
           }}
         >
-          <Toolbar />
-          <Breadcrumbs />
+
           <Routes>
             <Route path="/" element={<HomePage />} />
             <Route path="/dashboard" element={<DashboardPage />} />

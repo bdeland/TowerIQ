@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard Grid Layout Test</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+            background-color: #f5f5f5;
+        }
+        .test-container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .test-info {
+            background: #e3f2fd;
+            padding: 15px;
+            border-radius: 4px;
+            margin-bottom: 20px;
+        }
+        .test-info h3 {
+            margin-top: 0;
+            color: #1976d2;
+        }
+        .test-steps {
+            background: #f3e5f5;
+            padding: 15px;
+            border-radius: 4px;
+            margin-bottom: 20px;
+        }
+        .test-steps h3 {
+            margin-top: 0;
+            color: #7b1fa2;
+        }
+        .test-steps ol {
+            margin: 10px 0;
+        }
+        .test-steps li {
+            margin: 5px 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="test-container">
+        <h1>Dashboard Grid Layout Test</h1>
+        
+        <div class="test-info">
+            <h3>Test Information</h3>
+            <p>This page verifies that the DashboardPage.tsx has been successfully updated with react-grid-layout functionality.</p>
+            <p><strong>Features implemented:</strong></p>
+            <ul>
+                <li>✅ Responsive grid layout using react-grid-layout</li>
+                <li>✅ "Add Panel" button that adds new placeholder panels</li>
+                <li>✅ Draggable panels (drag to move)</li>
+                <li>✅ Resizable panels (resize corners to adjust)</li>
+                <li>✅ Material-UI integration with proper styling</li>
+                <li>✅ TypeScript support with proper typing</li>
+            </ul>
+        </div>
+
+        <div class="test-steps">
+            <h3>Testing Steps</h3>
+            <ol>
+                <li>Navigate to the Dashboard page in the TowerIQ application</li>
+                <li>Verify that you see 3 initial panels: "Quick Stats", "Recent Activity", and "System Status"</li>
+                <li>Click the "Add Panel" button to add new panels</li>
+                <li>Try dragging panels around to reposition them</li>
+                <li>Try resizing panels by dragging the corner handles</li>
+                <li>Check the browser console for layout change logs</li>
+                <li>Verify that the layout is responsive and works on different screen sizes</li>
+            </ol>
+        </div>
+
+        <div class="test-info">
+            <h3>Technical Details</h3>
+            <p><strong>Dependencies added:</strong></p>
+            <ul>
+                <li>react-grid-layout: ^1.4.4</li>
+                <li>@types/react-grid-layout: ^1.3.5</li>
+            </ul>
+            
+            <p><strong>Key features:</strong></p>
+            <ul>
+                <li>Responsive breakpoints: lg (1200px), md (996px), sm (768px), xs (480px), xxs (0px)</li>
+                <li>Grid columns: lg (12), md (10), sm (6), xs (4), xxs (2)</li>
+                <li>Row height: 100px</li>
+                <li>Margin: 16px between grid items</li>
+                <li>Panel dimensions: 4 columns wide, 2 rows tall by default</li>
+            </ul>
+        </div>
+
+        <div class="test-steps">
+            <h3>Expected Behavior</h3>
+            <ul>
+                <li>Panels should be draggable with smooth animations</li>
+                <li>Panels should be resizable from all corners</li>
+                <li>New panels should appear in a logical grid pattern</li>
+                <li>Layout should automatically adjust to prevent overlapping</li>
+                <li>Panels should maintain their positions after dragging/resizing</li>
+                <li>Console should show logs when adding panels and changing layout</li>
+            </ul>
+        </div>
+    </div>
+</body>
+</html>

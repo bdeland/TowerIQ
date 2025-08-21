@@ -8,7 +8,11 @@ interface BreadcrumbItem {
   icon?: React.ReactNode;
 }
 
-export function Breadcrumbs() {
+interface BreadcrumbsProps {
+  sidebarCollapsed?: boolean;
+}
+
+export function Breadcrumbs({ sidebarCollapsed = false }: BreadcrumbsProps) {
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -44,10 +48,20 @@ export function Breadcrumbs() {
   };
 
   return (
-    <Box sx={{ mb: 2 }}>
+    <Box sx={{ 
+      display: 'flex', 
+      alignItems: 'center'
+    }}>
       <MuiBreadcrumbs
         separator={<NavigateNextIcon fontSize="small" />}
         aria-label="breadcrumb"
+        sx={{ 
+          '& .MuiBreadcrumbs-ol': { 
+            color: 'inherit',
+            '& .MuiTypography-root': { color: 'inherit' },
+            '& .MuiLink-root': { color: 'inherit' }
+          }
+        }}
       >
         {breadcrumbItems.map((item, index) => {
           const isLast = index === breadcrumbItems.length - 1;
@@ -55,7 +69,7 @@ export function Breadcrumbs() {
           return isLast ? (
             <Typography
               key={item.path}
-              color="text.primary"
+              color="inherit"
               sx={{ display: 'flex', alignItems: 'center' }}
             >
               {item.icon && <Box sx={{ mr: 0.5, display: 'flex', alignItems: 'center' }}>{item.icon}</Box>}

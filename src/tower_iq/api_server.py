@@ -78,12 +78,14 @@ async def lifespan(app: FastAPI):
     # Set up logging
     setup_logging(config)
     logger = structlog.get_logger()
-    logger.info("Starting TowerIQ API Server")
+    if logger:
+        logger.info("Starting TowerIQ API Server")
     
     # Initialize database service
     db_service = DatabaseService(config, logger)
     db_service.connect()
-    logger.info("Database connected successfully")
+    if logger:
+        logger.info("Database connected successfully")
     
     # Link database service to config manager
     config.link_database_service(db_service)
@@ -92,15 +94,18 @@ async def lifespan(app: FastAPI):
     controller = MainController(config, logger, db_service=db_service)
     controller.start_background_operations()
     
-    logger.info("TowerIQ API Server started successfully")
+    if logger:
+        logger.info("TowerIQ API Server started successfully")
     
     yield
     
     # Cleanup
     if controller:
-        logger.info("Shutting down controller")
+        if logger:
+            logger.info("Shutting down controller")
         controller.shutdown()
-    logger.info("TowerIQ API Server shutdown complete")
+    if logger:
+        logger.info("TowerIQ API Server shutdown complete")
 
 
 # Create FastAPI app
@@ -162,7 +167,8 @@ async def connect_device(request: ConnectionRequest):
         
         return {"message": "Device connected successfully", "device_serial": request.device_serial}
     except Exception as e:
-        logger.error("Error connecting to device", error=str(e))
+        if logger:
+            logger.error("Error connecting to device", error=str(e))
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -178,7 +184,8 @@ async def disconnect_device():
         
         return {"message": "Device disconnected successfully"}
     except Exception as e:
-        logger.error("Error disconnecting from device", error=str(e))
+        if logger:
+            logger.error("Error disconnecting from device", error=str(e))
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -198,15 +205,18 @@ async def activate_hook(request: HookActivationRequest, background_tasks: Backgr
                 }
                 # For now, just log the hook activation
                 # In a full implementation, this would trigger the hook activation flow
-                logger.info("Hook activation initiated", hook_data=hook_data)
+                if logger:
+                    logger.info("Hook activation initiated", hook_data=hook_data)
             except Exception as e:
-                logger.error("Error activating hook", error=str(e))
+                if logger:
+                    logger.error("Error activating hook", error=str(e))
         
         background_tasks.add_task(activate_hook_task)
         
         return {"message": "Hook activation initiated"}
     except Exception as e:
-        logger.error("Error initiating hook activation", error=str(e))
+        if logger:
+            logger.error("Error initiating hook activation", error=str(e))
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -302,6 +312,42 @@ async def get_devices():
         return {"devices": device_dicts}
     except Exception as e:
         logger.error("Error getting devices", error=str(e))
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/devices/refresh")
+async def refresh_devices():
+    """Refresh device list with cache clearing."""
+    if not controller:
+        raise HTTPException(status_code=503, detail="Backend not initialized")
+    
+    try:
+        # Use the device discovery method with cache clearing
+        devices = await controller.emulator_service.discover_devices(clear_cache=True)
+        
+        # Convert Device objects to dictionaries for JSON serialization
+        device_dicts = []
+        for device in devices:
+            device_dicts.append({
+                'id': device.serial,  # Use serial as ID for frontend compatibility
+                'name': device.device_name or device.model,  # Use device_name if available, fallback to model
+                'type': device.device_type,
+                'status': device.status,
+                'serial': device.serial,
+                'model': device.model,
+                'device_name': device.device_name,  # Include the new device_name field
+                'brand': device.brand,  # Include brand information
+                'android_version': device.android_version,
+                'api_level': device.api_level,
+                'architecture': device.architecture,
+                'is_network_device': device.is_network_device,
+                'ip_address': device.ip_address,
+                'port': device.port
+            })
+        
+        return {"devices": device_dicts}
+    except Exception as e:
+        logger.error("Error refreshing devices", error=str(e))
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -630,6 +676,53 @@ async def receive_heartbeat(request: dict):
         if logger:
             logger.error("Error processing heartbeat", error=str(e))
         raise HTTPException(status_code=500, detail=f"Failed to process heartbeat: {str(e)}")
+
+# --- ADB Server Management Endpoints ---
+
+@app.post("/api/adb/start")
+async def start_adb_server():
+    """Start the ADB server."""
+    try:
+        if not controller:
+            raise HTTPException(status_code=503, detail="Backend not initialized")
+        
+        await controller.emulator_service.start_adb_server()
+        return {"message": "ADB server started successfully"}
+        
+    except Exception as e:
+        if logger:
+            logger.error("Error starting ADB server", error=str(e))
+        raise HTTPException(status_code=500, detail=f"Failed to start ADB server: {str(e)}")
+
+@app.post("/api/adb/kill")
+async def kill_adb_server():
+    """Kill the ADB server."""
+    try:
+        if not controller:
+            raise HTTPException(status_code=503, detail="Backend not initialized")
+        
+        await controller.emulator_service.kill_adb_server()
+        return {"message": "ADB server killed successfully"}
+        
+    except Exception as e:
+        if logger:
+            logger.error("Error killing ADB server", error=str(e))
+        raise HTTPException(status_code=500, detail=f"Failed to kill ADB server: {str(e)}")
+
+@app.post("/api/adb/restart")
+async def restart_adb_server():
+    """Restart the ADB server."""
+    try:
+        if not controller:
+            raise HTTPException(status_code=503, detail="Backend not initialized")
+        
+        await controller.emulator_service.restart_adb_server()
+        return {"message": "ADB server restarted successfully"}
+        
+    except Exception as e:
+        if logger:
+            logger.error("Error restarting ADB server", error=str(e))
+        raise HTTPException(status_code=500, detail=f"Failed to restart ADB server: {str(e)}")
 
 def start_server(host: str = "127.0.0.1", port: int = 8000):
     """Start the FastAPI server."""

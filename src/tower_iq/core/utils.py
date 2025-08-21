@@ -128,4 +128,36 @@ class AdbWrapper:
             return devices
         except AdbError as e:
             self.logger.error(f"AdbWrapper.list_devices caught AdbError: {e}")
-            return [] # Return empty list if command fails 
+            return [] # Return empty list if command fails
+
+    async def start_server(self) -> None:
+        """Start the ADB server."""
+        try:
+            self.logger.info("Starting ADB server...")
+            await self.run_command("start-server", timeout=10.0)
+            self.logger.info("ADB server started successfully")
+        except AdbError as e:
+            self.logger.error(f"Failed to start ADB server: {e}")
+            raise
+
+    async def kill_server(self) -> None:
+        """Kill the ADB server."""
+        try:
+            self.logger.info("Killing ADB server...")
+            await self.run_command("kill-server", timeout=10.0)
+            self.logger.info("ADB server killed successfully")
+        except AdbError as e:
+            self.logger.error(f"Failed to kill ADB server: {e}")
+            raise
+
+    async def restart_server(self) -> None:
+        """Restart the ADB server."""
+        try:
+            self.logger.info("Restarting ADB server...")
+            await self.kill_server()
+            await asyncio.sleep(1)  # Give it time to clean up
+            await self.start_server()
+            self.logger.info("ADB server restarted successfully")
+        except AdbError as e:
+            self.logger.error(f"Failed to restart ADB server: {e}")
+            raise 

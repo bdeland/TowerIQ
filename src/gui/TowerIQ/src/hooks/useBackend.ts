@@ -14,7 +14,7 @@ export interface Device {
   id: string;
   name: string;
   type: string;
-  status: 'connected' | 'disconnected' | 'error';
+  status: 'device' | 'offline' | 'unauthorized' | 'no permissions' | string;  // Raw ADB status
   serial: string;
   model: string;
   device_name?: string;  // Human-readable device name like "Samsung Galaxy S21 Ultra"
@@ -248,6 +248,31 @@ export const useBackend = () => {
     }
   };
 
+  const refreshDevices = async (): Promise<Device[]> => {
+    try {
+      setLoading(true);
+      setError(null);
+      
+      // Add timeout to prevent hanging
+      const timeoutPromise = new Promise<never>((_, reject) => {
+        setTimeout(() => reject(new Error('Device refresh timed out')), 45000); // 45 second timeout
+      });
+      
+      const refreshPromise = invoke<{devices: Device[]}>('refresh_devices');
+      
+      const result = await Promise.race([refreshPromise, timeoutPromise]);
+      return result.devices;
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Unknown error';
+      setError(errorMessage);
+      console.error('Device refresh failed:', errorMessage);
+      // Return empty array instead of throwing to prevent UI from breaking
+      return [];
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const getProcesses = async (deviceId: string): Promise<Process[]> => {
     try {
       setLoading(true);
@@ -443,6 +468,52 @@ export const useBackend = () => {
     }
   };
 
+  // ADB Server Management Methods
+  const startAdbServer = async (): Promise<any> => {
+    try {
+      setLoading(true);
+      setError(null);
+      const result = await invoke('start_adb_server');
+      return result;
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Unknown error';
+      setError(errorMessage);
+      throw new Error(errorMessage);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const killAdbServer = async (): Promise<any> => {
+    try {
+      setLoading(true);
+      setError(null);
+      const result = await invoke('kill_adb_server');
+      return result;
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Unknown error';
+      setError(errorMessage);
+      throw new Error(errorMessage);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const restartAdbServer = async (): Promise<any> => {
+    try {
+      setLoading(true);
+      setError(null);
+      const result = await invoke('restart_adb_server');
+      return result;
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Unknown error';
+      setError(errorMessage);
+      throw new Error(errorMessage);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return {
     status,
     loading,
@@ -452,6 +523,7 @@ export const useBackend = () => {
     disconnectDevice,
     setTestMode,
     scanDevices,
+    refreshDevices,
     getProcesses,
     getHookScripts,
     startConnectionFlow,
@@ -464,5 +536,8 @@ export const useBackend = () => {
     activateHook,
     deactivateHook,
     getScriptStatus,
+    startAdbServer,
+    killAdbServer,
+    restartAdbServer,
   };
 };

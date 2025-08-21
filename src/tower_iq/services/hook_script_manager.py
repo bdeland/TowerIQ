@@ -114,4 +114,55 @@ class HookScriptManager:
         except Exception:
             return ""
 
+    def get_default_tower_script(self) -> Optional[Dict]:
+        """
+        Get the default script for The Tower game.
+        
+        Returns:
+            Script dictionary with content if found, None otherwise
+        """
+        try:
+            # First, discover all scripts
+            self.discover_scripts()
+            
+            # Look for scripts targeting The Tower
+            tower_scripts = []
+            for script in self.scripts:
+                target_package = script.get("targetPackage", "")
+                if target_package == "com.TechTreeGames.TheTower":
+                    tower_scripts.append(script)
+            
+            if not tower_scripts:
+                return None
+            
+            # If multiple scripts found, prefer the one with "main" or "default" in the name
+            # or just take the first one
+            selected_script = tower_scripts[0]
+            for script in tower_scripts:
+                script_name = script.get("scriptName", "").lower()
+                if "main" in script_name or "default" in script_name or "tower" in script_name:
+                    selected_script = script
+                    break
+            
+            # Load the script content
+            file_name = selected_script.get("fileName", "")
+            content = self.get_script_content(file_name)
+            
+            if not content:
+                return None
+            
+            # Return the script with content
+            return {
+                "id": file_name,
+                "name": selected_script.get("scriptName", selected_script.get("fileName", "The Tower Script")),
+                "description": selected_script.get("scriptDescription", selected_script.get("description", "Default script for The Tower game")),
+                "content": content,
+                "targetPackage": selected_script.get("targetPackage", ""),
+                "targetApp": selected_script.get("targetApp", ""),
+                "supportedVersions": selected_script.get("supportedVersions", [])
+            }
+            
+        except Exception:
+            return None
+
 

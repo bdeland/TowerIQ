@@ -239,33 +239,39 @@ class EmulatorService:
 
     # --- Device Discovery ---
 
-    async def discover_devices(self, timeout: float = 10.0) -> List[Device]:
+    async def discover_devices(self, timeout: float = 10.0, clear_cache: bool = False) -> List[Device]:
         """
         Discover all available devices with complete information.
         
         Args:
             timeout: Maximum time to wait for device discovery operations
+            clear_cache: Whether to clear cached device properties before scanning
             
         Returns:
             List of Device objects with all information loaded
         """
-        self.logger.info("Starting device discovery")
+        self.logger.info("Starting device discovery", clear_cache=clear_cache)
+        
+        # Clear cache if requested
+        if clear_cache:
+            self._cache.clear()
+            self.logger.info("Device cache cleared")
         
         try:
             # Get device list with timeout
-            device_serials = await asyncio.wait_for(
+            device_list = await asyncio.wait_for(
                 self._get_device_list(),
                 timeout=timeout
             )
             
-            if not device_serials:
+            if not device_list:
                 self.logger.info("No devices found")
                 return []
             
             # Get complete info for all devices concurrently
             device_tasks = [
-                self._get_complete_device_info(serial, timeout)
-                for serial in device_serials
+                self._get_complete_device_info(serial, status, timeout)
+                for serial, status in device_list
             ]
             
             devices = await asyncio.gather(*device_tasks, return_exceptions=True)
@@ -324,24 +330,76 @@ class EmulatorService:
             self.logger.error("Failed to get processes", device=device.serial, error=str(e), error_type=type(e).__name__)
             return []
 
+    async def find_target_process(self, device: Device, target_package: str = "com.TechTreeGames.TheTower", timeout: float = 10.0) -> Optional[Process]:
+        """
+        Find the target process (The Tower game) on the device.
+        
+        Args:
+            device: Device to query
+            target_package: Package name to search for (default: The Tower game)
+            timeout: Maximum time to wait for process listing operations
+            
+        Returns:
+            Process object if found, None otherwise
+        """
+        try:
+            self.logger.info("Searching for target process", device=device.serial, target_package=target_package)
+            
+            # Get all processes
+            processes = await self.get_processes(device, timeout)
+            
+            # Find the target process
+            target_process = None
+            for process in processes:
+                if process.package == target_package:
+                    target_process = process
+                    break
+            
+            if target_process:
+                self.logger.info("Target process found", 
+                               device=device.serial, 
+                               package=target_process.package,
+                               name=target_process.name,
+                               pid=target_process.pid)
+            else:
+                self.logger.warning("Target process not found", 
+                                  device=device.serial, 
+                                  target_package=target_package,
+                                  available_packages=[p.package for p in processes[:10]])  # Log first 10 packages for debugging
+            
+            return target_process
+            
+        except Exception as e:
+            self.logger.error("Failed to find target process", 
+                            device=device.serial, 
+                            target_package=target_package,
+                            error=str(e), 
+                            error_type=type(e).__name__)
+            return None
+
     # --- Private Methods ---
 
-    async def _get_device_list(self) -> List[str]:
-        """Get list of available device serials."""
+    async def _get_device_list(self) -> List[tuple[str, str]]:
+        """Get list of available device serials with their status."""
         try:
             stdout, _ = await self.adb.run_command("devices", timeout=5.0)
             devices = []
             for line in stdout.split('\n')[1:]:  # Skip header
-                if '\tdevice' in line:
-                    devices.append(line.split('\t')[0].strip())
+                if line.strip():
+                    parts = line.split('\t')
+                    if len(parts) >= 2:
+                        serial = parts[0].strip()
+                        status = parts[1].strip()
+                        devices.append((serial, status))
             return devices
         except AdbError as e:
             self.logger.warning("Failed to get device list", error=str(e))
             return []
 
-    async def _get_complete_device_info(self, serial: str, timeout: float) -> Optional[Device]:
+    async def _get_complete_device_info(self, serial: str, adb_status: str, timeout: float) -> Optional[Device]:
         """Get complete device information using DeviceDetector."""
         try:
+            # Pass raw ADB status directly to Device object
             # Get basic device properties needed for DeviceDetector
             properties = await asyncio.wait_for(
                 self._get_device_properties(serial, [
@@ -375,7 +433,7 @@ class EmulatorService:
                 android_version=android_version,
                 api_level=int(properties.get('ro.build.version.sdk', '0')),
                 architecture=properties.get('ro.product.cpu.abi', 'unknown'),
-                status='Online',
+                status=adb_status,  # Pass raw ADB status directly
                 is_network_device=':' in serial,
                 brand=device_info.get('brand', brand),
                 device_name=device_info.get('device_name')
@@ -698,5 +756,19 @@ class EmulatorService:
         """Set cached value with TTL."""
         ttl = ttl_seconds or self._cache_timeout
         self._cache[key] = CacheEntry(data=data, timestamp=datetime.now(), ttl_seconds=ttl)
+
+    # --- ADB Server Management ---
+
+    async def start_adb_server(self) -> None:
+        """Start the ADB server."""
+        await self.adb.start_server()
+
+    async def kill_adb_server(self) -> None:
+        """Kill the ADB server."""
+        await self.adb.kill_server()
+
+    async def restart_adb_server(self) -> None:
+        """Restart the ADB server."""
+        await self.adb.restart_server()
 
 

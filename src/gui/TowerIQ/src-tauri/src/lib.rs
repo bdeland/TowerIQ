@@ -121,6 +121,19 @@ impl ApiClient {
         Ok(result)
     }
 
+    async fn refresh_devices(&self) -> Result<serde_json::Value, Box<dyn std::error::Error>> {
+        let client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(30)) // 30 second timeout
+            .build()?;
+        let response = client
+            .post(&format!("{}/api/devices/refresh", self.base_url))
+            .send()
+            .await?;
+        
+        let result: serde_json::Value = response.json().await?;
+        Ok(result)
+    }
+
     async fn get_processes(&self, device_id: String) -> Result<serde_json::Value, Box<dyn std::error::Error>> {
         let client = reqwest::Client::builder()
             .timeout(std::time::Duration::from_secs(30)) // 30 second timeout
@@ -279,6 +292,49 @@ impl ApiClient {
         let result: serde_json::Value = response.json().await?;
         Ok(result)
     }
+
+    // ADB Server Management Methods
+    async fn start_adb_server(&self) -> Result<serde_json::Value, Box<dyn std::error::Error>> {
+        let client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(30)) // 30 second timeout
+            .build()?;
+        
+        let response = client
+            .post(&format!("{}/api/adb/start", self.base_url))
+            .send()
+            .await?;
+        
+        let result: serde_json::Value = response.json().await?;
+        Ok(result)
+    }
+
+    async fn kill_adb_server(&self) -> Result<serde_json::Value, Box<dyn std::error::Error>> {
+        let client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(30)) // 30 second timeout
+            .build()?;
+        
+        let response = client
+            .post(&format!("{}/api/adb/kill", self.base_url))
+            .send()
+            .await?;
+        
+        let result: serde_json::Value = response.json().await?;
+        Ok(result)
+    }
+
+    async fn restart_adb_server(&self) -> Result<serde_json::Value, Box<dyn std::error::Error>> {
+        let client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(60)) // 60 second timeout for restart
+            .build()?;
+        
+        let response = client
+            .post(&format!("{}/api/adb/restart", self.base_url))
+            .send()
+            .await?;
+        
+        let result: serde_json::Value = response.json().await?;
+        Ok(result)
+    }
 }
 
 // Tauri commands
@@ -317,6 +373,20 @@ async fn scan_devices() -> Result<serde_json::Value, String> {
     ).await {
         Ok(result) => result.map_err(|e| e.to_string()),
         Err(_) => Err("Device scanning timed out after 60 seconds".to_string())
+    }
+}
+
+#[tauri::command]
+async fn refresh_devices() -> Result<serde_json::Value, String> {
+    let client = ApiClient::new();
+    
+    // Add timeout to prevent hanging
+    match tokio::time::timeout(
+        std::time::Duration::from_secs(60), // 60 second timeout
+        client.refresh_devices()
+    ).await {
+        Ok(result) => result.map_err(|e| e.to_string()),
+        Err(_) => Err("Device refresh timed out after 60 seconds".to_string())
     }
 }
 
@@ -387,6 +457,24 @@ async fn get_script_status() -> Result<serde_json::Value, String> {
 }
 
 #[tauri::command]
+async fn start_adb_server() -> Result<serde_json::Value, String> {
+    let client = ApiClient::new();
+    client.start_adb_server().await.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn kill_adb_server() -> Result<serde_json::Value, String> {
+    let client = ApiClient::new();
+    client.kill_adb_server().await.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn restart_adb_server() -> Result<serde_json::Value, String> {
+    let client = ApiClient::new();
+    client.restart_adb_server().await.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 fn greet(name: &str) -> String {
     format!("Hello, {}! You've been greeted from Rust!", name)
 }
@@ -402,6 +490,7 @@ pub fn run() {
             disconnect_device,
             set_test_mode,
             scan_devices,
+            refresh_devices,
             get_processes,
             get_hook_scripts,
             get_frida_status,
@@ -412,7 +501,10 @@ pub fn run() {
             remove_frida_server,
             activate_hook,
             deactivate_hook,
-            get_script_status
+            get_script_status,
+            start_adb_server,
+            kill_adb_server,
+            restart_adb_server
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

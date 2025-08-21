@@ -4,10 +4,7 @@ import { styled } from '@mui/material/styles';
 import {
   Box,
   Button,
-  Paper,
   Typography,
-  Card,
-  CardContent,
   List,
   ListItem,
   ListItemText,
@@ -28,15 +25,14 @@ import {
   TableHead,
   TableRow,
   Tooltip,
+  Accordion,
+  AccordionSummary,
+  AccordionDetails,
+  Divider,
+  Paper,
+  Radio,
 } from '@mui/material';
-import MuiAccordion, { AccordionProps } from '@mui/material/Accordion';
-import MuiAccordionSummary, {
-  AccordionSummaryProps,
-  accordionSummaryClasses,
-} from '@mui/material/AccordionSummary';
-import MuiAccordionDetails from '@mui/material/AccordionDetails';
 import {
-  Refresh as RefreshIcon,
   Check as CheckIcon,
   Error as ErrorIcon,
   PlayArrow as PlayIcon,
@@ -53,98 +49,75 @@ import {
   Remove as RemoveIcon,
   ExpandMore as ExpandMoreIcon,
   InfoOutline as InfoOutlineIcon,
+  Settings as SettingsIcon,
 } from '@mui/icons-material';
+import RefreshIcon from '@mui/icons-material/Refresh';
 import { useBackend, Device, Process, HookScript, FridaStatus, ScriptStatus } from '../hooks/useBackend';
 import { ScriptStatusWidget } from '../components/ScriptStatusWidget';
 
-// Styled Accordion Components
-const Accordion = styled((props: AccordionProps) => (
-  <MuiAccordion disableGutters elevation={0} square {...props} />
-))(({ theme }) => ({
-  border: `1px solid ${theme.palette.divider}`,
-  '&:not(:last-child)': {
-    borderBottom: 0,
-  },
-  '&::before': {
-    display: 'none',
-  },
-}));
+// Application constants for auto-selection
+const TARGET_PROCESS_PACKAGE = 'com.TechTreeGames.TheTower';
+const TARGET_PROCESS_NAME = 'The Tower';
 
-const AccordionSummary = styled((props: AccordionSummaryProps) => (
-  <MuiAccordionSummary
-    expandIcon={<ExpandMoreIcon sx={{ fontSize: '0.9rem' }} />}
-    {...props}
-  />
-))(({ theme }) => ({
-  backgroundColor: 'rgba(0, 0, 0, .03)',
-  flexDirection: 'row-reverse',
-  [`& .${accordionSummaryClasses.expandIconWrapper}.${accordionSummaryClasses.expanded}`]:
-    {
-      transform: 'rotate(90deg)',
-    },
-  [`& .${accordionSummaryClasses.content}`]: {
-    marginLeft: theme.spacing(1),
-  },
-  ...theme.applyStyles('dark', {
-    backgroundColor: 'rgba(255, 255, 255, .05)',
-  }),
-}));
+// Connection flow state type
+type ConnectionFlowState = 'IDLE' | 'CONNECTING_DEVICE' | 'SEARCHING_PROCESS' | 'CONFIGURING_FRIDA' | 'STARTING_HOOK' | 'MONITORING_ACTIVE' | 'ERROR';
 
-const AccordionDetails = styled(MuiAccordionDetails)(({ theme }) => ({
-  padding: theme.spacing(2),
-  borderTop: '1px solid rgba(0, 0, 0, .125)',
-}));
-
-// Remove duplicate interfaces since they're imported from useBackend
-
-const steps = [
-  {
-    label: 'Select Device',
-    description: 'Choose a device to connect to. This can be a physical device or emulator.',
-    icon: <DeviceIcon />,
-  },
-  {
-    label: 'Select Process',
-    description: 'Choose the target process to attach to on the selected device.',
-    icon: <ProcessIcon />,
-  },
-  {
-    label: 'Configure Frida Server',
-    description: 'Check and configure the Frida server on the selected device.',
-    icon: <DeveloperModeIcon />,
-  },
-  {
-    label: 'Configure Hook Script',
-    description: 'Optionally select and configure a hook script to inject into the process.',
-    icon: <ScriptIcon />,
-    optional: true,
-  },
-  {
-    label: 'Review and Go',
-    description: 'Review your configuration and start the monitoring session.',
-    icon: <PlayIcon />,
-  },
-];
+// Helper function for generating device status tooltip content
+const getDeviceStatusTooltip = (status: string) => {
+  switch (status) {
+    case 'unauthorized':
+      return (
+        <Box>
+          <Typography variant="subtitle2" sx={{ mb: 1 }}>Device Unauthorized</Typography>
+          <Typography variant="body2">Your computer is not trusted. Please follow these steps:</Typography>
+          <List dense sx={{ listStyleType: 'decimal', pl: 2 }}>
+            <ListItem sx={{ display: 'list-item' }}>Check your device for an "Allow USB debugging?" popup.</ListItem>
+            <ListItem sx={{ display: 'list-item' }}>Accept the prompt (check "Always allow").</ListItem>
+            <ListItem sx={{ display: 'list-item' }}>If you don't see it, unplug and reconnect the cable.</ListItem>
+          </List>
+        </Box>
+      );
+    case 'offline':
+    case 'disconnected':
+      return (
+        <Box>
+          <Typography variant="subtitle2" sx={{ mb: 1 }}>Device Offline</Typography>
+          <Typography variant="body2">The connection is unresponsive. Try the following:</Typography>
+          <List dense sx={{ listStyleType: 'decimal', pl: 2 }}>
+            <ListItem sx={{ display: 'list-item' }}>Reboot your Android device.</ListItem>
+            <ListItem sx={{ display: 'list-item' }}>Use a different USB cable and port.</ListItem>
+            <ListItem sx={{ display: 'list-item' }}>Use the "Restart ADB Server" control below.</ListItem>
+          </List>
+        </Box>
+      );
+    case 'no permissions':
+      return <Typography>Your system is blocking access to this USB device. (Linux/macOS issue)</Typography>;
+    case 'device':
+    case 'connected':
+      return <Typography>Device is connected and ready.</Typography>;
+    case 'error':
+      return <Typography>Device connection error. Try restarting the ADB server.</Typography>;
+    default:
+      return <Typography>Status: {status}</Typography>;
+  }
+};
 
 export function ConnectionPage() {
   // Animation configuration
   const refreshAnimationConfig = {
-    duration: 600, // Duration in milliseconds
-    easing: 'cubic-bezier(0.4, 0, 0.2, 1)', // Material Design standard easing
-    rotations: 1 // Number of full rotations
+    duration: 600,
+    easing: 'cubic-bezier(0.4, 0, 0.2, 1)',
+    rotations: 1
   };
 
-  // Styled refresh button with animation
-  const AnimatedRefreshIcon = styled(RefreshIcon)<{ $isSpinning: boolean }>(({ theme, $isSpinning }) => ({
-    transform: $isSpinning ? `rotate(${360 * refreshAnimationConfig.rotations}deg)` : 'rotate(0deg)',
-    transition: `transform ${refreshAnimationConfig.duration}ms ${refreshAnimationConfig.easing}`,
-  }));
+
 
   const { 
     status, 
     loading, 
     error, 
     scanDevices, 
+    refreshDevices,
     getProcesses, 
     getHookScripts, 
     startConnectionFlow,
@@ -157,47 +130,44 @@ export function ConnectionPage() {
     removeFridaServer,
     activateHook,
     deactivateHook,
-    getScriptStatus
+    getScriptStatus,
+    startAdbServer,
+    killAdbServer,
+    restartAdbServer
   } = useBackend();
   
-  const [activeStep, setActiveStep] = useState(0);
-  const [expandedSteps, setExpandedSteps] = useState<Set<number>>(new Set([0])); // Start with first step expanded
+  // Simplified state management
   const [selectedDevice, setSelectedDevice] = useState<Device | null>(null);
-  const [selectedProcess, setSelectedProcess] = useState<Process | null>(null);
-  const [selectedScript, setSelectedScript] = useState<HookScript | null>(null);
   const [isRefreshSpinning, setIsRefreshSpinning] = useState(false);
-  const [useHookScript, setUseHookScript] = useState(false);
   const [connectionStatus, setConnectionStatus] = useState<'idle' | 'connecting' | 'connected' | 'error'>('idle');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
-  // Frida-related state
-  const [fridaStatus, setFridaStatus] = useState<FridaStatus | null>(null);
-  const [hookActivationStatus, setHookActivationStatus] = useState<'idle' | 'activating' | 'active' | 'deactivating' | 'error'>('idle');
-  const [hookError, setHookError] = useState<string | null>(null);
-  const [fridaLoading, setFridaLoading] = useState(false);
-  const [fridaError, setFridaError] = useState<string | null>(null);
+  // Master connection flow state machine
+  const [flowState, setFlowState] = useState<ConnectionFlowState>('IDLE');
+  const [statusMessage, setStatusMessage] = useState<string>('Please select a device to begin.');
 
-  // New automated Frida check state
-  type FridaCheckState = 'idle' | 'checking' | 'needs_action' | 'provisioning' | 'success' | 'error';
-  const [fridaCheckState, setFridaCheckState] = useState<FridaCheckState>('idle');
-
-  // Script status state
-  const [scriptStatus, setScriptStatus] = useState<ScriptStatus | null>(null);
-  const [scriptStatusLoading, setScriptStatusLoading] = useState(false);
+  // Troubleshooting section
+  const [showTroubleshooting, setShowTroubleshooting] = useState(false);
 
   // Data from backend
   const [devices, setDevices] = useState<Device[]>([]);
   const [processes, setProcesses] = useState<Process[]>([]);
   const [hookScripts, setHookScripts] = useState<HookScript[]>([]);
 
-  // Loading states - show skeleton immediately when commands start
-  const [devicesLoading, setDevicesLoading] = useState(true); // Start with loading true
+  // Loading states
+  const [devicesLoading, setDevicesLoading] = useState(true);
   const [processesLoading, setProcessesLoading] = useState(false);
 
-  // Search and filter states
-  const [processSearchTerm, setProcessSearchTerm] = useState('');
-  const [showOnlyThirdParty, setShowOnlyThirdParty] = useState(true);
-  const [showOnlyRunning, setShowOnlyRunning] = useState(false);
+  // Script status state
+  const [scriptStatus, setScriptStatus] = useState<ScriptStatus | null>(null);
+  const [scriptStatusLoading, setScriptStatusLoading] = useState(false);
+
+  // ADB server management state
+  const [isAdbRestarting, setIsAdbRestarting] = useState(false);
+
+  // Frida server status state
+  const [fridaStatus, setFridaStatus] = useState<FridaStatus | null>(null);
+  const [fridaStatusLoading, setFridaStatusLoading] = useState(false);
 
   // Load initial data
   useEffect(() => {
@@ -206,8 +176,7 @@ export function ConnectionPage() {
     loadScriptStatus();
   }, []);
 
-  // Use ref to track if polling is active
-  // Load script status when connected (no polling - backend handles heartbeats)
+  // Load script status when connected
   useEffect(() => {
     console.log('ConnectionPage: useEffect triggered', { 
       isConnected: status?.session.is_connected
@@ -219,7 +188,6 @@ export function ConnectionPage() {
       return;
     }
 
-    // Load initial script status
     const loadScriptStatus = async () => {
       try {
         console.log('ConnectionPage: Loading script status...');
@@ -232,7 +200,7 @@ export function ConnectionPage() {
     };
 
     loadScriptStatus();
-  }, [status?.session.is_connected]); // Removed getScriptStatus from dependencies to prevent infinite re-renders
+  }, [status?.session.is_connected]);
 
   // Update connection status based on backend status
   useEffect(() => {
@@ -248,7 +216,6 @@ export function ConnectionPage() {
   // Load processes when device becomes connected
   useEffect(() => {
     if (status?.session.is_connected && selectedDevice && status?.session.current_device === selectedDevice.id) {
-      // Load processes for the connected device
       const loadProcessesForConnectedDevice = async () => {
         try {
           setProcessesLoading(true);
@@ -265,70 +232,29 @@ export function ConnectionPage() {
     }
   }, [status?.session.is_connected, status?.session.current_device, selectedDevice]);
 
-  // Helper function to check if a process is third party
-  const isThirdPartyProcess = (process: Process) => {
-    return !!(process.package && 
-              !process.package.startsWith('com.android.') &&
-              !process.package.startsWith('android.') &&
-              !process.package.startsWith('system') &&
-              !process.package.startsWith('com.google.android.') &&
-              !process.package.startsWith('com.samsung.') &&
-              !process.package.startsWith('com.sec.') &&
-              !process.package.startsWith('com.qualcomm.'));
-  };
-
-  // Helper function to check if a process is running
-  const isRunningProcess = (process: Process) => {
-    return process.pid > 0;
-  };
-
-  // Calculate counts for different process categories
-  const totalProcesses = processes.length;
-  const thirdPartyProcesses = processes.filter(isThirdPartyProcess).length;
-  const runningProcesses = processes.filter(isRunningProcess).length;
-  const searchFilteredProcesses = processes.filter(process => 
-    process.name.toLowerCase().includes(processSearchTerm.toLowerCase()) ||
-    (process.package && process.package.toLowerCase().includes(processSearchTerm.toLowerCase()))
-  ).length;
-
-  // Filter processes based on search term, third party filter, and running filter
-  const filteredProcesses = processes.filter(process => {
-    const matchesSearch = process.name.toLowerCase().includes(processSearchTerm.toLowerCase()) ||
-                         (process.package && process.package.toLowerCase().includes(processSearchTerm.toLowerCase()));
-    
-    // Apply third party filter
-    let passesThirdPartyFilter = true;
-    if (showOnlyThirdParty) {
-      passesThirdPartyFilter = isThirdPartyProcess(process);
+  // Load Frida status when device is selected
+  useEffect(() => {
+    if (selectedDevice) {
+      loadFridaStatus(selectedDevice.id);
+    } else {
+      setFridaStatus(null);
     }
-    
-    // Apply running filter
-    const passesRunningFilter = !showOnlyRunning || isRunningProcess(process);
-    
-    return matchesSearch && passesThirdPartyFilter && passesRunningFilter;
-  });
+  }, [selectedDevice]);
 
+  // Load devices
   const loadDevices = async () => {
     try {
-      console.log('Starting device scan...');
-      const startTime = Date.now();
+      setDevicesLoading(true);
       const deviceList = await scanDevices();
-      console.log('Device scan completed:', deviceList);
       setDevices(deviceList);
-      
-      // Add artificial delay to ensure skeleton is visible for at least 1 second
-      const elapsedTime = Date.now() - startTime;
-      if (elapsedTime < 1000) {
-        await new Promise(resolve => setTimeout(resolve, 1000 - elapsedTime));
-      }
     } catch (err) {
       console.error('Failed to load devices:', err);
-      setErrorMessage(`Failed to scan for devices: ${err instanceof Error ? err.message : 'Unknown error'}`);
     } finally {
       setDevicesLoading(false);
     }
   };
 
+  // Load hook scripts
   const loadHookScripts = async () => {
     try {
       const scriptList = await getHookScripts();
@@ -338,6 +264,7 @@ export function ConnectionPage() {
     }
   };
 
+  // Load script status
   const loadScriptStatus = async () => {
     try {
       setScriptStatusLoading(true);
@@ -350,1336 +277,810 @@ export function ConnectionPage() {
     }
   };
 
-  const refreshScriptStatus = async () => {
-    console.log('ConnectionPage: Manually refreshing script status');
-    await loadScriptStatus();
-  };
-
-  const handleNext = () => {
-    const nextStep = activeStep + 1;
-    setActiveStep(nextStep);
-    // Collapse the previous step and expand the next step
-    setExpandedSteps(prev => {
-      const newSet = new Set(prev);
-      newSet.delete(activeStep); // Collapse current step
-      newSet.add(nextStep); // Expand next step
-      return newSet;
-    });
-  };
-
-  const handleBack = () => {
-    setActiveStep((prevActiveStep) => prevActiveStep - 1);
-  };
-
-  const handleReset = () => {
-    setActiveStep(0);
-    setSelectedDevice(null);
-    setSelectedProcess(null);
-    setSelectedScript(null);
-    setUseHookScript(false);
-    setConnectionStatus('idle');
-    setErrorMessage(null);
-  };
-
-  const handleDeviceSelect = async (device: Device) => {
-    setSelectedDevice(device);
-    // Reset process selection when device changes
-    setSelectedProcess(null);
-    setProcesses([]); // Clear processes - they will be loaded after connection
-  };
-
-  const handleProcessSelect = (process: Process) => {
-    setSelectedProcess(process);
-  };
-
-  const handleScriptSelect = (script: HookScript) => {
-    setSelectedScript(script);
-  };
-
-  const toggleStepExpansion = (stepIndex: number) => {
-    setExpandedSteps(prev => {
-      const newSet = new Set(prev);
-      if (newSet.has(stepIndex)) {
-        newSet.delete(stepIndex);
-      } else {
-        newSet.add(stepIndex);
-      }
-      return newSet;
-    });
-  };
-
-  const isStepExpanded = (stepIndex: number) => {
-    return expandedSteps.has(stepIndex);
-  };
-
-  // Function to check script compatibility
-  const checkScriptCompatibility = (script: HookScript) => {
-    if (!selectedProcess) return { 
-      isCompatible: false, 
-      packageMatch: false, 
-      packageMismatch: '', 
-      compatibilityMessage: `This script is compatible with ${script.targetApp || script.targetPackage || 'Unknown'} (${script.targetPackage || 'Unknown'}). Please select a process first.`
-    };
-    
-    const packageMatch = script.targetPackage === selectedProcess.package;
-    const isCompatible = packageMatch; // Only check package match, version is handled by deployment
-    
-    // Build plain English compatibility messages
-    let compatibilityMessage = '';
-    let packageMismatch = '';
-    
-    if (packageMatch) {
-      compatibilityMessage = `This script is compatible with ${script.targetApp || script.targetPackage} (${script.targetPackage}). You have selected ${selectedProcess.name}.`;
-    } else {
-      packageMismatch = `This script is compatible with ${script.targetApp || script.targetPackage || 'Unknown'} (${script.targetPackage || 'Unknown'}). You have selected ${selectedProcess.name} (${selectedProcess.package || 'Unknown'}).`;
-    }
-    
-    return {
-      isCompatible,
-      packageMatch,
-      packageMismatch,
-      compatibilityMessage
-    };
-  };
-
-  const handleRefreshDevices = async () => {
+  // Load Frida status
+  const loadFridaStatus = async (deviceId: string) => {
     try {
-      setDevicesLoading(true);
-      setIsRefreshSpinning(true);
-      
-      // Add artificial delay to ensure skeleton is visible for at least 1 second
-      const startTime = Date.now();
-      await loadDevices();
-      const elapsedTime = Date.now() - startTime;
-      
-      if (elapsedTime < 1000) {
-        await new Promise(resolve => setTimeout(resolve, 1000 - elapsedTime));
-      }
-    } catch (err) {
-      console.error('Failed to refresh devices:', err);
-    } finally {
-      setDevicesLoading(false);
-      // Stop spinning after animation completes
-      setTimeout(() => setIsRefreshSpinning(false), 600);
-    }
-  };
-
-  const handleRefreshProcesses = async () => {
-    if (!selectedDevice || !status?.session.is_connected) return;
-    
-    try {
-      setProcessesLoading(true);
-      const processList = await getProcesses(selectedDevice.id);
-      setProcesses(processList);
-    } catch (err) {
-      console.error('Failed to load processes for device:', err);
-    } finally {
-      setProcessesLoading(false);
-    }
-  };
-
-  const handleCheckFridaStatus = async () => {
-    if (!selectedDevice) return;
-    
-    try {
-      setFridaLoading(true);
-      setFridaError(null);
-      
-      const status = await getFridaStatus(selectedDevice.id);
+      setFridaStatusLoading(true);
+      const status = await getFridaStatus(deviceId);
       setFridaStatus(status);
-      
     } catch (err) {
-      console.error('Failed to check Frida status:', err);
-      setFridaError(err instanceof Error ? err.message : 'Failed to check Frida status');
+      console.error('Failed to load Frida status:', err);
+      setFridaStatus(null);
     } finally {
-      setFridaLoading(false);
+      setFridaStatusLoading(false);
     }
   };
 
-  const handleProvisionFridaServer = async () => {
-    if (!selectedDevice) return;
-    
-    try {
-      setFridaLoading(true);
-      setFridaError(null);
-      
-      await provisionFridaServer(selectedDevice.id);
-      
-      // Refresh status after provisioning
-      await handleCheckFridaStatus();
-      
-    } catch (err) {
-      console.error('Failed to provision Frida server:', err);
-      setFridaError(err instanceof Error ? err.message : 'Failed to provision Frida server');
-    } finally {
-      setFridaLoading(false);
-    }
-  };
-
-  const handleStartFridaServer = async () => {
-    if (!selectedDevice) return;
-    
-    try {
-      setFridaLoading(true);
-      setFridaError(null);
-      
-      await startFridaServer(selectedDevice.id);
-      
-      // Refresh status after starting
-      await handleCheckFridaStatus();
-      
-    } catch (err) {
-      console.error('Failed to start Frida server:', err);
-      setFridaError(err instanceof Error ? err.message : 'Failed to start Frida server');
-    } finally {
-      setFridaLoading(false);
-    }
-  };
-
-  const handleStopFridaServer = async () => {
-    if (!selectedDevice) return;
-    
-    try {
-      setFridaLoading(true);
-      setFridaError(null);
-      
-      await stopFridaServer(selectedDevice.id);
-      
-      // Refresh status after stopping
-      await handleCheckFridaStatus();
-      
-    } catch (err) {
-      console.error('Failed to stop Frida server:', err);
-      setFridaError(err instanceof Error ? err.message : 'Failed to stop Frida server');
-    } finally {
-      setFridaLoading(false);
-    }
-  };
-
-  const handleInstallFridaServer = async () => {
-    if (!selectedDevice) return;
-    
-    try {
-      setFridaLoading(true);
-      setFridaError(null);
-      
-      await installFridaServer(selectedDevice.id);
-      
-      // Refresh status after installation
-      await handleCheckFridaStatus();
-      
-    } catch (err) {
-      console.error('Failed to install Frida server:', err);
-      setFridaError(err instanceof Error ? err.message : 'Failed to install Frida server');
-    } finally {
-      setFridaLoading(false);
-    }
-  };
-
-  const handleRemoveFridaServer = async () => {
-    if (!selectedDevice) return;
-    
-    try {
-      setFridaLoading(true);
-      setFridaError(null);
-      
-      await removeFridaServer(selectedDevice.id);
-      
-      // Refresh status after removal
-      await handleCheckFridaStatus();
-      
-    } catch (err) {
-      console.error('Failed to remove Frida server:', err);
-      setFridaError(err instanceof Error ? err.message : 'Failed to remove Frida server');
-    } finally {
-      setFridaLoading(false);
-    }
-  };
-
-  const handleStartHook = async () => {
-    if (!selectedDevice || !selectedProcess || !selectedScript) return;
-    
-    try {
-      setHookActivationStatus('activating');
-      setHookError(null);
-      
-      await activateHook(selectedDevice.id, selectedProcess, selectedScript.content);
-      
-      setHookActivationStatus('active');
-      
-    } catch (err) {
-      console.error('Failed to start hook:', err);
-      setHookError(err instanceof Error ? err.message : 'Failed to start hook');
-      setHookActivationStatus('error');
-    }
-  };
-
-  const handleStopHook = async () => {
-    if (!selectedDevice || !selectedProcess) return;
-    
-    try {
-      setHookActivationStatus('deactivating');
-      setHookError(null);
-      
-      await deactivateHook(selectedDevice.id, selectedProcess);
-      
-      setHookActivationStatus('idle');
-      
-    } catch (err) {
-      console.error('Failed to stop hook:', err);
-      setHookError(err instanceof Error ? err.message : 'Failed to stop hook');
-      setHookActivationStatus('error');
-    }
-  };
-
-  // Load Frida status when device is selected
-  useEffect(() => {
-    if (selectedDevice) {
-      handleCheckFridaStatus();
-    }
-  }, [selectedDevice]);
-
-  // Automated Frida check when process is selected
-  useEffect(() => {
-    if (selectedDevice && selectedProcess) {
-      setFridaCheckState('checking');
-      handleCheckFridaStatus().then(() => {
-        // Update fridaCheckState based on the result
-        if (fridaStatus) {
-          if (fridaStatus.is_running) {
-            setFridaCheckState('success');
-          } else {
-            setFridaCheckState('needs_action');
-          }
-        }
-      }).catch(() => {
-        setFridaCheckState('error');
-      });
-    }
-  }, [selectedProcess]);
-
-  // Auto-progress from Frida step when successful
-  useEffect(() => {
-    if (activeStep === 2 && fridaCheckState === 'success') {
-      // Auto-progress after 1 second
-      const timer = setTimeout(() => {
-        handleNext();
-      }, 1000);
-      
-      return () => clearTimeout(timer);
-    }
-  }, [activeStep, fridaCheckState]);
-
-  // Auto-provision function
-  const handleAutoProvision = async () => {
-    if (!selectedDevice) return;
-    
-    try {
-      setFridaLoading(true);
-      setFridaError(null);
-      
-      // Check if Frida needs to be installed/updated
-      if (!fridaStatus?.is_installed || fridaStatus?.needs_update) {
-        await provisionFridaServer(selectedDevice.id);
-      }
-      
-      // Check if Frida needs to be started
-      if (!fridaStatus?.is_running) {
-        await startFridaServer(selectedDevice.id);
-      }
-      
-      // Refresh status and check final result
-      await handleCheckFridaStatus();
-      
-      if (fridaStatus) {
-        if (fridaStatus.is_running) {
-          setFridaCheckState('success');
-        } else {
-          setFridaCheckState('needs_action');
-        }
-      }
-      
-    } catch (err) {
-      console.error('Failed to auto-provision Frida server:', err);
-      setFridaCheckState('error');
-      setFridaError(err instanceof Error ? err.message : 'Failed to auto-provision Frida server');
-    } finally {
-      setFridaLoading(false);
-    }
-  };
-
-  const handleConnect = async () => {
+  // Master orchestration function for starting monitoring
+  const handleStartMonitoring = async () => {
     if (!selectedDevice) {
-      setErrorMessage('Please select a device first');
+      setFlowState('ERROR');
+      setErrorMessage('No device selected. Please select a device first.');
       return;
     }
 
-    setConnectionStatus('connecting');
-    setErrorMessage(null);
-
     try {
+      // 1. Connect to Device
+      setFlowState('CONNECTING_DEVICE');
+      setStatusMessage('Connecting to device...');
       await startConnectionFlow(selectedDevice.id, '', '');
-      // The connection status will be updated via the useEffect that watches status
-      // Processes will be loaded automatically when device becomes connected
-    } catch (error) {
-      setConnectionStatus('error');
-      setErrorMessage(error instanceof Error ? error.message : 'Connection failed');
+
+      // 2. Find Target Process
+      setFlowState('SEARCHING_PROCESS');
+      setStatusMessage(`Searching for target process: ${TARGET_PROCESS_NAME}...`);
+      
+      const processList = await getProcesses(selectedDevice.id);
+      const targetProcess = processList.find(p => p.package === TARGET_PROCESS_PACKAGE);
+      
+      if (!targetProcess) {
+        throw new Error(`Target process "${TARGET_PROCESS_NAME}" not found. Please ensure the game is running.`);
+      }
+
+      // 3. Configure Frida
+      setFlowState('CONFIGURING_FRIDA');
+      setStatusMessage('Configuring Frida environment...');
+      
+      const isFridaReady = await handleAutoProvisionFrida(selectedDevice);
+      if (!isFridaReady) {
+        throw new Error('Failed to configure Frida server. Please check device connection and try again.');
+      }
+
+      // 4. Start Hook
+      setFlowState('STARTING_HOOK');
+      setStatusMessage('Starting monitoring script...');
+      
+      // Find the default Tower script
+      const targetScript = hookScripts.find(s => 
+        s.targetPackage === TARGET_PROCESS_PACKAGE || 
+        s.name.toLowerCase().includes('tower')
+      );
+      
+      if (!targetScript) {
+        throw new Error('No compatible hook script found for The Tower game.');
+      }
+
+      await activateHook(selectedDevice.id, targetProcess, targetScript.content);
+
+      // 5. Success
+      setFlowState('MONITORING_ACTIVE');
+      setStatusMessage('Monitoring is now active!');
+
+    } catch (err: any) {
+      setFlowState('ERROR');
+      setErrorMessage(err.message || 'An unexpected error occurred during connection.');
+      console.error('Connection error:', err);
     }
   };
 
-  const handleDisconnect = async () => {
+  // Auto-provision Frida helper
+  const handleAutoProvisionFrida = async (device: Device): Promise<boolean> => {
     try {
-      setConnectionStatus('connecting');
+      // Check Frida status
+      const fridaStatus = await getFridaStatus(device.id);
+      
+      if (fridaStatus.is_running) {
+        console.log('Frida server is already running');
+        return true;
+      }
+
+      // Provision Frida server
+      console.log('Provisioning Frida server...');
+      await provisionFridaServer(device.id);
+      
+      // Start Frida server
+      console.log('Starting Frida server...');
+      await startFridaServer(device.id);
+      
+             // Wait a moment and check if it's running
+       await new Promise(resolve => setTimeout(resolve, 2000));
+       const newStatus = await getFridaStatus(device.id);
+       
+       return newStatus.is_running;
+      
+    } catch (err) {
+      console.error('Frida auto-provision failed:', err);
+      return false;
+    }
+  };
+
+  // Stop monitoring function
+  const handleStopMonitoring = async () => {
+    try {
+      setStatusMessage('Stopping monitoring...');
+      
+             // Deactivate hook
+       if (selectedDevice) {
+         await deactivateHook(selectedDevice.id, {});
+       }
+       
+       // Disconnect device
+       await disconnectDevice();
+      
+      // Reset states
+      setFlowState('IDLE');
+      setStatusMessage('Please select a device to begin.');
       setErrorMessage(null);
       
-      await disconnectDevice();
+    } catch (err: any) {
+      console.error('Error stopping monitoring:', err);
+      setErrorMessage('Error stopping monitoring: ' + err.message);
+    }
+  };
+
+  // Handle device selection
+  const handleDeviceSelection = (device: Device) => {
+    setSelectedDevice(device);
+    setStatusMessage(`Device selected: ${device.model || device.id}`);
+  };
+
+  // Handle refresh devices
+  const handleRefreshDevices = async () => {
+    setIsRefreshSpinning(true);
+    try {
+      // Clear the existing device list first to show fresh data
+      setDevices([]);
+      setDevicesLoading(true);
       
-      // The connection status will be updated via the useEffect that watches status
-      setConnectionStatus('idle');
-    } catch (error) {
-      setConnectionStatus('error');
-      setErrorMessage(error instanceof Error ? error.message : 'Disconnection failed');
+      const deviceList = await refreshDevices();
+      setDevices(deviceList);
+    } catch (err) {
+      console.error('Failed to refresh devices:', err);
+    } finally {
+      setIsRefreshSpinning(false);
+      setDevicesLoading(false);
     }
   };
 
-  const canProceedToNext = () => {
-    switch (activeStep) {
-      case 0:
-        // Can proceed to next step if device is selected and connected
-        return selectedDevice !== null && status?.session.is_connected;
-      case 1:
-        // Can proceed to next step if process is selected
-        return selectedProcess !== null;
-      case 2:
-        // Can proceed to next step if Frida server is successfully configured
-        return fridaCheckState === 'success';
-      case 3:
-        // Can proceed to next step if hook script is not required or is selected
-        return !useHookScript || selectedScript !== null;
-      case 4:
-        // Can proceed to finish if everything is configured
-        return true;
-      default:
-        return false;
+  // ADB Server Management Handlers
+  const handleRestartAdbServer = async () => {
+    try {
+      setIsAdbRestarting(true);
+      // Clear the device list to show fresh data
+      setDevices([]);
+      setDevicesLoading(true);
+      
+      // Restart ADB server
+      await restartAdbServer();
+      
+      // Refresh devices after restart
+      const deviceList = await refreshDevices();
+      setDevices(deviceList);
+    } catch (err) {
+      console.error('Failed to restart ADB server:', err);
+    } finally {
+      setIsAdbRestarting(false);
+      setDevicesLoading(false);
     }
   };
 
-  const getStepStatus = (stepIndex: number) => {
-    if (stepIndex < activeStep) return 'completed';
-    if (stepIndex === activeStep) return 'active';
-    return 'pending';
+  const handleStartAdbServer = async () => {
+    try {
+      setIsAdbRestarting(true);
+      await startAdbServer();
+      // Refresh devices after starting
+      const deviceList = await refreshDevices();
+      setDevices(deviceList);
+    } catch (err) {
+      console.error('Failed to start ADB server:', err);
+    } finally {
+      setIsAdbRestarting(false);
+    }
   };
 
-  // Reusable table structure configuration
-const deviceTableConfig = {
-  containerHeight: 220,
-  minWidth: 650,
-  columns: [
-    { width: '30%', header: 'Serial', key: 'serial' },
-    { width: '50%', header: 'Model', key: 'model' },
-    { width: '15%', header: 'Status', key: 'status' }
-  ]
-};
-
-  // Reusable table structure component
-  const DeviceTableStructure = ({ children, showRefreshButton = false, onRefresh, loading = false, isSpinning = false }: {
-    children: React.ReactNode;
-    showRefreshButton?: boolean;
-    onRefresh?: () => void;
-    loading?: boolean;
-    isSpinning?: boolean;
-  }) => (
-    <TableContainer sx={{ height: deviceTableConfig.containerHeight }}>
-      <Table sx={{ minWidth: deviceTableConfig.minWidth }}>
-        <TableHead sx={{ '& .MuiTableCell-head': { py: 1 } }}>
-          <TableRow>
-            {deviceTableConfig.columns.map((column) => (
-              <TableCell key={column.key} sx={{ width: column.width, verticalAlign: 'middle' }}>
-                {column.key === 'status' && showRefreshButton ? (
-                  <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', height: 32 }}>
-                    <span>{column.header}</span>
-                    <Tooltip title="Refresh Device List" placement="top">
-                      <IconButton 
-                        size="small" 
-                        onClick={onRefresh} 
-                        disabled={loading}
-                        sx={{ ml: 1, width: 32, height: 32, minWidth: 32 }}
-                      >
-                        <AnimatedRefreshIcon sx={{ fontSize: 20 }} $isSpinning={isSpinning} />
-                      </IconButton>
-                    </Tooltip>
-                  </Box>
-                ) : (
-                  column.header
-                )}
-              </TableCell>
-            ))}
-          </TableRow>
-        </TableHead>
-        <TableBody>
-          {children}
-        </TableBody>
-      </Table>
-    </TableContainer>
-  );
-
-
-
-  const ProcessSkeleton = () => (
-    <TableContainer sx={{ maxHeight: 250 }}>
-      <Table sx={{ minWidth: 650 }}>
-        <TableHead>
-          <TableRow>
-            <TableCell sx={{ width: '40%', verticalAlign: 'middle' }}>App Name</TableCell>
-            <TableCell sx={{ width: '60%', verticalAlign: 'middle' }}>Package</TableCell>
-          </TableRow>
-        </TableHead>
-        <TableBody>
-          {[1, 2, 3, 4, 5].map((i) => (
-            <TableRow key={i}>
-              <TableCell sx={{ width: '40%' }}><Skeleton variant="text" width="80%" /></TableCell>
-              <TableCell sx={{ width: '60%' }}><Skeleton variant="text" width="90%" /></TableCell>
-            </TableRow>
-          ))}
-        </TableBody>
-      </Table>
-    </TableContainer>
-  );
+  const handleKillAdbServer = async () => {
+    try {
+      setIsAdbRestarting(true);
+      await killAdbServer();
+      // Clear devices after killing server
+      setDevices([]);
+    } catch (err) {
+      console.error('Failed to kill ADB server:', err);
+    } finally {
+      setIsAdbRestarting(false);
+    }
+  };
 
   return (
     <Box sx={{ 
+      mx: 'auto',
       width: '100%',
-      height: 'calc(100vh - 120px)', // Account for AppBar, Toolbar, and Breadcrumbs
-      display: 'flex',
-      flexDirection: 'column'
+      maxWidth: 1200,
     }}>
-      {/* Fixed header section */}
-      <Box sx={{ flexShrink: 0 }}>
-        <Box sx={{ display: 'flex', alignItems: 'center', mb: 3 }}>
-          <ConnectIcon sx={{ mr: 2, fontSize: 40, color: 'primary.main' }} />
-          <Typography variant="h4" component="h1">
+      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 3 }}>
+        <Box>
+          <Typography variant="h4" component="h1" gutterBottom>
             Device Connection
           </Typography>
+          
+          <Typography variant="body1" color="text.secondary">
+            Connect to a device and automatically start monitoring The Tower game.
+          </Typography>
         </Box>
-
-        <Typography variant="body1" color="text.secondary" paragraph>
-          Connect to a device and attach to a process to begin monitoring and analysis.
-        </Typography>
-
-        {(errorMessage || error) && (
-          <Alert severity="error" sx={{ mb: 3 }}>
-            {errorMessage || error}
-          </Alert>
-        )}
-      </Box>
-
-      {/* Scrollable content section */}
-      <Box sx={{ 
-        flex: 1, 
-        overflow: 'auto', 
-        minHeight: 1,
-        pb: 4 // Add bottom margin/padding
-      }}>
-        {steps.map((step, index) => (
-          <Accordion 
-            key={step.label}
-            expanded={isStepExpanded(index)}
-            onChange={() => {
-              // Toggle expansion for any step
-              if (isStepExpanded(index)) {
-                // If already expanded, collapse it
-                setExpandedSteps(prev => {
-                  const newSet = new Set(prev);
-                  newSet.delete(index);
-                  return newSet;
-                });
-              } else {
-                // If collapsed, expand it and navigate to it
-                setActiveStep(index);
-                setExpandedSteps(prev => new Set([...prev, index]));
-              }
-            }}
-
-          >
-            <AccordionSummary
-              sx={{ 
-                alignItems: 'center',
-                cursor: 'pointer',
-                '& .MuiAccordionSummary-content': {
-                  alignItems: 'center',
-                  gap: 2
-                }
+        
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+          {flowState === 'CONNECTING_DEVICE' || flowState === 'SEARCHING_PROCESS' || 
+           flowState === 'CONFIGURING_FRIDA' || flowState === 'STARTING_HOOK' ? (
+            <CircularProgress size={24} />
+          ) : null}
+          
+          {flowState === 'MONITORING_ACTIVE' ? (
+            <Button
+              variant="contained"
+              color="error"
+              size="large"
+              startIcon={<StopIcon />}
+              onClick={handleStopMonitoring}
+              sx={{
+                minWidth: 80,
+                height: 80,
+                borderRadius: 3,
+                fontSize: '0.875rem',
+                fontWeight: 'bold'
               }}
             >
-              {step.icon}
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                <Typography variant="h6">{step.label}</Typography>
-                {step.optional && (
-                  <Typography variant="caption" color="text.secondary">
-                    (Optional)
-                  </Typography>
-                )}
-                <Tooltip title={step.description} placement="top">
-                  <InfoOutlineIcon sx={{ fontSize: '1rem', color: 'text.secondary', ml: 1 }} />
-                </Tooltip>
-              </Box>
-            </AccordionSummary>
-            <AccordionDetails sx={{ pb: 2 }}>
-
-                {/* Step 0: Device Selection */}
-                {index === 0 && (
-                  <Card variant="outlined">
-                    <CardContent sx={{ pt: 1, pb: 2, px: 2, minHeight: 200, transition: 'all 0.3s ease-in-out' }}>
-                                            <Box sx={{ 
-                        position: 'relative',
-                        minHeight: deviceTableConfig.containerHeight,
-                        transition: 'all 0.4s cubic-bezier(0.4, 0, 0.2, 1)'
-                      }}>
-                        {/* Fixed Header - Always Visible */}
-                        <DeviceTableStructure key="device-table-header" showRefreshButton onRefresh={handleRefreshDevices} loading={devicesLoading} isSpinning={isRefreshSpinning}>
-                          <TableBody>
-                            {/* Empty body - header only */}
-                          </TableBody>
-                        </DeviceTableStructure>
-
-                        {/* Animated Body Content */}
-                        <Box sx={{
-                          position: 'absolute',
-                          top: 48, // Height of the header
-                          left: 0,
-                          right: 0,
-                          bottom: 0,
-                          overflow: 'hidden'
-                        }}>
-                          {/* Skeleton Body Layer */}
-                          <Box sx={{
-                            position: 'absolute',
-                            top: 0,
-                            left: 0,
-                            right: 0,
-                            opacity: devicesLoading ? 1 : 0,
-                            transform: devicesLoading ? 'translateY(0)' : 'translateY(-10px)',
-                            transition: 'all 0.4s cubic-bezier(0.4, 0, 0.2, 1)',
-                            pointerEvents: devicesLoading ? 'auto' : 'none',
-                            zIndex: devicesLoading ? 2 : 1
-                          }}>
-                            <Table>
-                              <TableBody>
-                                {[1, 2, 3].map((i) => (
-                                  <TableRow key={i}>
-                                    <TableCell sx={{ width: '30%', verticalAlign: 'middle' }}>
-                                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                                        <Skeleton variant="rectangular" width={16} height={21} sx={{ borderRadius: 0.7}} animation="wave" />
-                                        <Skeleton variant="text" width="80%" animation="wave" />
-                                      </Box>
-                                    </TableCell>
-                                    <TableCell sx={{ width: '50%', verticalAlign: 'middle' }}><Skeleton variant="text" width="70%" animation="wave" /></TableCell>
-                                    <TableCell sx={{ width: '15%', verticalAlign: 'middle' }}>
-                                      <Skeleton variant="rectangular" width={100} height={24} sx={{ borderRadius: 12 }} animation="wave" />
-                                    </TableCell>
-                                  </TableRow>
-                                ))}
-                              </TableBody>
-                            </Table>
-                          </Box>
-
-                          {/* Real Content Body Layer */}
-                          <Box sx={{
-                            opacity: devicesLoading ? 0 : 1,
-                            transform: devicesLoading ? 'translateY(10px)' : 'translateY(0)',
-                            transition: 'all 0.4s cubic-bezier(0.4, 0, 0.2, 1)',
-                            pointerEvents: devicesLoading ? 'none' : 'auto',
-                            zIndex: devicesLoading ? 1 : 2
-                          }}>
-                            {devices.length === 0 ? (
-                              <Alert severity="warning" sx={{ mb: 2 }}>
-                                No devices found. This could be because:
-                                <ul>
-                                  <li>No Android devices or emulators are connected</li>
-                                  <li>ADB is not properly configured</li>
-                                  <li>Devices are not authorized for debugging</li>
-                                </ul>
-                                Try refreshing the device list or check your ADB configuration.
-                              </Alert>
-                            ) : (
-                              <Table>
-                                <TableBody>
-                                  {devices.map((device) => {
-                                    // Determine if this device is currently connected
-                                    const isConnected = status?.session.is_connected && 
-                                                      status?.session.current_device === device.id;
-                                   
-                                    return (
-                                      <TableRow 
-                                        key={device.id} 
-                                        selected={selectedDevice?.id === device.id}
-                                        hover
-                                        onClick={() => handleDeviceSelect(device)}
-                                        sx={{ cursor: 'pointer' }}
-                                      >
-                                        <TableCell sx={{ width: '30%', verticalAlign: 'middle' }}>
-                                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                                            {device.type === 'emulator' ? (
-                                              <DeveloperModeIcon fontSize="small" color="primary" />
-                                            ) : (
-                                              <SmartphoneIcon fontSize="small" color="primary" />
-                                            )}
-                                            {device.id}
-                                          </Box>
-                                        </TableCell>
-                                        <TableCell sx={{ width: '50%', verticalAlign: 'middle' }}>{device.name}</TableCell>
-                                        <TableCell sx={{ width: '15%', verticalAlign: 'middle' }}>
-                                          <Box sx={{ display: 'flex', justifyContent: 'center' }}>
-                                            <Chip
-                                              label={isConnected ? 'Connected' : device.status}
-                                              color={isConnected ? 'success' : 'default'}
-                                              size="small"
-                                              sx={{ minWidth: 100, justifyContent: 'center' }}
-                                            />
-                                          </Box>
-                                        </TableCell>
-                                      </TableRow>
-                                    );
-                                  })}
-                                </TableBody>
-                              </Table>
-                            )}
-                          </Box>
-                        </Box>
-                      </Box>
-                    </CardContent>
-                  </Card>
-                )}
-
-                {/* Step 1: Process Selection */}
-                {index === 1 && (
-                  <Card variant="outlined">
-                    <CardContent>
-                      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
-                        <Typography variant="h6">Available Processes ({totalProcesses})</Typography>
-                        <IconButton 
-                          onClick={handleRefreshProcesses} 
-                          disabled={!selectedDevice || !status?.session.is_connected || processesLoading}
-                        >
-                          {processesLoading ? <CircularProgress size={20} /> : <RefreshIcon />}
-                        </IconButton>
-                      </Box>
-                      
-                      {!status?.session.is_connected ? (
-                        <Alert severity="info" sx={{ mb: 2 }}>
-                          Please connect to a device first to view available processes.
-                        </Alert>
-                      ) : selectedDevice ? (
-                        <>
-                          {/* Search and filter controls */}
-                          <Box sx={{ mb: 2, display: 'flex', flexDirection: 'column', gap: 1 }}>
-                            <TextField
-                              fullWidth
-                              size="small"
-                              placeholder={`Search processes... (${searchFilteredProcesses} match${searchFilteredProcesses !== 1 ? 'es' : ''})`}
-                              value={processSearchTerm}
-                              onChange={(e) => setProcessSearchTerm(e.target.value)}
-                              InputProps={{
-                                startAdornment: <SearchIcon sx={{ mr: 1, color: 'text.secondary' }} />,
-                              }}
-                            />
-                            <Box sx={{ display: 'flex', gap: 2 }}>
-                              <FormControlLabel
-                                control={
-                                  <Checkbox
-                                    checked={showOnlyThirdParty}
-                                    onChange={(e) => setShowOnlyThirdParty(e.target.checked)}
-                                    size="small"
-                                  />
-                                }
-                                label={`Show Only Third Party Processes (${thirdPartyProcesses})`}
-                              />
-                              <FormControlLabel
-                                control={
-                                  <Checkbox
-                                    checked={showOnlyRunning}
-                                    onChange={(e) => setShowOnlyRunning(e.target.checked)}
-                                    size="small"
-                                  />
-                                }
-                                label={`Show Only Running Processes (${runningProcesses})`}
-                              />
-                            </Box>
-                          </Box>
-                          
-                          {processesLoading ? (
-                            <ProcessSkeleton />
-                          ) : filteredProcesses.length === 0 ? (
-                            <Alert severity="warning" sx={{ mb: 2 }}>
-                              {processes.length === 0 ? (
-                                <>
-                                  No user processes found on this device. This could be because:
-                                  <ul>
-                                    <li>The device is still starting up</li>
-                                    <li>No user applications are currently running</li>
-                                    <li>The device connection is unstable</li>
-                                  </ul>
-                                  Try refreshing the process list or wait a moment and try again.
-                                </>
-                              ) : (
-                                <>
-                                  No processes match your search criteria.
-                                  {showOnlyThirdParty && (
-                                    <Typography variant="body2" sx={{ mt: 1 }}>
-                                      Try unchecking "Show Only Third Party Processes" to see system processes as well.
-                                    </Typography>
-                                  )}
-                                </>
-                              )}
-                            </Alert>
-                          ) : (
-                            <TableContainer sx={{ maxHeight: 250 }}>
-                              <Table sx={{ minWidth: 650 }}>
-                                <TableHead>
-                                  <TableRow>
-                                    <TableCell sx={{ width: '40%', verticalAlign: 'middle' }}>App Name</TableCell>
-                                    <TableCell sx={{ width: '60%', verticalAlign: 'middle' }}>Package</TableCell>
-                                  </TableRow>
-                                </TableHead>
-                                <TableBody>
-                                  {filteredProcesses.map((process) => {
-                                    // Format the process name to add spaces before capital letters
-                                    const formatProcessName = (name: string) => {
-                                      return name.replace(/([A-Z])/g, ' $1').trim();
-                                    };
-                                    
-                                    return (
-                                      <TableRow 
-                                        key={process.id} 
-                                        selected={selectedProcess?.id === process.id}
-                                        hover
-                                        onClick={() => handleProcessSelect(process)}
-                                        sx={{ cursor: 'pointer' }}
-                                      >
-                                        <TableCell sx={{ width: '40%', verticalAlign: 'middle' }}>
-                                          {formatProcessName(process.name)}
-                                        </TableCell>
-                                        <TableCell sx={{ width: '60%', verticalAlign: 'middle' }}>
-                                          {process.package || 'N/A'}
-                                        </TableCell>
-                                      </TableRow>
-                                    );
-                                  })}
-                                </TableBody>
-                              </Table>
-                            </TableContainer>
-                          )}
-                        </>
-                      ) : (
-                        <Typography color="text.secondary">
-                          Please select a device first to view available processes.
-                        </Typography>
-                      )}
-                    </CardContent>
-                  </Card>
-                )}
-
-                {/* Step 2: Frida Server Configuration */}
-                {index === 2 && (
-                  <Card variant="outlined">
-                    <CardContent>
-                      {!selectedDevice ? (
-                        <Alert severity="info" sx={{ mb: 2 }}>
-                          Please select a device first to configure Frida server.
-                        </Alert>
-                      ) : !selectedProcess ? (
-                        <Alert severity="info" sx={{ mb: 2 }}>
-                          Please select a process first to check Frida environment.
-                        </Alert>
-                      ) : (
-                        <>
-                          {/* Conditional rendering based on fridaCheckState */}
-                          {fridaCheckState === 'checking' && (
-                            <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', py: 4 }}>
-                              <CircularProgress size={40} sx={{ mb: 2 }} />
-                              <Typography variant="h6" gutterBottom>
-                                Checking Frida Environment
-                              </Typography>
-                              <Typography variant="body2" color="text.secondary">
-                                Checking Frida environment on {selectedDevice.name}...
-                              </Typography>
-                            </Box>
-                          )}
-
-                          {fridaCheckState === 'needs_action' && (
-                            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-                              <Alert severity="warning" sx={{ mb: 2 }}>
-                                <Typography variant="h6" gutterBottom>
-                                  Frida Server Needs Configuration
-                                </Typography>
-                                <Typography variant="body2">
-                                  The following issues were detected:
-                                </Typography>
-                                <ul style={{ margin: '8px 0', paddingLeft: '20px' }}>
-                                  {!fridaStatus?.is_installed && (
-                                    <li>Frida server is not installed</li>
-                                  )}
-                                  {fridaStatus?.needs_update && (
-                                    <li>Frida server needs to be updated</li>
-                                  )}
-                                  {!fridaStatus?.is_running && (
-                                    <li>Frida server is not running</li>
-                                  )}
-                                </ul>
-                              </Alert>
-
-                              <Box sx={{ display: 'flex', justifyContent: 'center' }}>
-                                <Button
-                                  variant="contained"
-                                  color="primary"
-                                  size="large"
-                                  onClick={handleAutoProvision}
-                                  disabled={fridaLoading}
-                                  startIcon={fridaLoading ? <CircularProgress size={20} /> : <PlayIcon />}
-                                  sx={{ minWidth: 200, py: 1.5 }}
-                                >
-                                  {fridaLoading ? 'Auto-Provisioning...' : 'Auto-Provision Server'}
-                                </Button>
-                              </Box>
-
-                              {/* Advanced Controls Accordion */}
-                              <Accordion>
-                                <AccordionSummary expandIcon={<ExpandMoreIcon />}>
-                                  <Typography variant="subtitle1">Advanced Controls</Typography>
-                                </AccordionSummary>
-                                <AccordionDetails>
-                                  <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                                    {/* Manual Action Buttons */}
-                                    <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
-                                      {!fridaStatus?.is_running ? (
-                                        <Button
-                                          variant="outlined"
-                                          color="primary"
-                                          onClick={handleStartFridaServer}
-                                          disabled={fridaLoading}
-                                          startIcon={fridaLoading ? <CircularProgress size={16} /> : <PlayIcon />}
-                                        >
-                                          {fridaLoading ? 'Starting...' : 'Start Server'}
-                                        </Button>
-                                      ) : (
-                                        <Button
-                                          variant="outlined"
-                                          color="error"
-                                          onClick={handleStopFridaServer}
-                                          disabled={fridaLoading}
-                                          startIcon={fridaLoading ? <CircularProgress size={16} /> : <StopIcon />}
-                                        >
-                                          {fridaLoading ? 'Stopping...' : 'Stop Server'}
-                                        </Button>
-                                      )}
-                                      
-                                      <Button
-                                        variant="outlined"
-                                        onClick={handleProvisionFridaServer}
-                                        disabled={fridaLoading}
-                                        startIcon={fridaLoading ? <CircularProgress size={16} /> : <PlayIcon />}
-                                      >
-                                        {fridaLoading ? 'Provisioning...' : 'Provision Server'}
-                                      </Button>
-                                    </Box>
-                                    
-                                    <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
-                                      <Button
-                                        variant="outlined"
-                                        color="secondary"
-                                        onClick={handleInstallFridaServer}
-                                        disabled={fridaLoading}
-                                        startIcon={fridaLoading ? <CircularProgress size={16} /> : <DeveloperModeIcon />}
-                                      >
-                                        {fridaLoading ? 'Installing...' : 'Install Only'}
-                                      </Button>
-                                      
-                                      <Button
-                                        variant="outlined"
-                                        color="warning"
-                                        onClick={handleRemoveFridaServer}
-                                        disabled={fridaLoading}
-                                        startIcon={fridaLoading ? <CircularProgress size={16} /> : <RemoveIcon />}
-                                      >
-                                        {fridaLoading ? 'Removing...' : 'Remove Server'}
-                                      </Button>
-                                    </Box>
-
-                                    {/* Status Information */}
-                                    {fridaStatus && (
-                                      <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1, mt: 2 }}>
-                                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                                          <Typography variant="body2">Server Status:</Typography>
-                                          <Chip
-                                            label={fridaStatus.is_running ? 'Running' : 'Not Running'}
-                                            color={fridaStatus.is_running ? 'success' : 'error'}
-                                            size="small"
-                                          />
-                                        </Box>
-                                        
-                                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                                          <Typography variant="body2">Installation:</Typography>
-                                          <Chip
-                                            label={fridaStatus.is_installed ? 'Installed' : 'Not Installed'}
-                                            color={fridaStatus.is_installed ? 'success' : 'warning'}
-                                            size="small"
-                                          />
-                                        </Box>
-                                      </Box>
-                                    )}
-                                  </Box>
-                                </AccordionDetails>
-                              </Accordion>
-                            </Box>
-                          )}
-
-                          {fridaCheckState === 'provisioning' && (
-                            <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', py: 4 }}>
-                              <CircularProgress size={40} sx={{ mb: 2 }} />
-                              <Typography variant="h6" gutterBottom>
-                                Automated Provisioning in Progress
-                              </Typography>
-                              <Typography variant="body2" color="text.secondary">
-                                Installing and configuring Frida server...
-                              </Typography>
-                            </Box>
-                          )}
-
-                          {fridaCheckState === 'success' && (
-                            <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', py: 4 }}>
-                              <CheckCircleIcon sx={{ fontSize: 60, color: 'success.main', mb: 2 }} />
-                              <Typography variant="h6" gutterBottom color="success.main">
-                                Frida Environment is Ready
-                              </Typography>
-                              <Typography variant="body2" color="text.secondary">
-                                Frida server is running.
-                              </Typography>
-                            </Box>
-                          )}
-
-                          {fridaCheckState === 'error' && (
-                            <Alert severity="error" sx={{ mb: 2 }}>
-                              <Typography variant="h6" gutterBottom>
-                                Frida Configuration Error
-                              </Typography>
-                              <Typography variant="body2">
-                                {fridaError || 'An error occurred while checking or configuring Frida server.'}
-                              </Typography>
-                              <Button
-                                variant="outlined"
-                                color="primary"
-                                onClick={() => setFridaCheckState('checking')}
-                                sx={{ mt: 2 }}
-                              >
-                                Retry Check
-                              </Button>
-                            </Alert>
-                          )}
-                        </>
-                      )}
-                    </CardContent>
-                  </Card>
-                )}
-
-                {/* Step 3: Hook Script Configuration */}
-                {index === 3 && (
-                  <Card variant="outlined">
-                    <CardContent>
-                      <FormControlLabel
-                        control={
-                          <Checkbox
-                            checked={useHookScript}
-                            onChange={(e) => setUseHookScript(e.target.checked)}
-                          />
-                        }
-                        label="Use Hook Script"
-                      />
-                      
-                      {useHookScript && (
-                        <Box sx={{ mt: 2 }}>
-                          <Typography variant="h6" gutterBottom>Available Scripts</Typography>
-                          <List>
-                            {hookScripts.map((script) => {
-                              const compatibility = checkScriptCompatibility(script);
-                              return (
-                                <ListItem key={script.id} disablePadding>
-                                  <ListItemButton
-                                    selected={selectedScript?.id === script.id}
-                                    onClick={() => handleScriptSelect(script)}
-                                  >
-                                    <ListItemIcon>
-                                      <ScriptIcon />
-                                    </ListItemIcon>
-                                    <ListItemText
-                                      primary={script.name}
-                                      secondary={
-                                        <Box>
-                                          <Typography variant="body2" color="text.secondary">
-                                            {script.description}
-                                          </Typography>
-                                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mt: 1 }}>
-                                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                                              <Typography variant="caption" color={compatibility.packageMatch ? "success.main" : "error.main"}>
-                                                App: {script.targetApp || script.targetPackage || 'Unknown'}
-                                              </Typography>
-                                            </Box>
-                                          </Box>
-                                        </Box>
-                                      }
-                                    />
-                                  </ListItemButton>
-                                </ListItem>
-                              );
-                            })}
-                          </List>
-                          
-                          {/* Hook Activation Controls */}
-                          {selectedScript && (
-                            <Box sx={{ mt: 3 }}>
-                              <Typography variant="h6" gutterBottom>Hook Controls</Typography>
-                              
-                              {/* Hook Status */}
-                              <Box sx={{ mb: 2 }}>
-                                <Typography variant="body2" color="text.secondary">
-                                  Status: 
-                                  <Chip
-                                    label={
-                                      hookActivationStatus === 'idle' ? 'Not Active' :
-                                      hookActivationStatus === 'activating' ? 'Activating...' :
-                                      hookActivationStatus === 'active' ? 'Active' :
-                                      hookActivationStatus === 'deactivating' ? 'Deactivating...' :
-                                      'Error'
-                                    }
-                                    color={
-                                      hookActivationStatus === 'active' ? 'success' :
-                                      hookActivationStatus === 'error' ? 'error' :
-                                      'default'
-                                    }
-                                    size="small"
-                                    sx={{ ml: 1 }}
-                                  />
-                                </Typography>
-                              </Box>
-                              
-                              {/* Hook Error */}
-                              {hookError && (
-                                <Alert severity="error" sx={{ mb: 2 }}>
-                                  {hookError}
-                                </Alert>
-                              )}
-                              
-                              {/* Hook Action Buttons */}
-                              <Box sx={{ display: 'flex', gap: 2 }}>
-                                <Button
-                                  variant="contained"
-                                  color="primary"
-                                  onClick={handleStartHook}
-                                  disabled={
-                                    hookActivationStatus === 'activating' || 
-                                    hookActivationStatus === 'deactivating' ||
-                                    hookActivationStatus === 'active' ||
-                                    !selectedDevice ||
-                                    !selectedProcess
-                                  }
-                                  startIcon={
-                                    hookActivationStatus === 'activating' ? 
-                                    <CircularProgress size={16} /> : 
-                                    <PlayIcon />
-                                  }
-                                >
-                                  {hookActivationStatus === 'activating' ? 'Starting...' : 'Start Hook'}
-                                </Button>
-                                
-                                <Button
-                                  variant="contained"
-                                  color="error"
-                                  onClick={handleStopHook}
-                                  disabled={
-                                    hookActivationStatus === 'activating' || 
-                                    hookActivationStatus === 'deactivating' ||
-                                    hookActivationStatus === 'idle' ||
-                                    !selectedDevice ||
-                                    !selectedProcess
-                                  }
-                                  startIcon={
-                                    hookActivationStatus === 'deactivating' ? 
-                                    <CircularProgress size={16} /> : 
-                                    <StopIcon />
-                                  }
-                                >
-                                  {hookActivationStatus === 'deactivating' ? 'Stopping...' : 'Stop Hook'}
-                                </Button>
-                              </Box>
-                              
-                              {/* Hook Status Messages */}
-                              {hookActivationStatus === 'active' && (
-                                <Alert severity="success" sx={{ mt: 2 }}>
-                                  Hook is active and monitoring the selected process.
-                                </Alert>
-                              )}
-                              
-                              {hookActivationStatus === 'idle' && selectedScript && (
-                                <Alert severity="info" sx={{ mt: 2 }}>
-                                  Ready to activate hook on the selected process.
-                                </Alert>
-                              )}
-                            </Box>
-                          )}
-                        </Box>
-                      )}
-                    </CardContent>
-                  </Card>
-                )}
-
-                {/* Step 4: Review and Go */}
-                {index === 4 && (
-                  <Card variant="outlined">
-                    <CardContent>
-                      {!status?.session.is_connected ? (
-                        /* Pre-Connection Summary View */
-                        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-                          <Typography variant="h5" gutterBottom color="primary.main">
-                            Configuration Complete & Ready to Go
-                          </Typography>
-                          
-                          <List sx={{ bgcolor: 'background.paper', borderRadius: 1, border: 1, borderColor: 'divider' }}>
-                            <ListItem>
-                              <ListItemIcon>
-                                <DeviceIcon color="primary" />
-                              </ListItemIcon>
-                              <ListItemText
-                                primary="Device"
-                                secondary={selectedDevice?.name || 'No device selected'}
-                              />
-                            </ListItem>
-                            <ListItem>
-                              <ListItemIcon>
-                                <ProcessIcon color="primary" />
-                              </ListItemIcon>
-                              <ListItemText
-                                primary="Target Process"
-                                secondary={selectedProcess ? `${selectedProcess.name} (PID: ${selectedProcess.pid})` : 'No process selected'}
-                              />
-                            </ListItem>
-                            <ListItem>
-                              <ListItemIcon>
-                                <ScriptIcon color="primary" />
-                              </ListItemIcon>
-                              <ListItemText
-                                primary="Hook Script"
-                                secondary={selectedScript?.name || 'None'}
-                              />
-                            </ListItem>
-                          </List>
-                          
-                          <Box sx={{ display: 'flex', justifyContent: 'center', mt: 2 }}>
-                            <Button
-                              variant="contained"
-                              color="primary"
-                              size="large"
-                              onClick={handleConnect}
-                              disabled={connectionStatus === 'connecting'}
-                              startIcon={connectionStatus === 'connecting' ? <CircularProgress size={20} /> : <PlayIcon />}
-                              sx={{ minWidth: 200, py: 1.5 }}
-                            >
-                              {connectionStatus === 'connecting' ? 'Starting...' : 'Start Monitoring'}
-                            </Button>
-                          </Box>
-                        </Box>
-                      ) : (
-                        /* Post-Connection Live Dashboard View */
-                        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-                          <Typography variant="h5" gutterBottom color="success.main">
-                            Monitoring Active
-                          </Typography>
-                          
-                          {/* Script Status Widget */}
-                          <ScriptStatusWidget 
-                            scriptStatus={scriptStatus} 
-                            isLoading={scriptStatusLoading}
-                            onRefresh={refreshScriptStatus}
-                          />
-                          
-                          <Box sx={{ display: 'flex', justifyContent: 'center', mt: 2 }}>
-                            <Button
-                              variant="contained"
-                              color="error"
-                              size="large"
-                              onClick={handleDisconnect}
-                              disabled={connectionStatus === 'connecting'}
-                              startIcon={connectionStatus === 'connecting' ? <CircularProgress size={20} /> : <StopIcon />}
-                              sx={{ minWidth: 200, py: 1.5 }}
-                            >
-                              {connectionStatus === 'connecting' ? 'Stopping...' : 'Stop Monitoring'}
-                            </Button>
-                          </Box>
-                        </Box>
-                      )}
-                    </CardContent>
-                  </Card>
-                )}
-
-                <Box sx={{ mb: 2, mt: 2, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <Box>
-                    {index !== 4 && (
-                      <Tooltip 
-                        title={
-                          index === 0 && !canProceedToNext() ? "Please connect to a device to continue" :
-                          index === 1 && !canProceedToNext() ? "Please select a process to continue" :
-                          index === 2 && !canProceedToNext() ? "Please configure Frida server to continue" :
-                          ""
-                        }
-                        open={(index === 0 || index === 1 || index === 2) && !canProceedToNext() ? undefined : false}
-                      >
-                        <span>
-                          <Button
-                            variant="contained"
-                            onClick={handleNext}
-                            disabled={!canProceedToNext()}
-                            sx={{ mt: 1, mr: 1 }}
-                          >
-                            Continue
-                          </Button>
-                        </span>
-                      </Tooltip>
-                    )}
-                    {index > 0 && index !== 4 && (
-                      <Button
-                        onClick={handleBack}
-                        sx={{ mt: 1, mr: 1 }}
-                      >
-                        Back
-                      </Button>
-                    )}
-                  </Box>
-                  
-                  {/* Connect/Disconnect button for device selection step */}
-                  {index === 0 && selectedDevice && (
-                    <Button
-                      variant={status?.session.is_connected && status?.session.current_device === selectedDevice.id ? "outlined" : "contained"}
-                      color={status?.session.is_connected && status?.session.current_device === selectedDevice.id ? "error" : "primary"}
-                      startIcon={status?.session.is_connected && status?.session.current_device === selectedDevice.id ? <StopIcon /> : <PlayIcon />}
-                      onClick={status?.session.is_connected && status?.session.current_device === selectedDevice.id ? handleDisconnect : handleConnect}
-                      disabled={connectionStatus === 'connecting'}
-                      sx={{ mt: 1 }}
-                    >
-                      {status?.session.is_connected && status?.session.current_device === selectedDevice.id ? 'Disconnect' : 'Connect'}
-                    </Button>
-                  )}
-                </Box>
-            </AccordionDetails>
-          </Accordion>
-        ))}
+              Stop
+            </Button>
+          ) : (
+            <Button
+              variant="contained"
+              color="primary"
+              size="large"
+              startIcon={<PlayIcon />}
+              onClick={handleStartMonitoring}
+              disabled={!selectedDevice || 
+                       flowState === 'CONNECTING_DEVICE' || 
+                       flowState === 'SEARCHING_PROCESS' || 
+                       flowState === 'CONFIGURING_FRIDA' || 
+                       flowState === 'STARTING_HOOK'}
+              sx={{
+                minWidth: 80,
+                height: 80,
+                borderRadius: 3,
+                fontSize: '0.875rem',
+                fontWeight: 'bold'
+              }}
+            >
+              Start
+            </Button>
+          )}
+        </Box>
       </Box>
 
-      {activeStep === steps.length && (
-        <Paper square elevation={0} sx={{ p: 3, mt: 3 }}>
-          <Typography>All steps completed - you're ready to connect!</Typography>
-          <Button onClick={handleReset} sx={{ mt: 1, mr: 1 }}>
-            Reset
+      {/* Device Selection Section */}
+      <Box sx={{ mb: 4 }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2 }}>
+          <Typography variant="h6" component="h2">
+            Available Devices
+          </Typography>
+          <IconButton
+            onClick={handleRefreshDevices}
+            disabled={isRefreshSpinning}
+            size="small"
+          >
+            <RefreshIcon 
+              sx={{ 
+                transform: isRefreshSpinning ? 'rotate(360deg)' : 'rotate(0deg)',
+                transition: 'transform 0.6s cubic-bezier(0.4, 0, 0.2, 1)',
+              }} 
+            />
+          </IconButton>
+        </Box>
+        
+        <TableContainer sx={{ maxHeight: 300 }}>
+          <Table stickyHeader size="small">
+            <TableHead>
+              <TableRow>
+                <TableCell>Select</TableCell>
+                <TableCell>Device</TableCell>
+                <TableCell>Model</TableCell>
+                <TableCell>Android</TableCell>
+                <TableCell>Type</TableCell>
+                <TableCell>Status</TableCell>
+              </TableRow>
+            </TableHead>
+            <TableBody>
+              {(devicesLoading || isAdbRestarting) ? (
+                Array.from({ length: 3 }).map((_, index) => (
+                  <TableRow key={index}>
+                    <TableCell><Skeleton /></TableCell>
+                    <TableCell><Skeleton /></TableCell>
+                    <TableCell><Skeleton /></TableCell>
+                    <TableCell><Skeleton /></TableCell>
+                    <TableCell><Skeleton /></TableCell>
+                    <TableCell><Skeleton /></TableCell>
+                    <TableCell><Skeleton /></TableCell>
+                  </TableRow>
+                ))
+              ) : isAdbRestarting ? (
+                <TableRow>
+                  <TableCell colSpan={7} align="center">
+                    <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 1 }}>
+                      <CircularProgress size={16} />
+                      <Typography variant="body2" color="text.secondary">
+                        ADB server is rebooting... Please wait.
+                      </Typography>
+                    </Box>
+                  </TableCell>
+                </TableRow>
+              ) : devices.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={7} align="center">
+                    <Typography variant="body2" color="text.secondary">
+                      No devices found. Please ensure your device is connected and USB debugging is enabled.
+                    </Typography>
+                  </TableCell>
+                </TableRow>
+              ) : (
+                devices.map((device) => (
+                  <TableRow 
+                    key={device.id}
+                    sx={{ 
+                      backgroundColor: selectedDevice?.id === device.id ? 'action.selected' : 'inherit',
+                      '&:hover': { backgroundColor: 'action.hover' }
+                    }}
+                  >
+                    <TableCell>
+                      <Radio
+                        checked={selectedDevice?.id === device.id}
+                        onChange={() => handleDeviceSelection(device)}
+                        disabled={device.status !== 'device' && device.status !== 'connected'}
+                        size="small"
+                      />
+                    </TableCell>
+                    <TableCell>
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                        <SmartphoneIcon fontSize="small" />
+                        <Typography variant="body2" fontFamily="monospace">
+                          {device.id}
+                        </Typography>
+                      </Box>
+                    </TableCell>
+                    <TableCell>
+                      <Typography variant="body2">
+                        {device.model || 'Unknown'}
+                      </Typography>
+                    </TableCell>
+                    <TableCell>
+                      <Typography variant="body2">
+                        {device.android_version} (API {device.api_level})
+                      </Typography>
+                    </TableCell>
+                    <TableCell>
+                      <Chip 
+                        label={device.type === 'emulator' ? 'Emulator' : 'Physical'} 
+                        size="small"
+                        color={device.type === 'emulator' ? 'secondary' : 'primary'}
+                      />
+                    </TableCell>
+                    <TableCell>
+                      <Tooltip title={getDeviceStatusTooltip(device.status)} arrow>
+                        <Chip 
+                          label={device.status.charAt(0).toUpperCase() + device.status.slice(1)} 
+                          size="small"
+                          color={(device.status === 'device' || device.status === 'connected') ? 'success' : 'warning'}
+                        />
+                      </Tooltip>
+                    </TableCell>
+                  </TableRow>
+                ))
+              )}
+            </TableBody>
+          </Table>
+        </TableContainer>
+      </Box>
+
+      {flowState === 'ERROR' && errorMessage && (
+        <Alert severity="error" sx={{ mb: 3 }}>
+          {errorMessage}
+          <Button 
+            size="small" 
+            onClick={handleStartMonitoring}
+            sx={{ ml: 1 }}
+          >
+            Retry
           </Button>
-        </Paper>
+        </Alert>
       )}
+
+      <Typography variant="body1" sx={{ mb: 3, fontStyle: 'italic' }}>
+        {statusMessage}
+      </Typography>
+
+      {/* Troubleshooting Section */}
+      <Accordion>
+        <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+          <Typography variant="h6">Advanced Controls & Troubleshooting</Typography>
+        </AccordionSummary>
+        <AccordionDetails>
+          {/* Process Selection */}
+          <Box sx={{ mb: 3 }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1 }}>
+              <Typography variant="h6">
+                Available Processes
+              </Typography>
+              <IconButton
+                onClick={async () => {
+                  if (selectedDevice) {
+                    try {
+                      setProcessesLoading(true);
+                      const processList = await getProcesses(selectedDevice.id);
+                      setProcesses(processList);
+                    } catch (err) {
+                      console.error('Failed to load processes:', err);
+                    } finally {
+                      setProcessesLoading(false);
+                    }
+                  }
+                }}
+                disabled={!selectedDevice || processesLoading}
+                size="small"
+              >
+                <RefreshIcon 
+                  sx={{ 
+                    transform: processesLoading ? 'rotate(360deg)' : 'rotate(0deg)',
+                    transition: 'transform 0.6s cubic-bezier(0.4, 0, 0.2, 1)',
+                  }} 
+                />
+              </IconButton>
+            </Box>
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+              All available processes on the selected device:
+            </Typography>
+            
+            {processesLoading ? (
+              <Box sx={{ display: 'flex', justifyContent: 'center', py: 2 }}>
+                <CircularProgress />
+              </Box>
+            ) : (
+              <TableContainer sx={{ maxHeight: 200, mb: 3 }}>
+                <Table size="small">
+                  <TableHead>
+                    <TableRow>
+                      <TableCell>App Name</TableCell>
+                      <TableCell>Package</TableCell>
+                      <TableCell>Version</TableCell>
+                      <TableCell>PID</TableCell>
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    {processes.map((process) => (
+                      <TableRow key={process.pid}>
+                        <TableCell>{process.name}</TableCell>
+                        <TableCell sx={{ fontFamily: 'monospace' }}>{process.package}</TableCell>
+                        <TableCell>{process.version}</TableCell>
+                        <TableCell>{process.pid}</TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </TableContainer>
+            )}
+          </Box>
+
+          <Divider sx={{ my: 2 }} />
+
+          {/* Device Information */}
+          <Box sx={{ mb: 3 }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1 }}>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                <Typography variant="h6">
+                  Device Information
+                </Typography>
+                <Tooltip title="Detailed information about the selected device including hardware specifications and system details." arrow>
+                  <InfoOutlineIcon fontSize="small" color="action" />
+                </Tooltip>
+              </Box>
+              <IconButton
+                onClick={handleRefreshDevices}
+                disabled={isRefreshSpinning}
+                size="small"
+              >
+                <RefreshIcon 
+                  sx={{ 
+                    transform: isRefreshSpinning ? 'rotate(360deg)' : 'rotate(0deg)',
+                    transition: 'transform 0.6s cubic-bezier(0.4, 0, 0.2, 1)',
+                  }} 
+                />
+              </IconButton>
+            </Box>
+            {selectedDevice && (
+              <Box sx={{ p: 2, bgcolor: 'grey.50', borderRadius: 1 }}>
+                <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 2 }}>
+                  {/* Basic Device Info */}
+                  <Box>
+                    <Typography variant="caption" color="text.secondary">Device ID:</Typography>
+                    <Typography variant="body2" fontFamily="monospace">{selectedDevice.id}</Typography>
+                  </Box>
+                  <Box>
+                    <Typography variant="caption" color="text.secondary">Device Name:</Typography>
+                    <Typography variant="body2">{selectedDevice.device_name || selectedDevice.name || 'Unknown'}</Typography>
+                  </Box>
+                  <Box>
+                    <Typography variant="caption" color="text.secondary">Brand:</Typography>
+                    <Typography variant="body2">{selectedDevice.brand || 'Unknown'}</Typography>
+                  </Box>
+                  <Box>
+                    <Typography variant="caption" color="text.secondary">Model:</Typography>
+                    <Typography variant="body2">{selectedDevice.model || 'Unknown'}</Typography>
+                  </Box>
+                  <Box>
+                    <Typography variant="caption" color="text.secondary">Device Type:</Typography>
+                    <Typography variant="body2">{selectedDevice.type === 'emulator' ? 'Emulator' : 'Physical Device'}</Typography>
+                  </Box>
+                  <Box>
+                    <Typography variant="caption" color="text.secondary">Connection Type:</Typography>
+                    <Typography variant="body2">
+                      {selectedDevice.is_network_device ? 'Network' : 'USB'}
+                    </Typography>
+                  </Box>
+                  
+                  {/* System Information */}
+                  <Box>
+                    <Typography variant="caption" color="text.secondary">Android Version:</Typography>
+                    <Typography variant="body2">{selectedDevice.android_version} (API {selectedDevice.api_level})</Typography>
+                  </Box>
+                  <Box>
+                    <Typography variant="caption" color="text.secondary">Architecture:</Typography>
+                    <Typography variant="body2">{selectedDevice.architecture || 'Unknown'}</Typography>
+                  </Box>
+                  
+                  {/* Network Information (if applicable) */}
+                  {selectedDevice.is_network_device && (
+                    <>
+                      <Box>
+                        <Typography variant="caption" color="text.secondary">IP Address:</Typography>
+                        <Typography variant="body2" fontFamily="monospace">{selectedDevice.ip_address || 'Unknown'}</Typography>
+                      </Box>
+                      <Box>
+                        <Typography variant="caption" color="text.secondary">Port:</Typography>
+                        <Typography variant="body2" fontFamily="monospace">{selectedDevice.port || 'Unknown'}</Typography>
+                      </Box>
+                    </>
+                  )}
+                  
+                  {/* Status Information */}
+                  <Box>
+                    <Typography variant="caption" color="text.secondary">Status:</Typography>
+                    <Chip 
+                      label={selectedDevice.status.charAt(0).toUpperCase() + selectedDevice.status.slice(1)} 
+                      size="small"
+                      color={(selectedDevice.status === 'device' || selectedDevice.status === 'connected') ? 'success' : 'warning'}
+                    />
+                  </Box>
+                  <Box>
+                    <Typography variant="caption" color="text.secondary">Serial:</Typography>
+                    <Typography variant="body2" fontFamily="monospace">{selectedDevice.serial || selectedDevice.id}</Typography>
+                  </Box>
+                </Box>
+              </Box>
+            )}
+          </Box>
+
+          <Divider sx={{ my: 2 }} />
+
+          {/* Frida Server Controls */}
+          <Box sx={{ mb: 3 }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1 }}>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                <Typography variant="h6">
+                  Frida Server Controls
+                </Typography>
+                <Tooltip title="Frida is a dynamic instrumentation toolkit that allows you to inject JavaScript code into running applications. The Frida server runs on your Android device and enables communication between your computer and the target application." arrow>
+                  <InfoOutlineIcon fontSize="small" color="action" />
+                </Tooltip>
+              </Box>
+              <IconButton
+                onClick={() => selectedDevice && loadFridaStatus(selectedDevice.id)}
+                disabled={!selectedDevice || fridaStatusLoading}
+                size="small"
+              >
+                <RefreshIcon 
+                  sx={{ 
+                    transform: fridaStatusLoading ? 'rotate(360deg)' : 'rotate(0deg)',
+                    transition: 'transform 0.6s cubic-bezier(0.4, 0, 0.2, 1)',
+                  }} 
+                />
+              </IconButton>
+            </Box>
+            {/* Frida Server Status */}
+            {selectedDevice && (
+              <Box sx={{ mb: 2, p: 2, bgcolor: 'grey.50', borderRadius: 1 }}>
+                <Typography variant="subtitle2" sx={{ mb: 1 }}>Frida Server Status:</Typography>
+                {fridaStatusLoading ? (
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                    <CircularProgress size={16} />
+                    <Typography variant="body2" color="text.secondary">Loading status...</Typography>
+                  </Box>
+                ) : fridaStatus ? (
+                  <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 1 }}>
+                    <Box>
+                      <Typography variant="caption" color="text.secondary">Server Status:</Typography>
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                        <Chip 
+                          label={fridaStatus.is_running ? 'Running' : 'Stopped'} 
+                          size="small"
+                          color={fridaStatus.is_running ? 'success' : 'default'}
+                        />
+                      </Box>
+                    </Box>
+                                         <Box>
+                       <Typography variant="caption" color="text.secondary">Installation Status:</Typography>
+                       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                         <Chip 
+                           label={fridaStatus.is_installed ? 'Installed' : 'Not installed'} 
+                           size="small"
+                           color={fridaStatus.is_installed ? 'success' : 'default'}
+                         />
+                       </Box>
+                     </Box>
+                                                              <Box>
+                       <Typography variant="caption" color="text.secondary">Installed Version:</Typography>
+                       <Typography variant="body2" fontFamily="monospace">
+                         {fridaStatus.version || 'Unknown'}
+                       </Typography>
+                     </Box>
+                     <Box>
+                       <Typography variant="caption" color="text.secondary">Required Version:</Typography>
+                       <Typography variant="body2" fontFamily="monospace">
+                         {fridaStatus.required_version || 'Unknown'}
+                       </Typography>
+                     </Box>
+                     <Box>
+                       <Typography variant="caption" color="text.secondary">Architecture:</Typography>
+                       <Typography variant="body2">
+                         {fridaStatus.architecture || 'Unknown'}
+                       </Typography>
+                     </Box>
+                     <Box>
+                       <Typography variant="caption" color="text.secondary">Update Needed:</Typography>
+                       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                         <Chip 
+                           label={fridaStatus.needs_update ? 'Yes' : 'No'} 
+                           size="small"
+                           color={fridaStatus.needs_update ? 'warning' : 'success'}
+                         />
+                       </Box>
+                     </Box>
+                  </Box>
+                ) : (
+                  <Typography variant="body2" color="text.secondary">
+                    Unable to load Frida server status. Please check device connection.
+                  </Typography>
+                )}
+              </Box>
+            )}
+
+            <Box sx={{ display: 'flex', gap: 1, mb: 2, flexWrap: 'wrap' }}>
+              <Button
+                variant="outlined"
+                size="small"
+                onClick={() => selectedDevice && provisionFridaServer(selectedDevice.id)}
+                disabled={!selectedDevice}
+              >
+                Install Frida Server
+              </Button>
+              <Button
+                variant="outlined"
+                size="small"
+                onClick={() => selectedDevice && startFridaServer(selectedDevice.id)}
+                disabled={!selectedDevice}
+              >
+                Start Frida Server
+              </Button>
+              <Button
+                variant="outlined"
+                size="small"
+                onClick={() => selectedDevice && stopFridaServer(selectedDevice.id)}
+                disabled={!selectedDevice}
+              >
+                Stop Frida Server
+              </Button>
+              <Button
+                variant="outlined"
+                size="small"
+                onClick={() => selectedDevice && removeFridaServer(selectedDevice.id)}
+                disabled={!selectedDevice}
+              >
+                Remove Frida Server
+              </Button>
+
+            </Box>
+
+          </Box>
+
+          <Divider sx={{ my: 2 }} />
+
+          {/* ADB Server Controls */}
+          <Box sx={{ mb: 3 }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1 }}>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                <Typography variant="h6">
+                  ADB Server Controls
+                </Typography>
+                <Tooltip title="ADB (Android Debug Bridge) is the communication protocol that allows your computer to interact with Android devices. The ADB server manages device connections and must be running for device detection and communication." arrow>
+                  <InfoOutlineIcon fontSize="small" color="action" />
+                </Tooltip>
+              </Box>
+              <IconButton
+                onClick={handleRefreshDevices}
+                disabled={isAdbRestarting}
+                size="small"
+              >
+                <RefreshIcon 
+                  sx={{ 
+                    transform: isAdbRestarting ? 'rotate(360deg)' : 'rotate(0deg)',
+                    transition: 'transform 0.6s cubic-bezier(0.4, 0, 0.2, 1)',
+                  }} 
+                />
+              </IconButton>
+            </Box>
+            <Box sx={{ display: 'flex', gap: 1, mb: 2, flexWrap: 'wrap' }}>
+              <Button
+                variant="outlined"
+                size="small"
+                onClick={handleStartAdbServer}
+                disabled={isAdbRestarting}
+              >
+                Start ADB Server
+              </Button>
+              <Button
+                variant="outlined"
+                size="small"
+                onClick={handleKillAdbServer}
+                disabled={isAdbRestarting}
+              >
+                Kill ADB Server
+              </Button>
+              <Button
+                variant="outlined"
+                size="small"
+                onClick={handleRestartAdbServer}
+                disabled={isAdbRestarting}
+              >
+                Restart ADB Server
+              </Button>
+            </Box>
+
+          </Box>
+
+          <Divider sx={{ my: 2 }} />
+
+          {/* Hook Script Selection */}
+          <Box>
+            <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1 }}>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                <Typography variant="h6">
+                  Available Hook Scripts
+                </Typography>
+                <Tooltip title="Hook scripts are JavaScript code that gets injected into the target application to monitor and intercept specific functions. These scripts can capture game data, modify behavior, or log events in real-time." arrow>
+                  <InfoOutlineIcon fontSize="small" color="action" />
+                </Tooltip>
+              </Box>
+              <IconButton
+                onClick={loadHookScripts}
+                size="small"
+              >
+                <RefreshIcon />
+              </IconButton>
+            </Box>
+            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+              {hookScripts.map((script) => (
+                <Box key={script.id} sx={{ p: 2, border: 1, borderColor: 'divider', borderRadius: 1 }}>
+                  <Typography variant="subtitle2" sx={{ mb: 1 }}>{script.name}</Typography>
+                  <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+                    {script.description}
+                  </Typography>
+                  <Typography variant="caption" fontFamily="monospace" sx={{ display: 'block', mb: 1 }}>
+                    Target: {script.targetPackage}
+                  </Typography>
+
+                </Box>
+              ))}
+            </Box>
+
+          </Box>
+        </AccordionDetails>
+      </Accordion>
     </Box>
   );
 }
