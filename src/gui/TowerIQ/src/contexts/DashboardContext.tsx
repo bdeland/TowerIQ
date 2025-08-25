@@ -3,7 +3,7 @@ import React, { createContext, useContext, useState, useEffect, ReactNode, useCa
 // Dashboard interfaces based on the backend schema
 export interface DashboardPanel {
   id: string;
-  type: 'stat' | 'timeseries' | 'table' | 'log' | 'text';
+  type: 'timeseries' | 'bar' | 'pie' | 'stat' | 'table';
   title: string;
   gridPos: {
     x: number;
@@ -11,8 +11,10 @@ export interface DashboardPanel {
     w: number;
     h: number;
   };
+  query: string; // The SQL query to fetch data for this panel
+  echartsOption: Record<string, any>; // Will hold the ECharts option object
   datasourceUid?: string;
-  options: Record<string, any>;
+  options?: Record<string, any>; // Made optional since we're using echartsOption now
 }
 
 export interface Dashboard {
@@ -202,6 +204,7 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children }
       setDashboards(prev => prev.map(d => d.id === id ? updatedDashboard : d));
       if (currentDashboard?.id === id) {
         setCurrentDashboard(updatedDashboard);
+        console.log('DashboardContext - Updated current dashboard:', updatedDashboard);
       }
       return updatedDashboard;
     } catch (err) {

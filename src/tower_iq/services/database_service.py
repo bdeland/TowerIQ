@@ -1486,9 +1486,20 @@ class DatabaseService:
                         "type": "stat",
                         "title": "System Health",
                         "gridPos": {"x": 0, "y": 0, "w": 4, "h": 2},
-                        "options": {
-                            "query": "SELECT COUNT(*) FROM metrics WHERE metric_name = 'system_health'",
-                            "unit": "status"
+                        "query": "SELECT COUNT(*) AS value FROM metrics WHERE metric_name = 'system_health'",
+                        "echartsOption": {
+                            "tooltip": {"show": False},
+                            "graphic": [{
+                                "type": "text",
+                                "left": "center",
+                                "top": "center",
+                                "style": {
+                                    "text": "",
+                                    "fontSize": 24,
+                                    "fontWeight": "bold",
+                                    "fill": "#333"
+                                }
+                            }]
                         }
                     },
                     {
@@ -1496,9 +1507,14 @@ class DatabaseService:
                         "type": "timeseries",
                         "title": "Performance Metrics",
                         "gridPos": {"x": 4, "y": 0, "w": 4, "h": 2},
-                        "options": {
-                            "query": "SELECT * FROM metrics WHERE metric_name IN ('cpu_usage', 'memory_usage')",
-                            "lineWidth": 2
+                        "query": "SELECT real_timestamp as timestamp, metric_value as value, metric_name FROM metrics WHERE metric_name IN ('cpu_usage', 'memory_usage') ORDER BY real_timestamp",
+                        "echartsOption": {
+                            "title": {"text": "Performance Metrics", "left": "center"},
+                            "tooltip": {"trigger": "axis"},
+                            "legend": {"data": ["CPU Usage", "Memory Usage"], "bottom": 10},
+                            "xAxis": {"type": "time"},
+                            "yAxis": {"type": "value", "name": "Usage %"},
+                            "series": []
                         }
                     },
                     {
@@ -1506,8 +1522,16 @@ class DatabaseService:
                         "type": "table",
                         "title": "Recent Events",
                         "gridPos": {"x": 8, "y": 0, "w": 4, "h": 2},
-                        "options": {
-                            "query": "SELECT * FROM events ORDER BY timestamp DESC LIMIT 10"
+                        "query": "SELECT timestamp, event_name, data FROM events ORDER BY timestamp DESC LIMIT 10",
+                        "echartsOption": {
+                            "title": {"text": "Recent Events", "left": "center"},
+                            "tooltip": {"show": True},
+                            "grid": {"containLabel": True},
+                            "dataZoom": {"type": "inside"},
+                            "series": [{
+                                "type": "custom",
+                                "renderItem": "table"
+                            }]
                         }
                     }
                 ],
@@ -1536,10 +1560,20 @@ class DatabaseService:
                         "type": "timeseries",
                         "title": "CPU Usage Over Time",
                         "gridPos": {"x": 0, "y": 0, "w": 6, "h": 3},
-                        "options": {
-                            "query": "SELECT * FROM metrics WHERE metric_name = 'cpu_usage'",
-                            "lineWidth": 3,
-                            "fillOpacity": 0.1
+                        "query": "SELECT real_timestamp as timestamp, metric_value as value FROM metrics WHERE metric_name = 'cpu_usage' ORDER BY real_timestamp",
+                        "echartsOption": {
+                            "title": {"text": "CPU Usage Over Time", "left": "center"},
+                            "tooltip": {"trigger": "axis"},
+                            "xAxis": {"type": "time"},
+                            "yAxis": {"type": "value", "name": "CPU %", "max": 100},
+                            "series": [{
+                                "name": "CPU Usage",
+                                "type": "line",
+                                "smooth": True,
+                                "lineStyle": {"width": 3},
+                                "areaStyle": {"opacity": 0.1},
+                                "data": []
+                            }]
                         }
                     },
                     {
@@ -1547,10 +1581,20 @@ class DatabaseService:
                         "type": "timeseries",
                         "title": "Memory Usage Over Time",
                         "gridPos": {"x": 6, "y": 0, "w": 6, "h": 3},
-                        "options": {
-                            "query": "SELECT * FROM metrics WHERE metric_name = 'memory_usage'",
-                            "lineWidth": 3,
-                            "fillOpacity": 0.1
+                        "query": "SELECT real_timestamp as timestamp, metric_value as value FROM metrics WHERE metric_name = 'memory_usage' ORDER BY real_timestamp",
+                        "echartsOption": {
+                            "title": {"text": "Memory Usage Over Time", "left": "center"},
+                            "tooltip": {"trigger": "axis"},
+                            "xAxis": {"type": "time"},
+                            "yAxis": {"type": "value", "name": "Memory %", "max": 100},
+                            "series": [{
+                                "name": "Memory Usage",
+                                "type": "line",
+                                "smooth": True,
+                                "lineStyle": {"width": 3},
+                                "areaStyle": {"opacity": 0.1},
+                                "data": []
+                            }]
                         }
                     },
                     {
@@ -1558,9 +1602,29 @@ class DatabaseService:
                         "type": "stat",
                         "title": "Average Response Time",
                         "gridPos": {"x": 0, "y": 3, "w": 4, "h": 2},
-                        "options": {
-                            "query": "SELECT AVG(metric_value) FROM metrics WHERE metric_name = 'response_time'",
-                            "unit": "ms"
+                        "query": "SELECT AVG(metric_value) AS value FROM metrics WHERE metric_name = 'response_time'",
+                        "echartsOption": {
+                            "tooltip": {"show": False},
+                            "graphic": [{
+                                "type": "text",
+                                "left": "center",
+                                "top": "center",
+                                "style": {
+                                    "text": "",
+                                    "fontSize": 24,
+                                    "fontWeight": "bold",
+                                    "fill": "#2196F3"
+                                }
+                            }, {
+                                "type": "text",
+                                "left": "center",
+                                "top": "bottom",
+                                "style": {
+                                    "text": "ms",
+                                    "fontSize": 14,
+                                    "fill": "#666"
+                                }
+                            }]
                         }
                     },
                     {
@@ -1568,9 +1632,29 @@ class DatabaseService:
                         "type": "stat",
                         "title": "Error Rate",
                         "gridPos": {"x": 4, "y": 3, "w": 4, "h": 2},
-                        "options": {
-                            "query": "SELECT COUNT(*) FROM events WHERE event_name = 'error'",
-                            "unit": "errors/min"
+                        "query": "SELECT COUNT(*) AS value FROM events WHERE event_name = 'error'",
+                        "echartsOption": {
+                            "tooltip": {"show": False},
+                            "graphic": [{
+                                "type": "text",
+                                "left": "center",
+                                "top": "center",
+                                "style": {
+                                    "text": "",
+                                    "fontSize": 24,
+                                    "fontWeight": "bold",
+                                    "fill": "#F44336"
+                                }
+                            }, {
+                                "type": "text",
+                                "left": "center",
+                                "top": "bottom",
+                                "style": {
+                                    "text": "errors/min",
+                                    "fontSize": 14,
+                                    "fill": "#666"
+                                }
+                            }]
                         }
                     },
                     {
@@ -1578,8 +1662,15 @@ class DatabaseService:
                         "type": "table",
                         "title": "Performance Alerts",
                         "gridPos": {"x": 8, "y": 3, "w": 4, "h": 2},
-                        "options": {
-                            "query": "SELECT * FROM events WHERE event_name LIKE '%alert%' ORDER BY timestamp DESC LIMIT 5"
+                        "query": "SELECT timestamp, event_name, data FROM events WHERE event_name LIKE '%alert%' ORDER BY timestamp DESC LIMIT 5",
+                        "echartsOption": {
+                            "title": {"text": "Performance Alerts", "left": "center"},
+                            "tooltip": {"show": True},
+                            "grid": {"containLabel": True},
+                            "series": [{
+                                "type": "custom",
+                                "renderItem": "table"
+                            }]
                         }
                     }
                 ],

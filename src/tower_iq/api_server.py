@@ -82,6 +82,13 @@ class DashboardResponse(BaseModel):
     is_default: bool
     schema_version: int
 
+class QueryRequest(BaseModel):
+    query: str
+
+class QueryResponse(BaseModel):
+    data: List[Dict[str, Any]]
+    rowCount: int
+
 # Global variables for the backend services
 config: Optional[ConfigurationManager] = None
 logger: Optional[Any] = None
@@ -972,6 +979,60 @@ async def ensure_dashboards_table():
         if logger:
             logger.error("Error ensuring dashboards table", error=str(e))
         raise HTTPException(status_code=500, detail=f"Failed to ensure dashboards table: {str(e)}")
+
+@app.post("/api/query", response_model=QueryResponse)
+async def execute_query(request: QueryRequest):
+    """Execute a SQL query against the database and return the results."""
+    try:
+        if not db_service:
+            raise HTTPException(status_code=503, detail="Database service not available")
+        
+        if not db_service.sqlite_conn:
+            raise HTTPException(status_code=503, detail="Database connection not available")
+        
+        # Basic SQL injection protection - only allow SELECT statements
+        query_stripped = request.query.strip().upper()
+        if not query_stripped.startswith('SELECT'):
+            raise HTTPException(status_code=400, detail="Only SELECT queries are allowed")
+        
+        # Additional protection against dangerous SQL operations
+        dangerous_keywords = ['DROP', 'DELETE', 'UPDATE', 'INSERT', 'CREATE', 'ALTER', 'TRUNCATE', '--', ';']
+        for keyword in dangerous_keywords:
+            if keyword in query_stripped:
+                raise HTTPException(status_code=400, detail=f"Query contains forbidden keyword: {keyword}")
+        
+        # Execute the query
+        cursor = db_service.sqlite_conn.cursor()
+        cursor.execute(request.query)
+        
+        # Fetch all results
+        rows = cursor.fetchall()
+        
+        # Get column names
+        column_names = [description[0] for description in cursor.description] if cursor.description else []
+        
+        # Convert rows to list of dictionaries
+        data = []
+        for row in rows:
+            row_dict = {}
+            for i, value in enumerate(row):
+                column_name = column_names[i] if i < len(column_names) else f"column_{i}"
+                row_dict[column_name] = value
+            data.append(row_dict)
+        
+        if logger:
+            logger.info("Query executed successfully", 
+                       query=request.query, 
+                       row_count=len(data))
+        
+        return QueryResponse(data=data, rowCount=len(data))
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        if logger:
+            logger.error("Error executing query", query=request.query, error=str(e))
+        raise HTTPException(status_code=500, detail=f"Query execution failed: {str(e)}")
 
 def start_server(host: str = "127.0.0.1", port: int = 8000):
     """Start the FastAPI server."""

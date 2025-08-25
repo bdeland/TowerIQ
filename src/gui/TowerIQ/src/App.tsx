@@ -17,6 +17,8 @@ import {
 import { HomePage } from './pages/HomePage';
 import { DashboardsPage } from './pages/DashboardsPage';
 import { DashboardViewPage } from './pages/DashboardViewPage';
+import { PanelViewPage } from './pages/PanelViewPage';
+import { PanelEditPage } from './pages/PanelEditPage';
 import { ExplorePage } from './pages/ExplorePage';
 import { HistoryPage } from './pages/HistoryPage';
 import { SettingsPage } from './pages/SettingsPage';
@@ -26,21 +28,22 @@ import SplashScreen from './components/SplashScreen';
 import { Header } from './components/Header';
 import { Sidebar } from './components/Sidebar';
 import { DashboardProvider } from './contexts/DashboardContext';
+import { DashboardEditProvider } from './contexts/DashboardEditContext';
 
 import './App.css';
 
 // Centralized layout configuration
 const layout = {
   appBarHeight: 40,
-  drawerWidth: 240,
-  border: '1px solid #343434',
-  borderColor: '#343434',
+  drawerWidth: 180,
+  border: '1px solid #2e3136',
+  borderColor: '#2e3136',
   backgroundColor: {
     main: '#111217',      // Grafana's main background
-    paper: '#202226',     // Grafana's sidebar/card background
+    paper: '#181b1f',     // Grafana's sidebar/card background
   },
   colors: {
-    primary: '#f79520',   // Grafana's orange
+    primary: '#00a7e1',   // Grafana's orange
     secondary: '#ff6464',
     textPrimary: '#e0e0e0',
     textSecondary: '#8e8e8e',
@@ -338,6 +341,9 @@ function DashboardLayout() {
             <Route path="/" element={<HomePage />} />
             <Route path="/dashboards" element={<DashboardsPage />} />
             <Route path="/dashboard/:id" element={<DashboardViewPage />} />
+            <Route path="/dashboards/:id" element={<DashboardViewPage />} />
+            <Route path="/panels/:panelId/view" element={<PanelViewPage />} />
+            <Route path="/panels/:panelId/edit" element={<PanelEditPage />} />
             <Route path="/connection" element={<ConnectionPage />} />
             <Route path="/explore" element={<ExplorePage />} />
             <Route path="/history" element={<HistoryPage />} />
@@ -388,7 +394,9 @@ function App() {
     <>
       <Router>
         <DashboardProvider>
-          <DashboardLayout />
+          <DashboardEditProvider>
+            <DashboardLayout />
+          </DashboardEditProvider>
         </DashboardProvider>
       </Router>
       {isLoading && <SplashScreen onComplete={() => setIsLoading(false)} />}

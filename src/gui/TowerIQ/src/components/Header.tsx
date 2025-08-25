@@ -1,7 +1,15 @@
-import { AppBar, Toolbar, Box, IconButton } from '@mui/material';
-import { Menu as MenuIcon } from '@mui/icons-material';
+import React from 'react';
+import { AppBar, Toolbar, Box, IconButton, Button, Menu, MenuItem, ListItemIcon, ListItemText } from '@mui/material';
+import { 
+  Menu as MenuIcon,
+  KeyboardArrowDown as ArrowDownIcon,
+  BarChart as VisualizationIcon,
+  ViewHeadline as RowIcon,
+  ContentPaste as PasteIcon
+} from '@mui/icons-material';
 import { Breadcrumbs } from './Breadcrumbs';
 import { SearchBar } from './SearchBar';
+import { useDashboardEdit } from '../contexts/DashboardEditContext';
 
 interface HeaderProps {
   sidebarDocked: boolean;
@@ -23,8 +31,75 @@ export function Header({
   onSidebarToggle, 
   layoutStyles, 
   layout, 
-  listItemIconStyles 
+  listItemIconStyles
 }: HeaderProps) {
+  // Safely get dashboard edit context with error handling
+  let dashboardEditContext;
+  try {
+    dashboardEditContext = useDashboardEdit();
+  } catch (error) {
+    console.error('Error accessing dashboard edit context:', error);
+    dashboardEditContext = {
+      isDashboardPage: false,
+      isEditMode: false,
+      saving: false,
+      onEditToggle: undefined,
+      onAddVisualization: undefined,
+      onAddRow: undefined,
+      onPastePanel: undefined,
+      onSave: undefined
+    };
+  }
+  
+  const {
+    isDashboardPage,
+    isEditMode,
+    saving,
+    onEditToggle,
+    onAddVisualization,
+    onAddRow,
+    onPastePanel,
+    onSave
+  } = dashboardEditContext;
+  
+  const [addMenuAnchor, setAddMenuAnchor] = React.useState<null | HTMLElement>(null);
+
+  const handleAddMenuClick = (event: React.MouseEvent<HTMLElement>) => {
+    setAddMenuAnchor(event.currentTarget);
+  };
+
+  const handleAddMenuClose = () => {
+    setAddMenuAnchor(null);
+  };
+
+  const handleAddVisualization = () => {
+    if (onAddVisualization) {
+      onAddVisualization();
+    }
+    handleAddMenuClose();
+  };
+
+  const handleAddRow = () => {
+    if (onAddRow) {
+      onAddRow();
+    }
+    handleAddMenuClose();
+  };
+
+  const handlePastePanel = () => {
+    if (onPastePanel) {
+      onPastePanel();
+    }
+    handleAddMenuClose();
+  };
+
+  const handleSave = () => {
+    if (onSave) {
+      onSave();
+    } else {
+      console.log('Save dashboard clicked - no handler available');
+    }
+  };
   return (
     <AppBar
       position="fixed"
@@ -105,9 +180,125 @@ export function Header({
         borderBottom: layout.border, // Add bottom border to second toolbar
         boxSizing: 'border-box',
         }}>
-        {/* Secondary toolbar content - currently empty */}
-        <Box sx={{ flexGrow: 1, display: 'flex', alignItems: 'center' }}>
-          {/* Empty for now - add your controls here */}
+        {/* Dashboard Edit Controls - Grafana Style */}
+        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', width: '100%' }}>
+          {/* All buttons right-aligned */}
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            {isDashboardPage && isEditMode && (
+              <>
+                <Button
+                  variant="contained"
+                  onClick={handleAddMenuClick}
+                  endIcon={<ArrowDownIcon />}
+                  disabled={saving}
+                  size="small"
+                  sx={{
+                    backgroundColor: '#1f77b4', // Grafana blue
+                    '&:hover': {
+                      backgroundColor: '#1565c0',
+                    }
+                  }}
+                >
+                  Add
+                </Button>
+                <Button
+                  variant="outlined"
+                  size="small"
+                  sx={{
+                    color: 'text.primary',
+                    borderColor: 'divider',
+                    '&:hover': {
+                      borderColor: 'text.primary',
+                      backgroundColor: 'action.hover'
+                    }
+                  }}
+                >
+                  Settings
+                </Button>
+                <Button
+                  variant="outlined"
+                  onClick={onEditToggle}
+                  disabled={saving}
+                  size="small"
+                  sx={{
+                    color: 'text.primary',
+                    borderColor: 'divider',
+                    '&:hover': {
+                      borderColor: 'text.primary',
+                      backgroundColor: 'action.hover'
+                    }
+                  }}
+                >
+                  Exit edit
+                </Button>
+                <Button
+                  variant="contained"
+                  onClick={handleSave}
+                  disabled={saving}
+                  size="small"
+                  endIcon={<ArrowDownIcon />}
+                  sx={{
+                    backgroundColor: '#28a745', // Green for save
+                    '&:hover': {
+                      backgroundColor: '#218838',
+                    }
+                  }}
+                >
+                  {saving ? 'Saving...' : 'Save dashboard'}
+                </Button>
+              </>
+            )}
+            {isDashboardPage && !isEditMode && (
+              <Button
+                variant="contained"
+                onClick={onEditToggle}
+                size="small"
+                sx={{
+                  backgroundColor: '#1f77b4', // Grafana blue
+                  '&:hover': {
+                    backgroundColor: '#1565c0',
+                  }
+                }}
+              >
+                Edit
+              </Button>
+            )}
+          </Box>
+
+          {/* Add Menu */}
+          <Menu
+            anchorEl={addMenuAnchor}
+            open={Boolean(addMenuAnchor)}
+            onClose={handleAddMenuClose}
+            slotProps={{
+              paper: {
+                sx: {
+                  backgroundColor: 'background.paper',
+                  border: '1px solid',
+                  borderColor: 'divider'
+                }
+              }
+            }}
+          >
+            <MenuItem onClick={handleAddVisualization}>
+              <ListItemIcon>
+                <VisualizationIcon fontSize="small" />
+              </ListItemIcon>
+              <ListItemText primary="Visualization" />
+            </MenuItem>
+            <MenuItem onClick={handleAddRow}>
+              <ListItemIcon>
+                <RowIcon fontSize="small" />
+              </ListItemIcon>
+              <ListItemText primary="Row" />
+            </MenuItem>
+            <MenuItem onClick={handlePastePanel}>
+              <ListItemIcon>
+                <PasteIcon fontSize="small" />
+              </ListItemIcon>
+              <ListItemText primary="Paste Panel" />
+            </MenuItem>
+          </Menu>
         </Box>
       </Toolbar>
     </AppBar>
