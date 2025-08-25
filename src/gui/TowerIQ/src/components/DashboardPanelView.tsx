@@ -5,7 +5,6 @@ import {
   CircularProgress, 
   Alert, 
   IconButton, 
-  Popover, 
   MenuItem, 
   MenuList,
   ListItemIcon, 
@@ -14,8 +13,7 @@ import {
   DialogTitle,
   DialogContent,
   DialogActions,
-  Button,
-  Paper
+  Button
 } from '@mui/material';
 import { 
   MoreVert as MoreVertIcon,
@@ -217,7 +215,7 @@ const DashboardPanelView: React.FC<DashboardPanelViewProps> = ({
   };
 
   // Close menu when clicking outside
-  const handlePanelClick = (event: React.MouseEvent) => {
+  const handlePanelClick = () => {
     if (isEditMode && onClick) {
       onClick();
     }
@@ -504,7 +502,7 @@ const DashboardPanelView: React.FC<DashboardPanelViewProps> = ({
         },
         display: 'flex',
         flexDirection: 'column',
-        overflow: 'visible', // Change from 'hidden' to 'visible' to allow popover to show
+        overflow: 'visible', // Allow rounded corners to be visible
         position: 'relative' // Add relative positioning for resize handle
       }}
       onClick={handlePanelClick}
@@ -517,7 +515,9 @@ const DashboardPanelView: React.FC<DashboardPanelViewProps> = ({
         display: 'flex',
         flexDirection: 'column',
         position: 'relative',
-        minHeight: 0
+        minHeight: 0,
+        overflow: 'hidden',
+        borderRadius: 'inherit'
       }}>
         {renderPanelContent()}
       </Box>

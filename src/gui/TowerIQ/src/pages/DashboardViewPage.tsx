@@ -340,7 +340,6 @@ export function DashboardViewPage() {
                 isEditMode={isEditMode}
                 onClick={() => handlePanelClick(panel.id)}
                 onDelete={handleDeletePanel}
-                onEdit={(panelId) => setSelectedPanelId(panelId)}
               />
             </div>
           ))}

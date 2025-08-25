@@ -2,22 +2,13 @@ import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { 
   Box, 
-  Typography, 
-  Button, 
   Alert, 
   CircularProgress,
-  IconButton,
-  Breadcrumbs,
-  Link,
-  Grid,
-  Paper
+  Paper,
+  Tabs,
+  Tab
 } from '@mui/material';
-import { 
-  ArrowBack as ArrowBackIcon,
-  Save as SaveIcon,
-  Visibility as ViewIcon,
-  Home as HomeIcon
-} from '@mui/icons-material';
+
 import { useDashboard, DashboardPanel } from '../contexts/DashboardContext';
 import DashboardPanelView from '../components/DashboardPanelView';
 import PanelEditorDrawer from '../components/PanelEditorDrawer';
@@ -32,6 +23,11 @@ export function PanelEditPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [drawerWidth, setDrawerWidth] = useState(400);
+  const [isDragging, setIsDragging] = useState(false);
+  const [tabbedSectionHeight, setTabbedSectionHeight] = useState(300);
+  const [isDraggingHorizontal, setIsDraggingHorizontal] = useState(false);
+  const [activeTab, setActiveTab] = useState(0);
 
   useEffect(() => {
     const findPanel = async () => {
@@ -81,6 +77,57 @@ export function PanelEditPage() {
     setPanel(updatedPanel);
   };
 
+  const handleMouseDown = (e: React.MouseEvent) => {
+    e.preventDefault();
+    setIsDragging(true);
+  };
+
+  const handleHorizontalMouseDown = (e: React.MouseEvent) => {
+    e.preventDefault();
+    setIsDraggingHorizontal(true);
+  };
+
+  const handleMouseMove = (e: MouseEvent) => {
+    if (!isDragging) return;
+    
+    const newWidth = window.innerWidth - e.clientX;
+    const minWidth = 300;
+    const maxWidth = window.innerWidth * 0.8;
+    
+    if (newWidth >= minWidth && newWidth <= maxWidth) {
+      setDrawerWidth(newWidth);
+    }
+  };
+
+  const handleHorizontalMouseMove = (e: MouseEvent) => {
+    if (!isDraggingHorizontal) return;
+    
+    const newHeight = window.innerHeight - e.clientY;
+    const minHeight = 200;
+    const maxHeight = window.innerHeight * 0.7;
+    
+    if (newHeight >= minHeight && newHeight <= maxHeight) {
+      setTabbedSectionHeight(newHeight);
+    }
+  };
+
+  const handleMouseUp = () => {
+    setIsDragging(false);
+    setIsDraggingHorizontal(false);
+  };
+
+  useEffect(() => {
+    if (isDragging || isDraggingHorizontal) {
+      document.addEventListener('mousemove', isDragging ? handleMouseMove : handleHorizontalMouseMove);
+      document.addEventListener('mouseup', handleMouseUp);
+      
+      return () => {
+        document.removeEventListener('mousemove', isDragging ? handleMouseMove : handleHorizontalMouseMove);
+        document.removeEventListener('mouseup', handleMouseUp);
+      };
+    }
+  }, [isDragging, isDraggingHorizontal]);
+
   const handleSave = async () => {
     if (!panel || !dashboard) return;
 
@@ -110,17 +157,7 @@ export function PanelEditPage() {
     }
   };
 
-  const handleView = () => {
-    navigate(`/panels/${panelId}/view`);
-  };
 
-  const handleBackToDashboard = () => {
-    if (dashboard) {
-      navigate(`/dashboards/${dashboard.id}`);
-    } else {
-      navigate('/dashboards');
-    }
-  };
 
   const handleDeletePanel = async (panelId: string) => {
     if (!dashboard) return;
@@ -149,6 +186,10 @@ export function PanelEditPage() {
     }
   };
 
+  const handleTabChange = (event: React.SyntheticEvent, newValue: number) => {
+    setActiveTab(newValue);
+  };
+
   if (loading) {
     return (
       <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '50vh' }}>
@@ -160,115 +201,39 @@ export function PanelEditPage() {
   if (error || !panel) {
     return (
       <Box sx={{ padding: 3 }}>
-        <Alert severity="error" sx={{ mb: 2 }}>
+        <Alert severity="error">
           {error || 'Panel not found'}
         </Alert>
-        <Button
-          variant="outlined"
-          startIcon={<ArrowBackIcon />}
-          onClick={() => navigate('/dashboards')}
-        >
-          Back to Dashboards
-        </Button>
       </Box>
     );
   }
 
   return (
-    <Box sx={{ height: '100vh', display: 'flex', flexDirection: 'column' }}>
-      {/* Header */}
-      <Box 
-        sx={{ 
-          padding: 2, 
-          borderBottom: '1px solid #e0e0e0',
-          backgroundColor: '#fafafa'
-        }}
-      >
-        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1 }}>
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-            <IconButton onClick={handleBackToDashboard} size="small">
-              <ArrowBackIcon />
-            </IconButton>
-            <Typography variant="h5" component="h1">
-              Edit: {panel.title}
-            </Typography>
-          </Box>
-          
-          <Box sx={{ display: 'flex', gap: 1 }}>
-            <Button
-              variant="outlined"
-              startIcon={<ViewIcon />}
-              onClick={handleView}
-              disabled={saving}
-              size="small"
-            >
-              View Panel
-            </Button>
-            <Button
-              variant="contained"
-              startIcon={<SaveIcon />}
-              onClick={handleSave}
-              disabled={saving}
-              size="small"
-            >
-              {saving ? 'Saving...' : 'Save Changes'}
-            </Button>
-          </Box>
-        </Box>
-        
-        {/* Breadcrumbs */}
-        <Breadcrumbs aria-label="breadcrumb" sx={{ ml: 5 }}>
-          <Link 
-            color="inherit" 
-            href="/dashboards" 
-            onClick={(e) => {
-              e.preventDefault();
-              navigate('/dashboards');
-            }}
-            sx={{ display: 'flex', alignItems: 'center', textDecoration: 'none' }}
-          >
-            <HomeIcon sx={{ mr: 0.5 }} fontSize="inherit" />
-            Dashboards
-          </Link>
-          {dashboard && (
-            <Link
-              color="inherit"
-              href={`/dashboards/${dashboard.id}`}
-              onClick={(e) => {
-                e.preventDefault();
-                navigate(`/dashboards/${dashboard.id}`);
-              }}
-              sx={{ textDecoration: 'none' }}
-            >
-              {dashboard.title}
-            </Link>
-          )}
-          <Link
-            color="inherit"
-            href={`/panels/${panelId}/view`}
-            onClick={(e) => {
-              e.preventDefault();
-              navigate(`/panels/${panelId}/view`);
-            }}
-            sx={{ textDecoration: 'none' }}
-          >
-            {panel.title}
-          </Link>
-          <Typography color="text.primary">Edit</Typography>
-        </Breadcrumbs>
-
-        {error && (
-          <Alert severity="error" sx={{ mt: 2 }}>
-            {error}
-          </Alert>
-        )}
-      </Box>
-
+    <Box sx={{ 
+      height: '100vh', 
+      display: 'flex', 
+      overflow: 'hidden',
+      margin: 0,
+      padding: 0
+    }}>
       {/* Content */}
-      <Box sx={{ flex: 1, display: 'flex' }}>
+      <Box sx={{ 
+        flex: 1, 
+        display: 'flex', 
+        flexDirection: 'column', 
+        overflow: 'hidden',
+        margin: 0,
+        padding: 0
+      }}>
         {/* Panel Preview */}
-        <Box sx={{ flex: 1, padding: 2 }}>
-          <Paper sx={{ height: '100%', maxHeight: 'calc(100vh - 140px)' }} elevation={1}>
+        <Box sx={{ 
+          flex: 1, 
+          minHeight: 0, 
+          overflow: 'hidden', 
+          padding: 2,
+          margin: 0
+        }}>
+          <Paper sx={{ height: '100%', overflow: 'visible' }} elevation={1}>
             <DashboardPanelView 
               panel={panel}
               isEditMode={false}
@@ -278,17 +243,165 @@ export function PanelEditPage() {
           </Paper>
         </Box>
 
-        {/* Panel Editor - Always Open */}
-        <Box sx={{ width: 400, borderLeft: '1px solid #e0e0e0' }}>
-          <PanelEditorDrawer
-            open={true}
-            panel={panel}
-            onClose={() => {}} // Disable close in dedicated edit page
-            onUpdatePanel={handleUpdatePanel}
-            onDeletePanel={handleDeletePanel}
-            standalone={true}
-          />
+        {/* Horizontal Resizable Splitter */}
+        <Box
+          sx={{
+            height: '1px',
+            backgroundColor: 'divider',
+            cursor: 'row-resize',
+            position: 'relative',
+            flexShrink: 0,
+            zIndex: 10,
+            transition: 'background-color 0.2s ease',
+            margin: 0,
+            '&:hover': {
+              backgroundColor: 'primary.main',
+            },
+            '&::before': {
+              content: '""',
+              position: 'absolute',
+              top: '50%',
+              left: '50%',
+              transform: 'translate(-50%, -50%)',
+              width: '25%',
+              height: '4px',
+              backgroundColor: isDraggingHorizontal ? 'primary.main' : 'divider',
+              borderRadius: '4px',
+              cursor: 'row-resize',
+              transition: 'background-color 0.2s ease',
+            },
+            '&:hover::before': {
+              backgroundColor: 'primary.main',
+            },
+            '&::after': {
+              content: '""',
+              position: 'absolute',
+              top: '-8px',
+              left: 0,
+              right: 0,
+              bottom: '-8px',
+              cursor: 'row-resize',
+            }
+          }}
+          onMouseDown={handleHorizontalMouseDown}
+        />
+
+        {/* Tabbed Section */}
+        <Box sx={{ 
+          height: tabbedSectionHeight, 
+          display: 'flex', 
+          flexDirection: 'column',
+          flexShrink: 0,
+          overflow: 'hidden',
+          margin: 0
+        }}>
+          <Tabs 
+            value={activeTab} 
+            onChange={handleTabChange}
+            sx={{ 
+              borderBottom: 1, 
+              borderColor: 'divider',
+              backgroundColor: 'background.paper',
+              margin: 0
+            }}
+          >
+            <Tab label="Tab 1" />
+            <Tab label="Tab 2" />
+            <Tab label="Tab 3" />
+          </Tabs>
+          
+          <Box sx={{ 
+            flex: 1, 
+            overflow: 'auto',
+            padding: 2,
+            backgroundColor: 'background.paper',
+            margin: 0
+          }}>
+            {activeTab === 0 && (
+              <Box>
+                <h3>Tab 1 Content</h3>
+                <p>This is the content for tab 1. You can add any components or content here.</p>
+                {/* Add your tab 1 content here */}
+              </Box>
+            )}
+            {activeTab === 1 && (
+              <Box>
+                <h3>Tab 2 Content</h3>
+                <p>This is the content for tab 2. You can add any components or content here.</p>
+                {/* Add your tab 2 content here */}
+              </Box>
+            )}
+            {activeTab === 2 && (
+              <Box>
+                <h3>Tab 3 Content</h3>
+                <p>This is the content for tab 3. You can add any components or content here.</p>
+                {/* Add your tab 3 content here */}
+              </Box>
+            )}
+          </Box>
         </Box>
+      </Box>
+
+      {/* Resizable Splitter */}
+      <Box
+        sx={{
+          width: '1px',
+          backgroundColor: 'divider',
+          cursor: 'col-resize',
+          position: 'relative',
+          flexShrink: 0,
+          zIndex: 10,
+          transition: 'background-color 0.2s ease',
+          margin: 0,
+          '&:hover': {
+            backgroundColor: 'primary.main',
+          },
+          '&::before': {
+            content: '""',
+            position: 'absolute',
+            top: '50%',
+            left: '50%',
+            transform: 'translate(-50%, -50%)',
+            width: '4px',
+            height: '25%',
+            backgroundColor: isDragging ? 'primary.main' : 'divider',
+            borderRadius: '4px',
+            cursor: 'col-resize',
+            transition: 'background-color 0.2s ease',
+          },
+          '&:hover::before': {
+            backgroundColor: 'primary.main',
+          },
+          '&::after': {
+            content: '""',
+            position: 'absolute',
+            top: 0,
+            left: '-8px',
+            right: '-8px',
+            bottom: 0,
+            cursor: 'col-resize',
+          }
+        }}
+        onMouseDown={handleMouseDown}
+      />
+
+      {/* Panel Editor - Always Open */}
+      <Box sx={{ 
+        width: drawerWidth, 
+        flexShrink: 0,
+        overflow: 'hidden',
+        display: 'flex',
+        flexDirection: 'column',
+        margin: 0
+      }}>
+        <PanelEditorDrawer
+          open={true}
+          panel={panel}
+          onClose={() => {}} // Disable close in dedicated edit page
+          onUpdatePanel={handleUpdatePanel}
+          onDeletePanel={handleDeletePanel}
+          standalone={true}
+        />
       </Box>
     </Box>
   );

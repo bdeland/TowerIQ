@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route, useLocation } from 'react-router-dom';
 import {
   Box,
   CssBaseline,
@@ -217,6 +217,10 @@ function DashboardLayout() {
   // Updated state management according to requirements
   const [sidebarHidden, setSidebarHidden] = useState(true); // Manages the hidden state - default to hidden
   const [sidebarDocked, setSidebarDocked] = useState(false); // Manages the docked state
+  const location = useLocation();
+  
+  // Check if we're on the PanelEditPage to remove bottom padding
+  const isPanelEditPage = location.pathname.includes('/panels/') && location.pathname.includes('/edit');
 
 
 
@@ -339,7 +343,7 @@ function DashboardLayout() {
           sx={{
             flexGrow: 1,
             pt: `${layout.appBarHeight * 2 + 1}px`, // Add top padding to account for combined AppBar height (80px) plus borders (2px)
-            pb: 2,
+            pb: isPanelEditPage ? 0 : 2, // Remove bottom padding for PanelEditPage
             px: 0,
             height: '100vh',
             overflowY: 'auto',
