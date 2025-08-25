@@ -108,6 +108,62 @@ class DatabaseWorker:
         self._thread.start()
 
 
+class LoadingManager:
+    """Manages the application startup loading sequence."""
+    
+    def __init__(self, logger):
+        self.logger = logger
+        self._loading_steps = {
+            'database': False,
+            'emulator_service': False,
+            'frida_service': False,
+            'hook_scripts': False,
+            'api_server': False
+        }
+        self._callbacks = []
+        self._start_time = None
+    
+    def start_loading(self):
+        """Start the loading sequence."""
+        self._start_time = time.time()
+        self.logger.info("Starting application loading sequence")
+    
+    def mark_step_complete(self, step_name: str):
+        """Mark a loading step as complete."""
+        if step_name in self._loading_steps:
+            self._loading_steps[step_name] = True
+            self.logger.info(f"Loading step completed: {step_name}")
+            self._check_completion()
+    
+    def add_completion_callback(self, callback):
+        """Add a callback to be called when loading is complete."""
+        self._callbacks.append(callback)
+    
+    def is_loading_complete(self) -> bool:
+        """Check if all loading steps are complete."""
+        return all(self._loading_steps.values())
+    
+    def _check_completion(self):
+        """Check if all loading steps are complete."""
+        if all(self._loading_steps.values()) and self._start_time is not None:
+            elapsed_time = time.time() - self._start_time
+            self.logger.info(f"All loading steps completed in {elapsed_time:.2f} seconds")
+            
+            # Ensure minimum display time of 3 seconds
+            min_display_time = 3.0
+            if elapsed_time < min_display_time:
+                remaining_time = min_display_time - elapsed_time
+                self.logger.info(f"Waiting {remaining_time:.2f} seconds to meet minimum splash screen time")
+                time.sleep(remaining_time)
+            
+            # Notify all callbacks
+            for callback in self._callbacks:
+                try:
+                    callback()
+                except Exception as e:
+                    self.logger.error(f"Error in loading completion callback: {e}")
+
+
 class MainController:
     """
     Main controller for TowerIQ application.
@@ -128,6 +184,9 @@ class MainController:
         self.config = config
         self.logger = logger
         self.db_service = db_service
+        
+        # Initialize loading manager
+        self.loading_manager = LoadingManager(logger)
         
         # Initialize services (simplified for API mode)
         self.session = SessionManager()
@@ -328,13 +387,20 @@ class MainController:
             "session": session_state,
             "test_mode": self._test_mode,
             "test_mode_replay": self._test_mode_replay,
-            "test_mode_generate": self._test_mode_generate
+            "test_mode_generate": self._test_mode_generate,
+            "loading_complete": self.loading_manager.is_loading_complete()
         }
         
         # Notify status callbacks
         self._notify_status_change(status_info)
         
         return status_info
+    
+    def signal_loading_complete(self):
+        """Signal that the application loading is complete."""
+        self.logger.info("Signaling loading complete to frontend")
+        # This will be called by the API server when it's ready
+        self.loading_manager.mark_step_complete('api_server')
     
     def set_test_mode(self, test_mode: bool, test_mode_replay: bool = False, test_mode_generate: bool = False):
         """Set test mode configuration."""

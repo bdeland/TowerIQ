@@ -144,7 +144,7 @@ export function ConnectionPage() {
 
   // Master connection flow state machine
   const [flowState, setFlowState] = useState<ConnectionFlowState>('IDLE');
-  const [statusMessage, setStatusMessage] = useState<string>('Please select a device to begin.');
+  const [statusMessage, setStatusMessage] = useState<string>('');
 
   // Troubleshooting section
   const [showTroubleshooting, setShowTroubleshooting] = useState(false);
@@ -398,7 +398,6 @@ export function ConnectionPage() {
       
       // Reset states
       setFlowState('IDLE');
-      setStatusMessage('Please select a device to begin.');
       setErrorMessage(null);
       
     } catch (err: any) {
@@ -410,7 +409,6 @@ export function ConnectionPage() {
   // Handle device selection
   const handleDeviceSelection = (device: Device) => {
     setSelectedDevice(device);
-    setStatusMessage(`Device selected: ${device.model || device.id}`);
   };
 
   // Handle refresh devices
@@ -784,7 +782,7 @@ export function ConnectionPage() {
               </IconButton>
             </Box>
             {selectedDevice && (
-              <Box sx={{ p: 2, bgcolor: 'grey.50', borderRadius: 1 }}>
+              <Box sx={{ p: 2, borderRadius: 1, border: 1, borderColor: 'divider' }}>
                 <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 2 }}>
                   {/* Basic Device Info */}
                   <Box>
@@ -884,7 +882,7 @@ export function ConnectionPage() {
             </Box>
             {/* Frida Server Status */}
             {selectedDevice && (
-              <Box sx={{ mb: 2, p: 2, bgcolor: 'grey.50', borderRadius: 1 }}>
+              <Box sx={{ mb: 2, p: 2, borderRadius: 1, border: 1, borderColor: 'divider' }}>
                 <Typography variant="subtitle2" sx={{ mb: 1 }}>Frida Server Status:</Typography>
                 {fridaStatusLoading ? (
                   <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>

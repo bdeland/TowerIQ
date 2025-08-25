@@ -50,7 +50,7 @@ class DatabaseService:
     Handles connections, writes, reads, migrations, and backups.
     """
     
-    DB_VERSION = "2" # Using a "long" schema for metrics
+    DB_VERSION = "3" # Updated to include dashboards table
     
     def __init__(self, config: ConfigurationManager, logger: Any, db_path: str = '') -> None:
         """
@@ -177,6 +177,9 @@ class DatabaseService:
 
         self.set_setting("db_version", self.DB_VERSION)
         self.logger.info("Database migration to version %s completed.", self.DB_VERSION)
+        
+        # Create default dashboards after schema is ready
+        self.create_default_dashboards()
 
     def _migrate_settings_table_if_needed(self):
         """Migrate the settings table to include metadata if needed."""
@@ -343,6 +346,30 @@ class DatabaseService:
                         timestamp INTEGER, level TEXT, source TEXT, event TEXT, data TEXT
                     )
                 """)
+            
+            # Create dashboards table
+            if 'dashboards' not in existing_tables:
+                self.logger.info("Creating dashboards table")
+                conn.execute("""
+                    CREATE TABLE dashboards (
+                        id TEXT PRIMARY KEY,
+                        uid TEXT UNIQUE NOT NULL,
+                        title TEXT NOT NULL,
+                        description TEXT,
+                        config TEXT NOT NULL,
+                        tags TEXT,
+                        created_at TEXT DEFAULT (datetime('now', 'localtime')),
+                        updated_at TEXT DEFAULT (datetime('now', 'localtime')),
+                        created_by TEXT DEFAULT 'system',
+                        is_default BOOLEAN DEFAULT 0,
+                        schema_version INTEGER DEFAULT 1
+                    )
+                """)
+                conn.execute("CREATE INDEX idx_dashboards_uid ON dashboards(uid)")
+                conn.execute("CREATE INDEX idx_dashboards_title ON dashboards(title)")
+                conn.execute("CREATE INDEX idx_dashboards_created_at ON dashboards(created_at)")
+            else:
+                self.logger.info("Dashboards table already exists")
             
             # Always ensure settings table exists (it was deleted)
             if 'settings' not in existing_tables:
@@ -1157,3 +1184,522 @@ class DatabaseService:
             self.logger.error("Error fixing settings value types", error=str(e))
         
         return fixed_count
+
+    # Dashboard Operations
+    @db_operation([])
+    def get_all_dashboards(self) -> List[Dict[str, Any]]:
+        """Get all dashboards from the database."""
+        if not self.sqlite_conn:
+            return []
+        
+        try:
+            cursor = self.sqlite_conn.execute("""
+                SELECT id, uid, title, description, config, tags, created_at, updated_at, created_by, is_default, schema_version
+                FROM dashboards
+                ORDER BY created_at DESC
+            """)
+            
+            dashboards = []
+            for row in cursor.fetchall():
+                dashboard = {
+                    'id': row[0],
+                    'uid': row[1],
+                    'title': row[2],
+                    'description': row[3],
+                    'config': json.loads(row[4]) if row[4] else {},
+                    'tags': json.loads(row[5]) if row[5] else [],
+                    'created_at': row[6],
+                    'updated_at': row[7],
+                    'created_by': row[8],
+                    'is_default': bool(row[9]),
+                    'schema_version': row[10]
+                }
+                dashboards.append(dashboard)
+            
+            return dashboards
+        except Exception as e:
+            self.logger.error("Error getting all dashboards", error=str(e))
+            return []
+
+    @db_operation(None)
+    def get_dashboard_by_id(self, dashboard_id: str) -> Optional[Dict[str, Any]]:
+        """Get a specific dashboard by ID."""
+        if not self.sqlite_conn:
+            return None
+        
+        try:
+            cursor = self.sqlite_conn.execute("""
+                SELECT id, uid, title, description, config, tags, created_at, updated_at, created_by, is_default, schema_version
+                FROM dashboards
+                WHERE id = ?
+            """, (dashboard_id,))
+            
+            row = cursor.fetchone()
+            if row:
+                return {
+                    'id': row[0],
+                    'uid': row[1],
+                    'title': row[2],
+                    'description': row[3],
+                    'config': json.loads(row[4]) if row[4] else {},
+                    'tags': json.loads(row[5]) if row[5] else [],
+                    'created_at': row[6],
+                    'updated_at': row[7],
+                    'created_by': row[8],
+                    'is_default': bool(row[9]),
+                    'schema_version': row[10]
+                }
+            return None
+        except Exception as e:
+            self.logger.error("Error getting dashboard by ID", error=str(e), dashboard_id=dashboard_id)
+            return None
+
+    @db_operation(None)
+    def get_dashboard_by_uid(self, uid: str) -> Optional[Dict[str, Any]]:
+        """Get a specific dashboard by UID."""
+        if not self.sqlite_conn:
+            return None
+        
+        try:
+            cursor = self.sqlite_conn.execute("""
+                SELECT id, uid, title, description, config, tags, created_at, updated_at, created_by, is_default, schema_version
+                FROM dashboards
+                WHERE uid = ?
+            """, (uid,))
+            
+            row = cursor.fetchone()
+            if row:
+                return {
+                    'id': row[0],
+                    'uid': row[1],
+                    'title': row[2],
+                    'description': row[3],
+                    'config': json.loads(row[4]) if row[4] else {},
+                    'tags': json.loads(row[5]) if row[5] else [],
+                    'created_at': row[6],
+                    'updated_at': row[7],
+                    'created_by': row[8],
+                    'is_default': bool(row[9]),
+                    'schema_version': row[10]
+                }
+            return None
+        except Exception as e:
+            self.logger.error("Error getting dashboard by UID", error=str(e), uid=uid)
+            return None
+
+    @db_operation(False)
+    def create_dashboard(self, dashboard_data: Dict[str, Any]) -> bool:
+        """Create a new dashboard."""
+        if not self.sqlite_conn:
+            return False
+        
+        try:
+            # Generate UID if not provided
+            if 'uid' not in dashboard_data:
+                import uuid
+                dashboard_data['uid'] = str(uuid.uuid4())
+            
+            # Ensure required fields
+            required_fields = ['id', 'uid', 'title', 'config']
+            for field in required_fields:
+                if field not in dashboard_data:
+                    self.logger.error("Missing required field for dashboard creation", field=field)
+                    return False
+            
+            self.sqlite_conn.execute("""
+                INSERT INTO dashboards 
+                (id, uid, title, description, config, tags, created_at, updated_at, created_by, is_default, schema_version)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                dashboard_data['id'],
+                dashboard_data['uid'],
+                dashboard_data['title'],
+                dashboard_data.get('description', ''),
+                json.dumps(dashboard_data['config']),
+                json.dumps(dashboard_data.get('tags', [])),
+                dashboard_data.get('created_at', datetime.now().isoformat()),
+                dashboard_data.get('updated_at', datetime.now().isoformat()),
+                dashboard_data.get('created_by', 'system'),
+                dashboard_data.get('is_default', False),
+                dashboard_data.get('schema_version', 1)
+            ))
+            
+            self.sqlite_conn.commit()
+            self.logger.info("Dashboard created successfully", dashboard_id=dashboard_data['id'])
+            return True
+        except Exception as e:
+            self.logger.error("Error creating dashboard", error=str(e), dashboard_data=dashboard_data)
+            return False
+
+    @db_operation(False)
+    def update_dashboard(self, dashboard_id: str, dashboard_data: Dict[str, Any]) -> bool:
+        """Update an existing dashboard."""
+        if not self.sqlite_conn:
+            return False
+        
+        try:
+            # Check if dashboard exists
+            existing = self.get_dashboard_by_id(dashboard_id)
+            if not existing:
+                self.logger.error("Dashboard not found for update", dashboard_id=dashboard_id)
+                return False
+            
+            # Update fields
+            update_fields = []
+            params = []
+            
+            if 'title' in dashboard_data:
+                update_fields.append("title = ?")
+                params.append(dashboard_data['title'])
+            
+            if 'description' in dashboard_data:
+                update_fields.append("description = ?")
+                params.append(dashboard_data['description'])
+            
+            if 'config' in dashboard_data:
+                update_fields.append("config = ?")
+                params.append(json.dumps(dashboard_data['config']))
+            
+            if 'tags' in dashboard_data:
+                update_fields.append("tags = ?")
+                params.append(json.dumps(dashboard_data['tags']))
+            
+            if 'is_default' in dashboard_data:
+                update_fields.append("is_default = ?")
+                params.append(dashboard_data['is_default'])
+            
+            # Always update the updated_at timestamp
+            update_fields.append("updated_at = ?")
+            params.append(datetime.now().isoformat())
+            
+            if update_fields:
+                params.append(dashboard_id)
+                query = f"UPDATE dashboards SET {', '.join(update_fields)} WHERE id = ?"
+                self.sqlite_conn.execute(query, params)
+                self.sqlite_conn.commit()
+                
+                self.logger.info("Dashboard updated successfully", dashboard_id=dashboard_id)
+                return True
+            
+            return False
+        except Exception as e:
+            self.logger.error("Error updating dashboard", error=str(e), dashboard_id=dashboard_id)
+            return False
+
+    @db_operation(False)
+    def delete_dashboard(self, dashboard_id: str) -> bool:
+        """Delete a dashboard."""
+        if not self.sqlite_conn:
+            return False
+        
+        try:
+            # Check if dashboard exists
+            existing = self.get_dashboard_by_id(dashboard_id)
+            if not existing:
+                self.logger.error("Dashboard not found for deletion", dashboard_id=dashboard_id)
+                return False
+            
+            self.sqlite_conn.execute("DELETE FROM dashboards WHERE id = ?", (dashboard_id,))
+            self.sqlite_conn.commit()
+            
+            self.logger.info("Dashboard deleted successfully", dashboard_id=dashboard_id)
+            return True
+        except Exception as e:
+            self.logger.error("Error deleting dashboard", error=str(e), dashboard_id=dashboard_id)
+            return False
+
+    @db_operation(False)
+    def set_default_dashboard(self, dashboard_id: str) -> bool:
+        """Set a dashboard as the default dashboard."""
+        if not self.sqlite_conn:
+            return False
+        
+        try:
+            # First, unset all other dashboards as default
+            self.sqlite_conn.execute("UPDATE dashboards SET is_default = 0")
+            
+            # Set the specified dashboard as default
+            self.sqlite_conn.execute("UPDATE dashboards SET is_default = 1 WHERE id = ?", (dashboard_id,))
+            self.sqlite_conn.commit()
+            
+            self.logger.info("Default dashboard set successfully", dashboard_id=dashboard_id)
+            return True
+        except Exception as e:
+            self.logger.error("Error setting default dashboard", error=str(e), dashboard_id=dashboard_id)
+            return False
+
+    @db_operation(None)
+    def get_default_dashboard(self) -> Optional[Dict[str, Any]]:
+        """Get the default dashboard."""
+        if not self.sqlite_conn:
+            return None
+        
+        try:
+            cursor = self.sqlite_conn.execute("""
+                SELECT id, uid, title, description, config, tags, created_at, updated_at, created_by, is_default, schema_version
+                FROM dashboards
+                WHERE is_default = 1
+                LIMIT 1
+            """)
+            
+            row = cursor.fetchone()
+            if row:
+                return {
+                    'id': row[0],
+                    'uid': row[1],
+                    'title': row[2],
+                    'description': row[3],
+                    'config': json.loads(row[4]) if row[4] else {},
+                    'tags': json.loads(row[5]) if row[5] else [],
+                    'created_at': row[6],
+                    'updated_at': row[7],
+                    'created_by': row[8],
+                    'is_default': bool(row[9]),
+                    'schema_version': row[10]
+                }
+            return None
+        except Exception as e:
+            self.logger.error("Error getting default dashboard", error=str(e))
+            return None
+
+    def create_default_dashboards(self) -> None:
+        """Create default dashboards if none exist."""
+        if not self.sqlite_conn:
+            return
+        
+        try:
+            # Check if any dashboards exist
+            cursor = self.sqlite_conn.execute("SELECT COUNT(*) FROM dashboards")
+            count = cursor.fetchone()[0]
+            
+            if count > 0:
+                self.logger.info("Dashboards already exist, skipping default creation")
+                return
+            
+            self.logger.info("Creating default dashboards")
+            
+            # Default System Overview Dashboard
+            system_overview_config = {
+                "panels": [
+                    {
+                        "id": "panel-1",
+                        "type": "stat",
+                        "title": "System Health",
+                        "gridPos": {"x": 0, "y": 0, "w": 4, "h": 2},
+                        "options": {
+                            "query": "SELECT COUNT(*) FROM metrics WHERE metric_name = 'system_health'",
+                            "unit": "status"
+                        }
+                    },
+                    {
+                        "id": "panel-2",
+                        "type": "timeseries",
+                        "title": "Performance Metrics",
+                        "gridPos": {"x": 4, "y": 0, "w": 4, "h": 2},
+                        "options": {
+                            "query": "SELECT * FROM metrics WHERE metric_name IN ('cpu_usage', 'memory_usage')",
+                            "lineWidth": 2
+                        }
+                    },
+                    {
+                        "id": "panel-3",
+                        "type": "table",
+                        "title": "Recent Events",
+                        "gridPos": {"x": 8, "y": 0, "w": 4, "h": 2},
+                        "options": {
+                            "query": "SELECT * FROM events ORDER BY timestamp DESC LIMIT 10"
+                        }
+                    }
+                ],
+                "refresh": "30s",
+                "time": {
+                    "from": "now-1h",
+                    "to": "now"
+                }
+            }
+            
+            self.create_dashboard({
+                'id': 'system-overview',
+                'uid': 'system-overview-001',
+                'title': 'System Overview',
+                'description': 'Main dashboard showing system health and key metrics',
+                'config': system_overview_config,
+                'tags': ['system', 'overview', 'health'],
+                'is_default': True
+            })
+            
+            # Performance Analytics Dashboard
+            performance_config = {
+                "panels": [
+                    {
+                        "id": "panel-1",
+                        "type": "timeseries",
+                        "title": "CPU Usage Over Time",
+                        "gridPos": {"x": 0, "y": 0, "w": 6, "h": 3},
+                        "options": {
+                            "query": "SELECT * FROM metrics WHERE metric_name = 'cpu_usage'",
+                            "lineWidth": 3,
+                            "fillOpacity": 0.1
+                        }
+                    },
+                    {
+                        "id": "panel-2",
+                        "type": "timeseries",
+                        "title": "Memory Usage Over Time",
+                        "gridPos": {"x": 6, "y": 0, "w": 6, "h": 3},
+                        "options": {
+                            "query": "SELECT * FROM metrics WHERE metric_name = 'memory_usage'",
+                            "lineWidth": 3,
+                            "fillOpacity": 0.1
+                        }
+                    },
+                    {
+                        "id": "panel-3",
+                        "type": "stat",
+                        "title": "Average Response Time",
+                        "gridPos": {"x": 0, "y": 3, "w": 4, "h": 2},
+                        "options": {
+                            "query": "SELECT AVG(metric_value) FROM metrics WHERE metric_name = 'response_time'",
+                            "unit": "ms"
+                        }
+                    },
+                    {
+                        "id": "panel-4",
+                        "type": "stat",
+                        "title": "Error Rate",
+                        "gridPos": {"x": 4, "y": 3, "w": 4, "h": 2},
+                        "options": {
+                            "query": "SELECT COUNT(*) FROM events WHERE event_name = 'error'",
+                            "unit": "errors/min"
+                        }
+                    },
+                    {
+                        "id": "panel-5",
+                        "type": "table",
+                        "title": "Performance Alerts",
+                        "gridPos": {"x": 8, "y": 3, "w": 4, "h": 2},
+                        "options": {
+                            "query": "SELECT * FROM events WHERE event_name LIKE '%alert%' ORDER BY timestamp DESC LIMIT 5"
+                        }
+                    }
+                ],
+                "refresh": "15s",
+                "time": {
+                    "from": "now-6h",
+                    "to": "now"
+                }
+            }
+            
+            self.create_dashboard({
+                'id': 'performance-analytics',
+                'uid': 'performance-analytics-001',
+                'title': 'Performance Analytics',
+                'description': 'Detailed performance metrics and analysis',
+                'config': performance_config,
+                'tags': ['performance', 'analytics', 'metrics']
+            })
+            
+            # Network Monitoring Dashboard
+            network_config = {
+                "panels": [
+                    {
+                        "id": "panel-1",
+                        "type": "stat",
+                        "title": "Network Status",
+                        "gridPos": {"x": 0, "y": 0, "w": 3, "h": 2},
+                        "options": {
+                            "query": "SELECT status FROM network_status WHERE id = 1",
+                            "unit": "status"
+                        }
+                    },
+                    {
+                        "id": "panel-2",
+                        "type": "timeseries",
+                        "title": "Network Traffic",
+                        "gridPos": {"x": 3, "y": 0, "w": 6, "h": 2},
+                        "options": {
+                            "query": "SELECT * FROM metrics WHERE metric_name IN ('bytes_in', 'bytes_out')",
+                            "lineWidth": 2
+                        }
+                    },
+                    {
+                        "id": "panel-3",
+                        "type": "stat",
+                        "title": "Active Connections",
+                        "gridPos": {"x": 9, "y": 0, "w": 3, "h": 2},
+                        "options": {
+                            "query": "SELECT COUNT(*) FROM active_connections",
+                            "unit": "connections"
+                        }
+                    },
+                    {
+                        "id": "panel-4",
+                        "type": "table",
+                        "title": "Network Events",
+                        "gridPos": {"x": 0, "y": 2, "w": 12, "h": 3},
+                        "options": {
+                            "query": "SELECT * FROM events WHERE event_name LIKE '%network%' ORDER BY timestamp DESC LIMIT 10"
+                        }
+                    }
+                ],
+                "refresh": "10s",
+                "time": {
+                    "from": "now-30m",
+                    "to": "now"
+                }
+            }
+            
+            self.create_dashboard({
+                'id': 'network-monitoring',
+                'uid': 'network-monitoring-001',
+                'title': 'Network Monitoring',
+                'description': 'Real-time network status and connectivity',
+                'config': network_config,
+                'tags': ['network', 'monitoring', 'connectivity']
+            })
+            
+            self.logger.info("Default dashboards created successfully")
+            
+        except Exception as e:
+            self.logger.error("Error creating default dashboards", error=str(e))
+
+    def ensure_dashboards_table_exists(self) -> bool:
+        """Ensure the dashboards table exists, create it if it doesn't."""
+        if not self.sqlite_conn:
+            return False
+        
+        try:
+            # Check if dashboards table exists
+            cursor = self.sqlite_conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='dashboards'")
+            table_exists = cursor.fetchone() is not None
+            
+            if not table_exists:
+                self.logger.info("Creating dashboards table")
+                self.sqlite_conn.execute("""
+                    CREATE TABLE dashboards (
+                        id TEXT PRIMARY KEY,
+                        uid TEXT UNIQUE NOT NULL,
+                        title TEXT NOT NULL,
+                        description TEXT,
+                        config TEXT NOT NULL,
+                        tags TEXT,
+                        created_at TEXT DEFAULT (datetime('now', 'localtime')),
+                        updated_at TEXT DEFAULT (datetime('now', 'localtime')),
+                        created_by TEXT DEFAULT 'system',
+                        is_default BOOLEAN DEFAULT 0,
+                        schema_version INTEGER DEFAULT 1
+                    )
+                """)
+                self.sqlite_conn.execute("CREATE INDEX idx_dashboards_uid ON dashboards(uid)")
+                self.sqlite_conn.execute("CREATE INDEX idx_dashboards_title ON dashboards(title)")
+                self.sqlite_conn.execute("CREATE INDEX idx_dashboards_created_at ON dashboards(created_at)")
+                self.sqlite_conn.commit()
+                self.logger.info("Dashboards table created successfully")
+                return True
+            else:
+                self.logger.info("Dashboards table already exists")
+                return True
+                
+        except Exception as e:
+            self.logger.error("Error ensuring dashboards table exists", error=str(e))
+            return False

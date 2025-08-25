@@ -56,6 +56,32 @@ class SessionState(BaseModel):
     current_process: Optional[Dict[str, Any]] = None
     test_mode: bool = False
 
+# Dashboard API models
+class DashboardCreateRequest(BaseModel):
+    title: str
+    description: Optional[str] = None
+    config: Dict[str, Any]
+    tags: Optional[List[str]] = None
+
+class DashboardUpdateRequest(BaseModel):
+    title: Optional[str] = None
+    description: Optional[str] = None
+    config: Optional[Dict[str, Any]] = None
+    tags: Optional[List[str]] = None
+
+class DashboardResponse(BaseModel):
+    id: str
+    uid: str
+    title: str
+    description: Optional[str] = None
+    config: Dict[str, Any]
+    tags: List[str]
+    created_at: str
+    updated_at: str
+    created_by: str
+    is_default: bool
+    schema_version: int
+
 # Global variables for the backend services
 config: Optional[ConfigurationManager] = None
 logger: Optional[Any] = None
@@ -87,12 +113,29 @@ async def lifespan(app: FastAPI):
     if logger:
         logger.info("Database connected successfully")
     
+    # Ensure dashboards table exists
+    db_service.ensure_dashboards_table_exists()
+    
     # Link database service to config manager
     config.link_database_service(db_service)
     
     # Initialize main controller
     controller = MainController(config, logger, db_service=db_service)
     controller.start_background_operations()
+    
+    # Start the loading sequence
+    controller.loading_manager.start_loading()
+    controller.loading_manager.mark_step_complete('database')
+    controller.loading_manager.mark_step_complete('emulator_service')
+    controller.loading_manager.mark_step_complete('frida_service')
+    controller.loading_manager.mark_step_complete('hook_scripts')
+    
+    # Simulate some startup time for services
+    import asyncio
+    await asyncio.sleep(2)  # Simulate 2 seconds of startup time
+    
+    # Signal that the API server is ready
+    controller.signal_loading_complete()
     
     if logger:
         logger.info("TowerIQ API Server started successfully")
@@ -147,7 +190,8 @@ async def get_status():
                 current_device=session_state.get("current_device"),
                 current_process=session_state.get("current_process"),
                 test_mode=controller._test_mode
-            )
+            ),
+            "loading_complete": controller.loading_manager.is_loading_complete()
         }
     except Exception as e:
         if logger:
@@ -723,6 +767,211 @@ async def restart_adb_server():
         if logger:
             logger.error("Error restarting ADB server", error=str(e))
         raise HTTPException(status_code=500, detail=f"Failed to restart ADB server: {str(e)}")
+
+# --- Dashboard Management Endpoints ---
+
+@app.get("/api/dashboards", response_model=List[DashboardResponse])
+async def get_dashboards():
+    """Get all dashboards."""
+    try:
+        if not db_service:
+            raise HTTPException(status_code=503, detail="Database service not available")
+        
+        dashboards = db_service.get_all_dashboards()
+        return dashboards
+        
+    except Exception as e:
+        if logger:
+            logger.error("Error getting dashboards", error=str(e))
+        raise HTTPException(status_code=500, detail=f"Failed to get dashboards: {str(e)}")
+
+@app.get("/api/dashboards/{dashboard_id}", response_model=DashboardResponse)
+async def get_dashboard(dashboard_id: str):
+    """Get a specific dashboard by ID."""
+    try:
+        if not db_service:
+            raise HTTPException(status_code=503, detail="Database service not available")
+        
+        dashboard = db_service.get_dashboard_by_id(dashboard_id)
+        if not dashboard:
+            raise HTTPException(status_code=404, detail="Dashboard not found")
+        
+        return dashboard
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        if logger:
+            logger.error("Error getting dashboard", error=str(e), dashboard_id=dashboard_id)
+        raise HTTPException(status_code=500, detail=f"Failed to get dashboard: {str(e)}")
+
+@app.post("/api/dashboards", response_model=DashboardResponse)
+async def create_dashboard(request: DashboardCreateRequest):
+    """Create a new dashboard."""
+    try:
+        if not db_service:
+            raise HTTPException(status_code=503, detail="Database service not available")
+        
+        import uuid
+        dashboard_id = str(uuid.uuid4())
+        
+        dashboard_data = {
+            'id': dashboard_id,
+            'title': request.title,
+            'description': request.description or '',
+            'config': request.config,
+            'tags': request.tags or [],
+            'created_by': 'system'
+        }
+        
+        success = db_service.create_dashboard(dashboard_data)
+        if not success:
+            raise HTTPException(status_code=500, detail="Failed to create dashboard")
+        
+        # Get the created dashboard
+        dashboard = db_service.get_dashboard_by_id(dashboard_id)
+        if not dashboard:
+            raise HTTPException(status_code=500, detail="Dashboard created but not found")
+        
+        return dashboard
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        if logger:
+            logger.error("Error creating dashboard", error=str(e))
+        raise HTTPException(status_code=500, detail=f"Failed to create dashboard: {str(e)}")
+
+@app.put("/api/dashboards/{dashboard_id}", response_model=DashboardResponse)
+async def update_dashboard(dashboard_id: str, request: DashboardUpdateRequest):
+    """Update an existing dashboard."""
+    try:
+        if not db_service:
+            raise HTTPException(status_code=503, detail="Database service not available")
+        
+        # Check if dashboard exists
+        existing = db_service.get_dashboard_by_id(dashboard_id)
+        if not existing:
+            raise HTTPException(status_code=404, detail="Dashboard not found")
+        
+        # Prepare update data
+        update_data = {}
+        if request.title is not None:
+            update_data['title'] = request.title
+        if request.description is not None:
+            update_data['description'] = request.description
+        if request.config is not None:
+            update_data['config'] = request.config
+        if request.tags is not None:
+            update_data['tags'] = request.tags
+        
+        success = db_service.update_dashboard(dashboard_id, update_data)
+        if not success:
+            raise HTTPException(status_code=500, detail="Failed to update dashboard")
+        
+        # Get the updated dashboard
+        dashboard = db_service.get_dashboard_by_id(dashboard_id)
+        if not dashboard:
+            raise HTTPException(status_code=500, detail="Dashboard updated but not found")
+        
+        return dashboard
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        if logger:
+            logger.error("Error updating dashboard", error=str(e), dashboard_id=dashboard_id)
+        raise HTTPException(status_code=500, detail=f"Failed to update dashboard: {str(e)}")
+
+@app.delete("/api/dashboards/{dashboard_id}")
+async def delete_dashboard(dashboard_id: str):
+    """Delete a dashboard."""
+    try:
+        if not db_service:
+            raise HTTPException(status_code=503, detail="Database service not available")
+        
+        # Check if dashboard exists
+        existing = db_service.get_dashboard_by_id(dashboard_id)
+        if not existing:
+            raise HTTPException(status_code=404, detail="Dashboard not found")
+        
+        success = db_service.delete_dashboard(dashboard_id)
+        if not success:
+            raise HTTPException(status_code=500, detail="Failed to delete dashboard")
+        
+        return {"message": "Dashboard deleted successfully"}
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        if logger:
+            logger.error("Error deleting dashboard", error=str(e), dashboard_id=dashboard_id)
+        raise HTTPException(status_code=500, detail=f"Failed to delete dashboard: {str(e)}")
+
+@app.post("/api/dashboards/{dashboard_id}/set-default")
+async def set_default_dashboard(dashboard_id: str):
+    """Set a dashboard as the default dashboard."""
+    try:
+        if not db_service:
+            raise HTTPException(status_code=503, detail="Database service not available")
+        
+        # Check if dashboard exists
+        existing = db_service.get_dashboard_by_id(dashboard_id)
+        if not existing:
+            raise HTTPException(status_code=404, detail="Dashboard not found")
+        
+        success = db_service.set_default_dashboard(dashboard_id)
+        if not success:
+            raise HTTPException(status_code=500, detail="Failed to set default dashboard")
+        
+        return {"message": "Default dashboard set successfully"}
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        if logger:
+            logger.error("Error setting default dashboard", error=str(e), dashboard_id=dashboard_id)
+        raise HTTPException(status_code=500, detail=f"Failed to set default dashboard: {str(e)}")
+
+@app.get("/api/dashboards/default", response_model=DashboardResponse)
+async def get_default_dashboard():
+    """Get the default dashboard."""
+    try:
+        if not db_service:
+            raise HTTPException(status_code=503, detail="Database service not available")
+        
+        dashboard = db_service.get_default_dashboard()
+        if not dashboard:
+            raise HTTPException(status_code=404, detail="No default dashboard found")
+        
+        return dashboard
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        if logger:
+            logger.error("Error getting default dashboard", error=str(e))
+        raise HTTPException(status_code=500, detail=f"Failed to get default dashboard: {str(e)}")
+
+@app.post("/api/dashboards/ensure-table")
+async def ensure_dashboards_table():
+    """Ensure the dashboards table exists in the database."""
+    try:
+        if not db_service:
+            raise HTTPException(status_code=503, detail="Database service not available")
+        
+        success = db_service.ensure_dashboards_table_exists()
+        if success:
+            return {"message": "Dashboards table ensured successfully"}
+        else:
+            raise HTTPException(status_code=500, detail="Failed to ensure dashboards table")
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        if logger:
+            logger.error("Error ensuring dashboards table", error=str(e))
+        raise HTTPException(status_code=500, detail=f"Failed to ensure dashboards table: {str(e)}")
 
 def start_server(host: str = "127.0.0.1", port: int = 8000):
     """Start the FastAPI server."""

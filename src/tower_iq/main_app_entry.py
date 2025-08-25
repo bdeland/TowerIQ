@@ -102,20 +102,30 @@ def main() -> None:
         config.link_database_service(db_service)
         logger.info("Database service linked to configuration manager")
         
+        # Instantiate Main Controller (database already connected)
+        controller = MainController(config, logger, db_service=db_service)
+        controller._test_mode = test_mode
+        controller._test_mode_replay = test_mode_replay
+        controller._test_mode_generate = test_mode_generate
+        
+        # Start the loading sequence
+        controller.loading_manager.start_loading()
+        controller.loading_manager.mark_step_complete('database')
+        
+        # Mark emulator service as ready
+        controller.loading_manager.mark_step_complete('emulator_service')
+        
+        # Mark Frida service as ready
+        controller.loading_manager.mark_step_complete('frida_service')
+        
+        # Mark hook scripts as ready
+        controller.loading_manager.mark_step_complete('hook_scripts')
+        
         # Initialize PyQt Application
         app = QApplication(sys.argv)
         app.setFont(QFont("Roboto", 11))
         app.setApplicationName("TowerIQ")
         app.setApplicationVersion("1.0")
-
-        # Instantiate Main Controller (database already connected)
-        if test_db_path is not None:
-            controller = MainController(config, logger, db_path=str(test_db_path), db_service=db_service)
-        else:
-            controller = MainController(config, logger, db_service=db_service)
-        controller._test_mode = test_mode
-        controller._test_mode_replay = test_mode_replay
-        controller._test_mode_generate = test_mode_generate
 
         # Database service is already connected and linked
         

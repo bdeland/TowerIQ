@@ -458,6 +458,120 @@ QWidget#LockedSubstatRow BodyLabel#LockedText {{
 }}
 """
 
+# Grafana-style main window and navigation styles
+GRAFANA_MAIN_WINDOW_QSS = """
+FluentWindow {{
+    background-color: {main_bg};
+}}
+
+/* Sidebar styling */
+FluentWindow NavigationInterface {{
+    background-color: {sidebar_bg};
+    border-right: 1px solid {card_border};
+}}
+
+/* Sidebar header */
+FluentWindow NavigationInterface QWidget#navigationHeader {{
+    background-color: {sidebar_bg};
+    border-bottom: 1px solid {card_border};
+    padding: 16px;
+}}
+
+/* Navigation items */
+FluentWindow NavigationInterface NavigationItem {{
+    background-color: transparent;
+    border: none;
+    padding: 12px 16px;
+    margin: 1px 8px;
+    border-radius: 4px;
+    color: {text_color};
+    font-size: 14px;
+    font-weight: 500;
+}}
+
+FluentWindow NavigationInterface NavigationItem:hover {{
+    background-color: rgba(255, 255, 255, 0.04);
+}}
+
+FluentWindow NavigationInterface NavigationItem:checked {{
+    background-color: rgba(247, 149, 32, 0.1);
+    border-left: 4px solid {active_indicator};
+    color: {active_indicator};
+    font-weight: 600;
+}}
+
+/* Navigation item icons */
+FluentWindow NavigationInterface NavigationItem QLabel {{
+    color: {text_color};
+    font-size: 16px;
+}}
+
+FluentWindow NavigationInterface NavigationItem:checked QLabel {{
+    color: {active_indicator};
+}}
+
+/* Nested navigation items */
+FluentWindow NavigationInterface NavigationItem[level="1"] {{
+    padding-left: 32px;
+    font-size: 13px;
+}}
+
+/* Header styling */
+QWidget#HeaderWidget {{
+    background-color: {header_bg};
+    border-bottom: 1px solid {card_border};
+    padding: 0px;
+}}
+
+/* Main content area styling */
+FluentWindow QStackedWidget {{
+    background-color: {main_bg};
+}}
+
+FluentWindow QWidget#contentWidget {{
+    background-color: {main_bg};
+}}
+
+QWidget#HeaderWidget QHBoxLayout {{
+    background-color: transparent;
+    padding: 8px 24px;
+}}
+
+/* Logo button styling */
+QWidget#HeaderWidget QPushButton#logoButton {{
+    background-color: transparent;
+    border: none;
+    padding: 8px;
+    border-radius: 4px;
+}}
+
+QWidget#HeaderWidget QPushButton#logoButton:hover {{
+    background-color: rgba(255, 255, 255, 0.04);
+}}
+
+/* Breadcrumb styling */
+QWidget#HeaderWidget BreadcrumbBar {{
+    background-color: transparent;
+    border: none;
+    color: {text_color};
+    font-size: 14px;
+}}
+
+/* Search bar styling */
+QWidget#HeaderWidget SearchLineEdit {{
+    background-color: {sub_card_bg};
+    border: 1px solid {card_border};
+    border-radius: 4px;
+    padding: 8px 12px;
+    color: {text_color};
+    font-size: 14px;
+}}
+
+QWidget#HeaderWidget SearchLineEdit:focus {{
+    border: 1px solid {accent_color};
+}}
+"""
+
 # Styles for the modules page
 MODULES_PAGE_QSS = """
 #FiltersSection, #TableSection {{
@@ -576,40 +690,42 @@ THEME_COLORS = {
         'accent_color': '#007bff',
     },
     'dark': {
-        'card_bg': '#2d2d2d',
-        'card_border': '#404040',
-        'card_hover_bg': '#3a3a3a',
-        'card_hover_border': '#505050',
-        'sub_card_bg': '#2d2d2d',
-        'sub_card_border': '#404040',
+        # Grafana-inspired dark theme colors
+        'card_bg': '#202226',  # Grafana sidebar/card background
+        'card_border': '#343434',  # Grafana border color
+        'card_hover_bg': '#2a2a2a',
+        'card_hover_border': '#404040',
+        'sub_card_bg': '#202226',
+        'sub_card_border': '#343434',
         # Module view colors
-        'secondary_text': '#565656',
-        #'substat_row_bg': '#292929',
-        #'substat_row_border': '#505050',
+        'secondary_text': '#8e8e8e',
         'rarity_pill_bg': '#555555',
         'rarity_pill_text': '#ffffff',
         'rarity_pill_border': '#404040',
-        #'locked_substat_bg': '#2a2a2a',
-        #'locked_substat_border': '#404040',
         'unique_effect_bg': '#3a2f1a',
         'unique_effect_border': '#5a4a2a',
         'unique_effect_text': '#ffae00',
         # Pivot colors
-        'pivot_item_bg': '#3a3a3a',
-        'pivot_item_border': '#11a8cd',
+        'pivot_item_bg': '#2a2a2a',
+        'pivot_item_border': '#343434',
         'pivot_item_text': '#e0e0e0',
-        'pivot_item_hover_bg': '#4a4a4a',
-        'pivot_item_hover_border': '#5a5a5a',
+        'pivot_item_hover_bg': '#3a3a3a',
+        'pivot_item_hover_border': '#404040',
         'pivot_item_hover_text': '#ffffff',
-        'pivot_item_selected_bg': '#0d6efd',
-        'pivot_item_selected_border': '#0a58ca',
+        'pivot_item_selected_bg': '#f79520',  # Grafana orange
+        'pivot_item_selected_border': '#f79520',
         'pivot_item_selected_text': '#ffffff',
-        'pivot_item_selected_hover_bg': '#0a58ca',
-        'pivot_item_selected_hover_border': '#084298',
+        'pivot_item_selected_hover_bg': '#e88a1d',
+        'pivot_item_selected_hover_border': '#e88a1d',
         'pivot_item_selected_hover_text': '#ffffff',
-        'divider_color': '#404040',
+        'divider_color': '#343434',
         'text_color': '#e0e0e0',
-        'accent_color': '#0d6efd',
+        'accent_color': '#f79520',  # Grafana orange
+        # Grafana-specific colors
+        'main_bg': '#111217',  # Grafana main background
+        'sidebar_bg': '#202226',  # Grafana sidebar background
+        'header_bg': '#202226',  # Grafana header background
+        'active_indicator': '#f79520',  # Grafana orange for active items
     }
 }
 
@@ -649,6 +765,7 @@ def get_themed_stylesheet() -> str:
     
     # --- CORRECTED: Unpack the dictionary with ** ---
     return (
+        GRAFANA_MAIN_WINDOW_QSS.format(**merged) +
         SETTINGS_CATEGORY_CARD_QSS.format(**merged) +
         SETTINGS_ITEM_CARD_QSS.format(**merged) +
         EXPANDABLE_CARD_GROUP_QSS.format(**merged) +

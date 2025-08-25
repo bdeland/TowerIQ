@@ -65,7 +65,7 @@ class MainWindow(FluentWindow):
         self.on_current_interface_changed(self.stackedWidget.currentIndex())
 
     def _create_and_add_pages(self):
-        """Initializes and adds all pages to the main window."""
+        """Initializes and adds all pages to the main window with Grafana-style navigation."""
         self.home_page = HomePage(self)
         self.home_page.setObjectName('home')
         self.dashboards_page = DashboardsPage(self)
@@ -84,10 +84,15 @@ class MainWindow(FluentWindow):
             'home': 'Home', 'dashboards': 'Dashboards', 'modules': 'Modules', 'connection': 'Connection', 'settings': 'Settings'
         }
 
-        # Add main navigation items
+        # Add main navigation items with Grafana-style organization
+        # Top section - Main navigation
         self.addSubInterface(self.home_page, FluentIcon.HOME, 'Home', position=NavigationItemPosition.TOP)
+        
+        # Middle section - Core features
         self.addSubInterface(self.dashboards_page, FluentIcon.TILES, 'Dashboards')
         self.addSubInterface(self.modules_page, FluentIcon.LIBRARY, 'Modules')
+        
+        # Bottom section - Configuration and connection
         self.addSubInterface(self.connection_page, FluentIcon.CONNECT, 'Connection', position=NavigationItemPosition.BOTTOM)
         self.addSubInterface(self.settings_page, FluentIcon.SETTING, 'Settings', position=NavigationItemPosition.BOTTOM)
         
@@ -101,6 +106,9 @@ class MainWindow(FluentWindow):
         
         # Connect breadcrumb navigation
         self.header.breadcrumb.currentItemChanged.connect(self.on_breadcrumb_item_changed)
+        
+        # Connect header sidebar toggle
+        self.header.sidebar_toggle_requested.connect(self.toggle_sidebar)
         
         # Connect connection page signals
         self.connection_page.scan_devices_requested.connect(self._on_scan_devices_requested)
@@ -127,10 +135,26 @@ class MainWindow(FluentWindow):
 
     def _initialize_theme(self):
         """Initializes the application theme from configuration."""
+        # Force dark theme for Grafana-style UI
+        setTheme(Theme.DARK)
+        
+        # Keep the original logic for future flexibility
         if self.config_manager:
             theme_map = {"light": Theme.LIGHT, "dark": Theme.DARK}
-            saved_theme = self.config_manager.get('gui.theme', 'auto')
-            setTheme(theme_map.get(saved_theme, Theme.AUTO))
+            saved_theme = self.config_manager.get('gui.theme', 'dark')  # Default to dark
+            setTheme(theme_map.get(saved_theme, Theme.DARK))
+    
+    def toggle_sidebar(self):
+        """Toggle the sidebar collapsed/expanded state."""
+        # FluentWindow has built-in sidebar toggle functionality
+        # We can access the navigation interface and toggle its state
+        if hasattr(self, 'navigationInterface'):
+            # Toggle the sidebar state
+            current_width = self.navigationInterface.width()
+            if current_width > 100:  # If expanded, collapse
+                self.navigationInterface.setFixedWidth(64)
+            else:  # If collapsed, expand
+                self.navigationInterface.setFixedWidth(240)
     
     def init_window(self):
         """Initialize the window after all pages are created."""

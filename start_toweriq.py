@@ -163,21 +163,19 @@ def main():
     frontend_process = None
     
     try:
-        # Start backend server
-        backend_process = start_backend_server()
-        if not backend_process:
-            logger.error("Failed to start backend server. Exiting.")
-            return 1
-        
-        # Wait for backend to be healthy
-        if not check_backend_health():
-            logger.error("Backend server is not responding. Exiting.")
-            return 1
-        
-        # Start Tauri frontend
+        # Start Tauri frontend FIRST (with splash screen)
         frontend_process = start_tauri_frontend()
         if not frontend_process:
             logger.error("Failed to start Tauri frontend. Exiting.")
+            return 1
+        
+        # Give frontend a moment to start up
+        time.sleep(2)
+        
+        # Start backend server in background
+        backend_process = start_backend_server()
+        if not backend_process:
+            logger.error("Failed to start backend server. Exiting.")
             return 1
         
         logger.info("TowerIQ is now running", 
