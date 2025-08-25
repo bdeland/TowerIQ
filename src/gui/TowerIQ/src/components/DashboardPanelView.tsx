@@ -5,15 +5,17 @@ import {
   CircularProgress, 
   Alert, 
   IconButton, 
-  Menu, 
+  Popover, 
   MenuItem, 
+  MenuList,
   ListItemIcon, 
   ListItemText,
   Dialog,
   DialogTitle,
   DialogContent,
   DialogActions,
-  Button
+  Button,
+  Paper
 } from '@mui/material';
 import { 
   MoreVert as MoreVertIcon,
@@ -52,9 +54,8 @@ const DashboardPanelView: React.FC<DashboardPanelViewProps> = ({
   const chartRef = useRef<ReactECharts>(null);
   
   // Menu state
-  const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
+  const [menuOpen, setMenuOpen] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
-  const menuOpen = Boolean(anchorEl);
 
   // Fetch data from backend based on panel query
   const fetchPanelData = async () => {
@@ -179,20 +180,51 @@ const DashboardPanelView: React.FC<DashboardPanelViewProps> = ({
     }
   }, [queryResult, panel.echartsOption]);
 
-  const handlePanelClick = () => {
-    if (isEditMode && onClick) {
-      onClick();
+  // Close menu when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      // Check if the click is outside the menu and not on the menu button
+      const target = event.target as Element;
+      const menuButton = document.getElementById(`panel-menu-button-${panel.id}`);
+      const menuElement = document.getElementById(`panel-menu-${panel.id}`);
+      
+      if (menuOpen && 
+          !menuButton?.contains(target) && 
+          !menuElement?.contains(target)) {
+        setMenuOpen(false);
+      }
+    };
+
+    if (menuOpen) {
+      document.addEventListener('mousedown', handleClickOutside);
     }
-  };
+
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [menuOpen, panel.id]);
+
+
 
   // Menu handlers
   const handleMenuClick = (event: React.MouseEvent<HTMLElement>) => {
     event.stopPropagation(); // Prevent panel click when clicking menu
-    setAnchorEl(event.currentTarget);
+    setMenuOpen(!menuOpen); // Toggle menu state
   };
 
   const handleMenuClose = () => {
-    setAnchorEl(null);
+    setMenuOpen(false);
+  };
+
+  // Close menu when clicking outside
+  const handlePanelClick = (event: React.MouseEvent) => {
+    if (isEditMode && onClick) {
+      onClick();
+    }
+    // Close menu if clicking outside the menu area
+    if (menuOpen) {
+      setMenuOpen(false);
+    }
   };
 
   const handleView = () => {
@@ -242,7 +274,8 @@ const DashboardPanelView: React.FC<DashboardPanelViewProps> = ({
         minHeight: '28px',
         maxHeight: '28px',
         borderTopLeftRadius: 'inherit',
-        borderTopRightRadius: 'inherit'
+        borderTopRightRadius: 'inherit',
+        position: 'relative' // Ensure proper positioning context
       }}
     >
       <Typography 
@@ -256,12 +289,17 @@ const DashboardPanelView: React.FC<DashboardPanelViewProps> = ({
         {panel.title}
       </Typography>
       <IconButton
+        id={`panel-menu-button-${panel.id}`}
         size="small"
         onClick={handleMenuClick}
+        aria-controls={menuOpen ? `panel-menu-${panel.id}` : undefined}
+        aria-haspopup="true"
+        aria-expanded={menuOpen ? 'true' : undefined}
         sx={{ 
           padding: '4px',
           color: 'text.secondary',
           borderRadius: 0.25, // Rectangle shape instead of circle
+          position: 'relative', // Ensure proper positioning context
           '&:hover': {
             backgroundColor: 'action.hover',
             color: 'text.primary'
@@ -276,76 +314,77 @@ const DashboardPanelView: React.FC<DashboardPanelViewProps> = ({
   // Context Menu
   const ContextMenu = () => (
     <>
-      <Menu
-        anchorEl={anchorEl}
-        open={menuOpen}
-        onClose={handleMenuClose}
-        anchorOrigin={{
-          vertical: 'bottom',
-          horizontal: 'right',
-        }}
-        transformOrigin={{
-          vertical: 'top',
-          horizontal: 'right',
-        }}
-        slotProps={{
-          paper: {
-            sx: {
-              minWidth: 140,
-              backgroundColor: 'background.paper',
-              boxShadow: '0px 4px 16px rgba(0,0,0,0.3)',
-              border: '1px solid',
-              borderColor: 'divider'
-            }
-          }
-        }}
-      >
-        <MenuItem 
-          onClick={handleView} 
-          sx={{ 
-            fontSize: '0.875rem',
-            color: 'text.primary',
-            '&:hover': {
-              backgroundColor: 'action.hover'
-            }
-          }}
-        >
-          <ListItemIcon sx={{ minWidth: '32px', color: 'text.secondary' }}>
-            <ViewIcon fontSize="small" />
-          </ListItemIcon>
-          <ListItemText primary="View" />
-        </MenuItem>
-        <MenuItem 
-          onClick={handleEdit} 
-          sx={{ 
-            fontSize: '0.875rem',
-            color: 'text.primary',
-            '&:hover': {
-              backgroundColor: 'action.hover'
-            }
-          }}
-        >
-          <ListItemIcon sx={{ minWidth: '32px', color: 'text.secondary' }}>
-            <EditIcon fontSize="small" />
-          </ListItemIcon>
-          <ListItemText primary="Edit" />
-        </MenuItem>
-        <MenuItem 
-          onClick={handleRemove} 
-          sx={{ 
-            fontSize: '0.875rem', 
-            color: 'error.main',
-            '&:hover': {
-              backgroundColor: 'action.hover'
-            }
-          }}
-        >
-          <ListItemIcon sx={{ minWidth: '32px' }}>
-            <DeleteIcon fontSize="small" color="error" />
-          </ListItemIcon>
-          <ListItemText primary="Remove" />
-        </MenuItem>
-      </Menu>
+             {menuOpen && (
+         <Box
+           id={`panel-menu-${panel.id}`}
+           onClick={(e) => e.stopPropagation()} // Prevent closing when clicking inside menu
+           sx={{
+             position: 'absolute',
+             top: '28px', // Position below the header
+             right: '0px',
+             zIndex: 1000,
+             minWidth: 140,
+             backgroundColor: 'background.paper',
+             boxShadow: '0px 4px 16px rgba(0,0,0,0.3)',
+             border: '1px solid',
+             borderColor: 'divider',
+             borderRadius: 0.25,
+             overflow: 'hidden'
+           }}
+         >
+                  <MenuList
+            autoFocusItem={menuOpen}
+            id={`panel-menu-list-${panel.id}`}
+            aria-labelledby={`panel-menu-button-${panel.id}`}
+          >
+            <MenuItem 
+              onClick={handleView} 
+              sx={{ 
+                fontSize: '0.875rem',
+                color: 'text.primary',
+                '&:hover': {
+                  backgroundColor: 'action.hover'
+                }
+              }}
+            >
+              <ListItemIcon sx={{ minWidth: '32px', color: 'text.secondary' }}>
+                <ViewIcon fontSize="small" />
+              </ListItemIcon>
+              <ListItemText primary="View" />
+            </MenuItem>
+            <MenuItem 
+              onClick={handleEdit} 
+              sx={{ 
+                fontSize: '0.875rem',
+                color: 'text.primary',
+                '&:hover': {
+                  backgroundColor: 'action.hover'
+                }
+              }}
+            >
+              <ListItemIcon sx={{ minWidth: '32px', color: 'text.secondary' }}>
+                <EditIcon fontSize="small" />
+              </ListItemIcon>
+              <ListItemText primary="Edit" />
+            </MenuItem>
+            <MenuItem 
+              onClick={handleRemove} 
+              sx={{ 
+                fontSize: '0.875rem', 
+                color: 'error.main',
+                '&:hover': {
+                  backgroundColor: 'action.hover'
+                }
+              }}
+            >
+              <ListItemIcon sx={{ minWidth: '32px' }}>
+                <DeleteIcon fontSize="small" color="error" />
+              </ListItemIcon>
+              <ListItemText primary="Remove" />
+            </MenuItem>
+          </MenuList>
+        </Box>
+      )}
 
       {/* Delete Confirmation Dialog */}
       <Dialog open={deleteDialogOpen} onClose={handleDeleteCancel}>
@@ -448,45 +487,43 @@ const DashboardPanelView: React.FC<DashboardPanelViewProps> = ({
 
   // Unified panel container
   return (
-    <>
-      <Box
-        sx={{
-          width: '100%',
-          height: '100%',
-          border: isEditMode ? '1px solid' : '1px solid',
-          borderColor: isEditMode ? 'divider' : 'divider',
-          borderRadius: 0.25,
-          cursor: isEditMode ? 'pointer' : 'default',
-          backgroundColor: 'background.paper',
-          '&:hover': isEditMode ? { 
-            borderColor: 'primary.light',
-            boxShadow: '0 2px 8px rgba(247, 149, 32, 0.2)'
-          } : {
-            boxShadow: '0 1px 3px rgba(0, 0, 0, 0.12)'
-          },
-          display: 'flex',
-          flexDirection: 'column',
-          overflow: 'hidden',
-          position: 'relative' // Add relative positioning for resize handle
-        }}
-        onClick={handlePanelClick}
-      >
-        <PanelHeader />
-        
-        <Box sx={{ 
-          flex: 1, 
-          backgroundColor: 'background.paper',
-          display: 'flex',
-          flexDirection: 'column',
-          position: 'relative',
-          minHeight: 0
-        }}>
-          {renderPanelContent()}
-        </Box>
-
+    <Box
+      sx={{
+        width: '100%',
+        height: '100%',
+        border: isEditMode ? '1px solid' : '1px solid',
+        borderColor: isEditMode ? 'divider' : 'divider',
+        borderRadius: 0.25,
+        cursor: isEditMode ? 'pointer' : 'default',
+        backgroundColor: 'background.paper',
+        '&:hover': isEditMode ? { 
+          borderColor: 'primary.light',
+          boxShadow: '0 2px 8px rgba(247, 149, 32, 0.2)'
+        } : {
+          boxShadow: '0 1px 3px rgba(0, 0, 0, 0.12)'
+        },
+        display: 'flex',
+        flexDirection: 'column',
+        overflow: 'visible', // Change from 'hidden' to 'visible' to allow popover to show
+        position: 'relative' // Add relative positioning for resize handle
+      }}
+      onClick={handlePanelClick}
+    >
+      <PanelHeader />
+      
+      <Box sx={{ 
+        flex: 1, 
+        backgroundColor: 'background.paper',
+        display: 'flex',
+        flexDirection: 'column',
+        position: 'relative',
+        minHeight: 0
+      }}>
+        {renderPanelContent()}
       </Box>
+
       <ContextMenu />
-    </>
+    </Box>
   );
 };
 
