@@ -1,31 +1,18 @@
 import { useState, useEffect } from 'react';
-import { BrowserRouter as Router, Routes, Route, useNavigate, useLocation } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
 import {
-  AppBar,
   Box,
   CssBaseline,
-  Drawer,
-  IconButton,
-  List,
-  ListItem,
-  ListItemButton,
-  ListItemIcon,
-  ListItemText,
-  Toolbar,
   ThemeProvider,
   createTheme,
-  Tooltip,
 } from '@mui/material';
 import {
-  Menu as MenuIcon,
   Home as HomeIcon,
   Dashboard as DashboardIcon,
   Settings as SettingsIcon,
   Explore as ExploreIcon,
   History as HistoryIcon,
   Smartphone as SmartphoneIcon,
-  ViewSidebar as ViewSidebarIcon,
-  ViewSidebarOutlined as ViewSidebarOutlinedIcon,
 } from '@mui/icons-material';
 import { HomePage } from './pages/HomePage';
 import { DashboardsPage } from './pages/DashboardsPage';
@@ -34,32 +21,51 @@ import { ExplorePage } from './pages/ExplorePage';
 import { HistoryPage } from './pages/HistoryPage';
 import { SettingsPage } from './pages/SettingsPage';
 import { ConnectionPage } from './pages/ConnectionPage';
-import { Breadcrumbs } from './components/Breadcrumbs';
-import { SearchBar } from './components/SearchBar';
+
 import SplashScreen from './components/SplashScreen';
+import { Header } from './components/Header';
+import { Sidebar } from './components/Sidebar';
 import { DashboardProvider } from './contexts/DashboardContext';
 
 import './App.css';
+
+// Centralized layout configuration
+const layout = {
+  appBarHeight: 40,
+  drawerWidth: 240,
+  border: '1px solid #343434',
+  borderColor: '#343434',
+  backgroundColor: {
+    main: '#111217',      // Grafana's main background
+    paper: '#202226',     // Grafana's sidebar/card background
+  },
+  colors: {
+    primary: '#f79520',   // Grafana's orange
+    secondary: '#ff6464',
+    textPrimary: '#e0e0e0',
+    textSecondary: '#8e8e8e',
+  }
+};
 
 // Create a Grafana-inspired dark theme
 const theme = createTheme({
   palette: {
     // Don't use mode: 'dark' to avoid Material-UI's default dark theme
     primary: {
-      main: '#f79520', // Grafana's orange
+      main: layout.colors.primary,
     },
     secondary: {
-      main: '#ff6464',
+      main: layout.colors.secondary,
     },
     background: {
-      default: '#111217', // Grafana's main background
-      paper: '#202226',   // Grafana's sidebar/card background
+      default: layout.backgroundColor.main,
+      paper: layout.backgroundColor.paper,
     },
     text: {
-      primary: '#e0e0e0',
-      secondary: '#8e8e8e',
+      primary: layout.colors.textPrimary,
+      secondary: layout.colors.textSecondary,
     },
-    divider: '#343434', // Grafana's border color
+    divider: layout.borderColor,
     // Explicitly set dark theme colors to avoid Material-UI defaults
     action: {
       active: '#e0e0e0',
@@ -127,44 +133,16 @@ const theme = createTheme({
         },
         // Global override for all drawer papers
         '.MuiDrawer-paper': {
-          backgroundColor: '#202226 !important',
-        },
-        // Specific override for temporary variant
-        '.MuiDrawer-temporary .MuiDrawer-paper': {
-          backgroundColor: '#202226 !important',
-        },
-        // Specific override for permanent variant
-        '.MuiDrawer-permanent .MuiDrawer-paper': {
-          backgroundColor: '#202226 !important',
-        },
-        // More aggressive overrides for Material-UI dark theme
-        '[data-mui-color-scheme="dark"] .MuiDrawer-paper': {
-          backgroundColor: '#202226 !important',
-        },
-        '[data-mui-color-scheme="dark"] .MuiDrawer-temporary .MuiDrawer-paper': {
-          backgroundColor: '#202226 !important',
-        },
-        // Target the specific Material-UI dark theme classes
-        '.MuiDrawer-paper.MuiPaper-root': {
-          backgroundColor: '#202226 !important',
-        },
-        // Force override any Material-UI dark theme background
-        '.MuiDrawer-paper[style*="background"]': {
-          backgroundColor: '#202226 !important',
+          backgroundColor: theme.palette.background.paper,
         },
       }),
     },
     MuiAppBar: {
       styleOverrides: {
         root: {
-          backgroundColor: '#202226 !important', // Force our theme color
+          backgroundColor: layout.backgroundColor.paper,
           boxShadow: 'none', // Remove shadow to make it flat
-          borderTop: '1px solid #343434', // Add top border
-          borderBottom: '1px solid #343434', // Add bottom border
-          height: `${appBarHeight}px !important`, // Force exact height
-          minHeight: `${appBarHeight}px !important`, // Force exact min height
-          maxHeight: `${appBarHeight}px !important`, // Force exact max height
-          boxSizing: 'border-box !important', // Include borders in height calculation
+          // Don't set borders or height here - let individual components handle it
         },
       },
     },
@@ -188,34 +166,26 @@ const theme = createTheme({
     MuiDrawer: {
       styleOverrides: {
         paper: {
-          backgroundColor: '#202226 !important', // Force our theme color
-        },
-        root: {
-          '& .MuiDrawer-paper': {
-            backgroundColor: '#202226 !important',
-          },
+          backgroundColor: layout.backgroundColor.paper,
         },
       },
     },
     MuiToolbar: {
       styleOverrides: {
         root: {
-          backgroundColor: '#202226 !important', // Ensure toolbar matches
+          backgroundColor: layout.backgroundColor.paper,
         },
       },
     },
     MuiPaper: {
       styleOverrides: {
         root: {
-          backgroundColor: '#202226 !important', // Ensure all paper components use our color
+          backgroundColor: layout.backgroundColor.paper,
         },
       },
     },
   },
 });
-
-const drawerWidth = 240;
-const appBarHeight = 40; // Single source of truth for AppBar height
 
 // Navigation items with routes - Grafana-style organization
 const navigationItems = [
@@ -232,11 +202,36 @@ function DashboardLayout() {
   // Updated state management according to requirements
   const [sidebarHidden, setSidebarHidden] = useState(true); // Manages the hidden state - default to hidden
   const [sidebarDocked, setSidebarDocked] = useState(false); // Manages the docked state
-  const navigate = useNavigate();
-  const location = useLocation();
-  
-  // Ref for dynamic positioning (optional - for future flexibility)
-  const firstAppBarRef = useState<HTMLElement | null>(null)[0];
+
+
+
+  // Shared transition configuration for synchronized animations
+  const sharedTransition = (theme: any) => theme.transitions.create(['margin', 'width'], {
+    easing: theme.transitions.easing.sharp,
+    duration: theme.transitions.duration.enteringScreen,
+  });
+
+  // Dynamic layout calculations - single source of truth
+  const getLayoutStyles = () => {
+    const baseStyles = {
+      width: sidebarDocked && !sidebarHidden ? `calc(100% - ${layout.drawerWidth}px)` : '100%',
+      marginLeft: sidebarDocked && !sidebarHidden ? `${layout.drawerWidth}px` : 0,
+    };
+    
+    return {
+      appBar: {
+        ...baseStyles,
+        zIndex: (theme: any) => sidebarDocked ? theme.zIndex.drawer + 1 : 1,
+        transition: sharedTransition,
+      },
+      mainContent: {
+        ...baseStyles,
+        transition: sharedTransition,
+      }
+    };
+  };
+
+  const layoutStyles = getLayoutStyles();
 
   // Shared styles for sidebar list items to ensure consistency
   const listItemButtonStyles = {
@@ -263,12 +258,12 @@ function DashboardLayout() {
   };
 
   const sidebarHeaderStyles = {
-    minHeight: '40px',
-    height: '40px', // Slightly larger to account for 200% scaling
-    maxHeight: '40px', // Force maximum height
+    minHeight: `${layout.appBarHeight + 1}px`,
+    height: `${layout.appBarHeight + 1}px`,
+    maxHeight: `${layout.appBarHeight + 1}px`,
     px: 1, // Match listItemButtonStyles px
-    borderTop: '1px solid #343434', // Add top border
-    borderBottom: '1px solid #343434', // Use the divider color directly
+    borderTop: layout.border,
+    borderBottom: layout.border,
     display: 'flex',
     alignItems: 'center',
     boxSizing: 'border-box', // Include borders in the height calculation
@@ -294,278 +289,48 @@ function DashboardLayout() {
     }
   };
 
-  const handleNavigation = (path: string) => {
-    navigate(path);
-    // Close sidebar when not docked (overlay mode)
-    if (!sidebarDocked) {
-      setSidebarHidden(true);
-    }
-  };
+
 
   return (
     <ThemeProvider theme={theme}>
       <Box sx={{ display: 'flex' }}>
         <CssBaseline />
-        <AppBar
-          position="fixed"
-          sx={{
-              width: { 
-              sm: sidebarDocked 
-                ? (sidebarHidden 
-                    ? '100%' 
-                    : `calc(100% - ${drawerWidth}px)`) // Span from sidebar to right edge when docked
-                : '100%' // Full width when not docked (overlay mode)
-            },
-            zIndex: (theme) => sidebarDocked ? theme.zIndex.drawer + 1 : 1,
-            ml: { 
-              sm: sidebarDocked 
-                ? (sidebarHidden 
-                    ? 0 
-                    : `${drawerWidth}px`) // Position AppBar after sidebar when docked
-                : 0 // No margin when not docked (overlay mode)
-            },
-            // Override theme to remove bottom border from first AppBar
-            borderBottom: 'none !important',
-            '& .MuiToolbar-root': {
-              minHeight: '40px !important', // 40px AppBar - 1px border = 39px
-              height: '40px !important',
-              paddingLeft: '1 !important',
-              paddingRight: "12px !important",
-              paddingTop: "0 !important",
-              paddingBottom: "0 !important"
-            }
-          }}
-        >
-          <Toolbar sx={{ 
-            display: 'flex', 
-            alignItems: 'center', 
-            justifyContent: 'space-between',
-            borderBottom: '1px solid #343434', // Add bottom border
-          }}>
-            {/* Main Menu Toggle Icon - Show when not docked or when docked and hidden */}
-            <IconButton
-              aria-label="toggle sidebar"
-              onClick={handleSidebarToggle}
-              sx={{ 
-                ...listItemIconStyles,
-                display: sidebarDocked ? (sidebarHidden ? 'block' : 'none') : 'block',
-                color: 'text.primary', // Explicitly set color to match theme
-                marginLeft: '-8px', // Compensate for Toolbar's left padding
-                '&:hover': {
-                  backgroundColor: 'rgba(255, 255, 255, 0.04)',
-                }
-              }}
-            >
-              <MenuIcon />
-            </IconButton>
+        
+        <Header 
+          sidebarDocked={sidebarDocked}
+          sidebarHidden={sidebarHidden}
+          onSidebarToggle={handleSidebarToggle}
+          layoutStyles={layoutStyles}
+          layout={layout}
+          listItemIconStyles={listItemIconStyles}
+        />
 
-            {/* Breadcrumbs */}
-            <Box sx={{ flexGrow: 1, display: 'flex', alignItems: 'center' }}>
-              <Breadcrumbs />
-            </Box>
-
-            {/* Search Bar - Pushed to the right */}
-            <Box sx={{ 
-              marginLeft: 'auto',
-              margin: 0,
-              padding: 0,
-              marginRight: 0,
-              paddingRight: 0,
-            }}>
-              <SearchBar />
-            </Box>
-          </Toolbar>
-        </AppBar>
-
-        {/* Secondary Toolbar/AppBar */}
-        <AppBar
-          position="fixed"
-          sx={{
-            top: `${appBarHeight + 1}px`, // Position below the first AppBar (40px + 1px border)
-            width: { 
-              sm: sidebarDocked 
-                ? (sidebarHidden 
-                    ? '100%' 
-                    : `calc(100% - ${drawerWidth}px)`) // Span from sidebar to right edge when docked
-                : '100%' // Full width when not docked (overlay mode)
-            },
-            zIndex: (theme) => sidebarDocked ? theme.zIndex.drawer + 1 : 1,
-            ml: { 
-              sm: sidebarDocked 
-                ? (sidebarHidden 
-                    ? 0 
-                    : `${drawerWidth}px`) // Position AppBar after sidebar when docked
-                : 0 // No margin when not docked (overlay mode)
-            },
-            // Override theme to remove top border from second AppBar
-            borderTop: 'none !important',
-            '& .MuiToolbar-root': {
-              minHeight: '39px !important', // 40px AppBar - 1px border = 39px
-              height: '39px !important',
-              paddingLeft: '1 !important',
-              paddingRight: "12px !important",
-              paddingTop: "0 !important",
-              paddingBottom: "0 !important"
-            }
-          }}
-        >
-          <Toolbar sx={{ 
-            display: 'flex', 
-            alignItems: 'center', 
-            justifyContent: 'space-between',
-          }}>
-            {/* Secondary toolbar content - currently empty */}
-            <Box sx={{ flexGrow: 1, display: 'flex', alignItems: 'center' }}>
-              {/* Empty for now - add your controls here */}
-            </Box>
-          </Toolbar>
-        </AppBar>
-
-        {/* Sidebar */}
-        <Box
-          component="nav"
-          sx={{ 
-            width: sidebarDocked ? (sidebarHidden ? 0 : drawerWidth) : 0, 
-            flexShrink: 0,
-            height: '100vh',
-            position: sidebarDocked ? 'fixed' : 'relative',
-            top: sidebarDocked ? 0 : 'auto',
-            left: sidebarDocked ? 0 : 'auto',
-            zIndex: sidebarDocked ? (theme) => theme.zIndex.drawer : 'auto',
-          }}
-        >
-          {/* Desktop drawer - Grafana Style */}
-          <Drawer
-            variant={sidebarDocked ? "permanent" : "temporary"}
-            open={!sidebarHidden}
-            onClose={() => {
-              if (!sidebarDocked) {
-                setSidebarHidden(true);
-              }
-            }}
-            ModalProps={{
-              keepMounted: true,
-              // Add backdrop for overlay mode
-              BackdropProps: {
-                invisible: sidebarDocked,
-              },
-            }}
-            sx={{
-              '& .MuiDrawer-paper': { 
-                  boxSizing: 'border-box', 
-                  width: sidebarHidden ? 0 : drawerWidth,
-                  overflowX: 'hidden',
-                  backgroundColor: '#202226 !important', // Force our theme color
-                  // When not docked, ensure it overlays content and spans full height
-                  position: sidebarDocked ? 'relative' : 'fixed',
-                  top: sidebarDocked ? 'auto' : 0,
-                  height: sidebarDocked ? '100vh' : '100vh',
-                  zIndex: sidebarDocked ? 'auto' : 9999,
-                },
-              // Additional specificity for temporary variant
-              '&.MuiDrawer-temporary .MuiDrawer-paper': {
-                backgroundColor: '#202226 !important',
-              },
-              '&.MuiDrawer-temporary': {
-                '& .MuiDrawer-paper': {
-                  backgroundColor: '#202226 !important',
-                },
-              },
-              // Force override any Material-UI dark theme styles
-              '& .MuiPaper-root.MuiDrawer-paper': {
-                backgroundColor: '#202226 !important',
-              },
-              // Target the specific temporary drawer paper
-              '&[data-variant="temporary"] .MuiDrawer-paper': {
-                backgroundColor: '#202226 !important',
-              },
-            }}
-          >
-            {/* Sidebar Header */}
-            <Box sx={sidebarHeaderStyles}>
-              {/* Hamburger Menu Toggle - Always show in sidebar when visible */}
-              <IconButton
-                color="inherit"
-                aria-label="toggle sidebar"
-                onClick={handleSidebarToggle}
-                sx={{ 
-                  ...listItemIconStyles,
-                  color: 'text.primary',
-                  '&:hover': {
-                    backgroundColor: 'rgba(255, 255, 255, 0.04)',
-                  },
-                }}
-              >
-                <MenuIcon />
-              </IconButton>
-              
-              {/* TowerIQ Text */}
-              <Box sx={{ fontWeight: 600, color: 'text.primary', flexGrow: 1 }}>TowerIQ</Box>
-              
-              {/* Dock/Undock Button - Aligned to the right */}
-              <Tooltip title={sidebarDocked ? "Undock menu" : "Dock menu"} placement="bottom">
-                <IconButton
-                  color={sidebarDocked ? "primary" : "inherit"}
-                  aria-label={sidebarDocked ? "undock sidebar" : "dock sidebar"}
-                  onClick={handleDockToggle}
-                  sx={{ 
-                    ...listItemIconStyles,
-                    color: sidebarDocked ? 'primary.main' : 'text.primary',
-                    marginLeft: 'auto', // Push to the right
-                    marginRight: 0, // Ensure no right margin
-                    '&:hover': {
-                      backgroundColor: 'rgba(255, 255, 255, 0.04)',
-                    },
-                  }}
-                >
-                  {sidebarDocked ? <ViewSidebarIcon /> : <ViewSidebarOutlinedIcon />}
-                </IconButton>
-              </Tooltip>
-            </Box>
-
-            <List sx={{ pt: 1 }}>
-              {navigationItems.map((item) => (
-                <ListItem key={item.text} disablePadding>
-                  <ListItemButton
-                    selected={location.pathname === item.path}
-                    onClick={() => handleNavigation(item.path)}
-                    sx={listItemButtonStyles}
-                  >
-                    <ListItemIcon sx={listItemIconStyles}>
-                      {item.icon}
-                    </ListItemIcon>
-                    <ListItemText primary={item.text} sx={listItemTextStyles} />
-                  </ListItemButton>
-                </ListItem>
-              ))}
-            </List>
-          </Drawer>
-        </Box>
+        <Sidebar
+          sidebarDocked={sidebarDocked}
+          sidebarHidden={sidebarHidden}
+          onSidebarToggle={handleSidebarToggle}
+          onDockToggle={handleDockToggle}
+          navigationItems={navigationItems}
+          layout={layout}
+          listItemButtonStyles={listItemButtonStyles}
+          listItemIconStyles={listItemIconStyles}
+          listItemTextStyles={listItemTextStyles}
+          sidebarHeaderStyles={sidebarHeaderStyles}
+        />
 
         {/* Main content - Grafana Style */}
         <Box
           component="main"
           sx={{
             flexGrow: 1,
-            pt: `${(appBarHeight * 2) + 4}px`, // Add top padding to account for both AppBar heights plus spacing
+            pt: `${layout.appBarHeight * 2 - 10}px`, // Add top padding to account for combined AppBar height (80px) plus spacing
             pb: 2,
-            px: 3,
-            width: sidebarDocked 
-              ? (sidebarHidden 
-                  ? '100%' // Full width when hidden
-                  : `calc(100% - ${drawerWidth}px)`) // Adjust for expanded sidebar
-              : '100%', // Full width when not docked (overlay mode)
-            // The margin-left is only needed for the docked state
-            ml: sidebarDocked 
-              ? (sidebarHidden 
-                  ? 0 
-                  : `${drawerWidth}px`) // For docked sidebar that pushes content
-              : 0, // No margin when not docked (overlay mode)
+            px: 0,
             height: '100vh',
             overflowY: 'auto',
             display: 'flex',
             flexDirection: 'column',
-            transition: 'margin-left 0.15s ease-in-out',
+            ...layoutStyles.mainContent,
           }}
         >
 
