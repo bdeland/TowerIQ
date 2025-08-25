@@ -453,8 +453,8 @@ const DashboardPanelView: React.FC<DashboardPanelViewProps> = ({
         sx={{
           width: '100%',
           height: '100%',
-          border: isEditMode ? '2px dashed' : '1px solid',
-          borderColor: isEditMode ? 'primary.main' : 'divider',
+          border: isEditMode ? '1px solid' : '1px solid',
+          borderColor: isEditMode ? 'divider' : 'divider',
           borderRadius: 0.25,
           cursor: isEditMode ? 'pointer' : 'default',
           backgroundColor: 'background.paper',
@@ -466,7 +466,8 @@ const DashboardPanelView: React.FC<DashboardPanelViewProps> = ({
           },
           display: 'flex',
           flexDirection: 'column',
-          overflow: 'hidden'
+          overflow: 'hidden',
+          position: 'relative' // Add relative positioning for resize handle
         }}
         onClick={handlePanelClick}
       >
@@ -482,6 +483,7 @@ const DashboardPanelView: React.FC<DashboardPanelViewProps> = ({
         }}>
           {renderPanelContent()}
         </Box>
+
       </Box>
       <ContextMenu />
     </>

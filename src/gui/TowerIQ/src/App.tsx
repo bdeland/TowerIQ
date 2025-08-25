@@ -119,6 +119,11 @@ const theme = createTheme({
   components: {
     MuiCssBaseline: {
       styleOverrides: (theme) => ({
+        ':root': {
+          // Expose theme colors as CSS custom properties for react-grid-layout
+          '--theme-text-secondary': theme.palette.text.secondary,
+          '--theme-primary-main': theme.palette.primary.main,
+        },
         body: {
           '&::-webkit-scrollbar': {
             width: '8px',
@@ -137,6 +142,13 @@ const theme = createTheme({
         // Global override for all drawer papers
         '.MuiDrawer-paper': {
           backgroundColor: theme.palette.background.paper,
+        },
+        // React Grid Layout resize handle styles - only SE (bottom-right) handle  
+        '.react-resizable-handle-se': {
+          opacity: 1.0,
+          transition: 'all 0.2s ease',
+          // Change the color of the existing handle to match theme
+          filter: 'brightness(0) saturate(100%) invert(56%) sepia(0%) saturate(0%) hue-rotate(0deg) brightness(89%) contrast(87%)',
         },
       }),
     },
@@ -326,7 +338,7 @@ function DashboardLayout() {
           component="main"
           sx={{
             flexGrow: 1,
-            pt: `${layout.appBarHeight * 2 - 10}px`, // Add top padding to account for combined AppBar height (80px) plus spacing
+            pt: `${layout.appBarHeight * 2 + 1}px`, // Add top padding to account for combined AppBar height (80px) plus borders (2px)
             pb: 2,
             px: 0,
             height: '100vh',

@@ -5,7 +5,9 @@ import {
   KeyboardArrowDown as ArrowDownIcon,
   BarChart as VisualizationIcon,
   ViewHeadline as RowIcon,
-  ContentPaste as PasteIcon
+  ContentPaste as PasteIcon,
+  Save as SaveIcon,
+  SaveAs as SaveAsIcon
 } from '@mui/icons-material';
 import { Breadcrumbs } from './Breadcrumbs';
 import { SearchBar } from './SearchBar';
@@ -47,7 +49,8 @@ export function Header({
       onAddVisualization: undefined,
       onAddRow: undefined,
       onPastePanel: undefined,
-      onSave: undefined
+      onSave: undefined,
+      onSaveAsCopy: undefined
     };
   }
   
@@ -59,10 +62,12 @@ export function Header({
     onAddVisualization,
     onAddRow,
     onPastePanel,
-    onSave
+    onSave,
+    onSaveAsCopy
   } = dashboardEditContext;
   
   const [addMenuAnchor, setAddMenuAnchor] = React.useState<null | HTMLElement>(null);
+  const [saveMenuAnchor, setSaveMenuAnchor] = React.useState<null | HTMLElement>(null);
 
   const handleAddMenuClick = (event: React.MouseEvent<HTMLElement>) => {
     setAddMenuAnchor(event.currentTarget);
@@ -93,12 +98,30 @@ export function Header({
     handleAddMenuClose();
   };
 
+  const handleSaveMenuClick = (event: React.MouseEvent<HTMLElement>) => {
+    setSaveMenuAnchor(event.currentTarget);
+  };
+
+  const handleSaveMenuClose = () => {
+    setSaveMenuAnchor(null);
+  };
+
   const handleSave = () => {
     if (onSave) {
       onSave();
     } else {
       console.log('Save dashboard clicked - no handler available');
     }
+    handleSaveMenuClose();
+  };
+
+  const handleSaveAsCopy = () => {
+    if (onSaveAsCopy) {
+      onSaveAsCopy();
+    } else {
+      console.log('Save as copy clicked - no handler available');
+    }
+    handleSaveMenuClose();
   };
   return (
     <AppBar
@@ -233,7 +256,7 @@ export function Header({
                 </Button>
                 <Button
                   variant="contained"
-                  onClick={handleSave}
+                  onClick={handleSaveMenuClick}
                   disabled={saving}
                   size="small"
                   endIcon={<ArrowDownIcon />}
@@ -297,6 +320,35 @@ export function Header({
                 <PasteIcon fontSize="small" />
               </ListItemIcon>
               <ListItemText primary="Paste Panel" />
+            </MenuItem>
+          </Menu>
+
+          {/* Save Menu */}
+          <Menu
+            anchorEl={saveMenuAnchor}
+            open={Boolean(saveMenuAnchor)}
+            onClose={handleSaveMenuClose}
+            slotProps={{
+              paper: {
+                sx: {
+                  backgroundColor: 'background.paper',
+                  border: '1px solid',
+                  borderColor: 'divider'
+                }
+              }
+            }}
+          >
+            <MenuItem onClick={handleSave}>
+              <ListItemIcon>
+                <SaveIcon fontSize="small" />
+              </ListItemIcon>
+              <ListItemText primary="Save" />
+            </MenuItem>
+            <MenuItem onClick={handleSaveAsCopy}>
+              <ListItemIcon>
+                <SaveAsIcon fontSize="small" />
+              </ListItemIcon>
+              <ListItemText primary="Save as copy" />
             </MenuItem>
           </Menu>
         </Box>

@@ -13,7 +13,7 @@ const ResponsiveGridLayout = WidthProvider(Responsive);
 export function DashboardViewPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const { fetchDashboard, currentDashboard, setCurrentDashboard, updateDashboard, loading, error, clearError } = useDashboard();
+  const { fetchDashboard, currentDashboard, setCurrentDashboard, updateDashboard, createDashboard, fetchDashboards, loading, error, clearError } = useDashboard();
   const { 
     setIsDashboardPage, 
     setIsEditMode: setContextEditMode, 
@@ -108,6 +108,52 @@ export function DashboardViewPage() {
     }
   }, [currentDashboard, id, panels, updateDashboard]);
 
+  const handleSaveAsCopy = useCallback(async () => {
+    if (!currentDashboard) return;
+    
+    setSaving(true);
+    try {
+      console.log('DashboardViewPage - Saving dashboard as copy with panels:', panels);
+      
+      // Create a new dashboard with " - Copy" appended to the name
+      const copyConfig = { 
+        ...currentDashboard.config, 
+        panels: panels.map(panel => ({
+          ...panel,
+          id: `${panel.id}-copy-${Date.now()}` // Ensure unique panel IDs
+        }))
+      };
+      
+      const copyDashboardRequest = {
+        title: `${currentDashboard.title} - Copy`,
+        description: currentDashboard.description || '',
+        config: copyConfig,
+        tags: currentDashboard.tags || []
+      };
+      
+      console.log('DashboardViewPage - Creating dashboard copy with data:', copyDashboardRequest);
+      
+      // Create the copy using the dashboard context
+      const newDashboard = await createDashboard(copyDashboardRequest);
+      
+      if (newDashboard) {
+        console.log('DashboardViewPage - Dashboard copy created successfully:', newDashboard);
+        
+        // Refresh the dashboard list so the copy appears
+        await fetchDashboards();
+        
+        // Navigate to the new dashboard
+        navigate(`/dashboard/${newDashboard.id}`);
+      } else {
+        console.error('DashboardViewPage - Failed to create dashboard copy');
+      }
+    } catch (error) {
+      console.error('DashboardViewPage - Error creating dashboard copy:', error);
+    } finally {
+      setSaving(false);
+    }
+  }, [currentDashboard, panels, navigate, createDashboard, fetchDashboards]);
+
   // Set up dashboard edit context with error handling
   useEffect(() => {
     try {
@@ -130,11 +176,12 @@ export function DashboardViewPage() {
         onAddRow: handleAddRow,
         onPastePanel: handlePastePanel,
         onSave: handleSave,
+        onSaveAsCopy: handleSaveAsCopy,
       });
     } catch (error) {
       console.error('Error setting edit handlers:', error);
     }
-  }, [setEditHandlers, handleEditModeToggle, handleAddVisualization, handleAddRow, handlePastePanel, handleSave]);
+  }, [setEditHandlers, handleEditModeToggle, handleAddVisualization, handleAddRow, handlePastePanel, handleSave, handleSaveAsCopy]);
 
   // Sync edit mode with context
   useEffect(() => {
@@ -266,14 +313,8 @@ export function DashboardViewPage() {
   }
 
   return (
-    <Box sx={{ padding: 3 }}>
-      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 3 }}>
-        <Typography variant="h4" component="h1">
-          {currentDashboard.title}
-        </Typography>
-      </Box>
-      
-      <Box sx={{ mt: 2 }}>
+    <Box sx={{ padding: '8px 8px 8px 8px' }}>
+      <Box sx={{ mt: 0 }}>
         <ResponsiveGridLayout
           className="layout"
           layouts={{ lg: panels.map(panel => ({
@@ -287,6 +328,7 @@ export function DashboardViewPage() {
           cols={{ lg: 12, md: 10, sm: 6, xs: 4, xxs: 2 }}
           rowHeight={100}
           margin={[8, 8]}
+          containerPadding={[0, 0]}
           onLayoutChange={onLayoutChange}
           isDraggable={isEditMode}
           isResizable={isEditMode}

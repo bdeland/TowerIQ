@@ -52,6 +52,20 @@ export interface DashboardCreateRequest {
   tags?: string[];
 }
 
+export interface DashboardCreateRequest {
+  title: string;
+  description?: string;
+  config: {
+    panels: DashboardPanel[];
+    refresh?: string;
+    time?: {
+      from: string;
+      to: string;
+    };
+  };
+  tags?: string[];
+}
+
 export interface DashboardUpdateRequest {
   title?: string;
   description?: string;

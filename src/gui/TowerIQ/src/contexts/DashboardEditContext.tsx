@@ -12,12 +12,14 @@ interface DashboardEditContextType {
   onAddRow?: () => void;
   onPastePanel?: () => void;
   onSave?: () => void;
+  onSaveAsCopy?: () => void;
   setEditHandlers: (handlers: {
     onEditToggle: () => void;
     onAddVisualization: () => void;
     onAddRow: () => void;
     onPastePanel: () => void;
     onSave: () => void;
+    onSaveAsCopy: () => void;
   }) => void;
 }
 
@@ -40,6 +42,7 @@ export const useDashboardEdit = () => {
       onAddRow: undefined,
       onPastePanel: undefined,
       onSave: undefined,
+      onSaveAsCopy: undefined,
       setEditHandlers: () => {},
     };
   }
@@ -60,6 +63,7 @@ export const DashboardEditProvider: React.FC<DashboardEditProviderProps> = ({ ch
     onAddRow?: () => void;
     onPastePanel?: () => void;
     onSave?: () => void;
+    onSaveAsCopy?: () => void;
   }>({});
 
   const handleSetEditHandlers = useCallback((handlers: {
@@ -68,6 +72,7 @@ export const DashboardEditProvider: React.FC<DashboardEditProviderProps> = ({ ch
     onAddRow: () => void;
     onPastePanel: () => void;
     onSave: () => void;
+    onSaveAsCopy: () => void;
   }) => {
     setEditHandlers(handlers);
   }, []);
@@ -84,6 +89,7 @@ export const DashboardEditProvider: React.FC<DashboardEditProviderProps> = ({ ch
     onAddRow: editHandlers.onAddRow,
     onPastePanel: editHandlers.onPastePanel,
     onSave: editHandlers.onSave,
+    onSaveAsCopy: editHandlers.onSaveAsCopy,
     setEditHandlers: handleSetEditHandlers,
   }), [
     isDashboardPage,
@@ -94,6 +100,7 @@ export const DashboardEditProvider: React.FC<DashboardEditProviderProps> = ({ ch
     editHandlers.onAddRow,
     editHandlers.onPastePanel,
     editHandlers.onSave,
+    editHandlers.onSaveAsCopy,
     handleSetEditHandlers
   ]);
 
