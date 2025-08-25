@@ -117,41 +117,58 @@ const theme = createTheme({
     borderRadius: 8,
   },
   components: {
-    MuiCssBaseline: {
-      styleOverrides: (theme) => ({
-        ':root': {
-          // Expose theme colors as CSS custom properties for react-grid-layout
-          '--theme-text-secondary': theme.palette.text.secondary,
-          '--theme-primary-main': theme.palette.primary.main,
+            MuiCssBaseline: {
+          styleOverrides: (theme) => ({
+            ':root': {
+              // Expose theme colors as CSS custom properties for react-grid-layout
+              '--theme-text-secondary': theme.palette.text.secondary,
+              '--theme-primary-main': theme.palette.primary.main,
+            },
+            body: {
+              '&::-webkit-scrollbar': {
+                width: '8px',
+              },
+              '&::-webkit-scrollbar-track': {
+                backgroundColor: theme.palette.background.paper,
+              },
+              '&::-webkit-scrollbar-thumb': {
+                backgroundColor: theme.palette.divider,
+                borderRadius: '4px',
+              },
+              '&::-webkit-scrollbar-thumb:hover': {
+                backgroundColor: '#404040', // A slightly lighter divider color on hover
+              },
+            },
+            // Global override for all drawer papers
+            '.MuiDrawer-paper': {
+              backgroundColor: theme.palette.background.paper,
+            },
+            // React Grid Layout resize handle styles - only SE (bottom-right) handle  
+            '.react-resizable-handle-se': {
+              opacity: 1.0,
+              transition: 'all 0.2s ease',
+              // Change the color of the existing handle to match theme
+              filter: 'brightness(0) saturate(100%) invert(56%) sepia(0%) saturate(0%) hue-rotate(0deg) brightness(89%) contrast(87%)',
+            },
+            // Breadcrumbs collapse button styling
+            '.MuiBreadcrumbs-collapsedButton': {
+              color: 'inherit !important',
+              backgroundColor: 'transparent !important',
+              border: 'none !important',
+              boxShadow: 'none !important',
+              '&:hover': {
+                backgroundColor: 'rgba(255, 255, 255, 0.04) !important',
+              },
+              '&:focus': {
+                backgroundColor: 'transparent !important',
+              }
+            },
+            '.MuiBreadcrumbs-collapsedIcon': {
+              color: 'inherit !important',
+              backgroundColor: 'transparent !important',
+            }
+          }),
         },
-        body: {
-          '&::-webkit-scrollbar': {
-            width: '8px',
-          },
-          '&::-webkit-scrollbar-track': {
-            backgroundColor: theme.palette.background.paper,
-          },
-          '&::-webkit-scrollbar-thumb': {
-            backgroundColor: theme.palette.divider,
-            borderRadius: '4px',
-          },
-          '&::-webkit-scrollbar-thumb:hover': {
-            backgroundColor: '#404040', // A slightly lighter divider color on hover
-          },
-        },
-        // Global override for all drawer papers
-        '.MuiDrawer-paper': {
-          backgroundColor: theme.palette.background.paper,
-        },
-        // React Grid Layout resize handle styles - only SE (bottom-right) handle  
-        '.react-resizable-handle-se': {
-          opacity: 1.0,
-          transition: 'all 0.2s ease',
-          // Change the color of the existing handle to match theme
-          filter: 'brightness(0) saturate(100%) invert(56%) sepia(0%) saturate(0%) hue-rotate(0deg) brightness(89%) contrast(87%)',
-        },
-      }),
-    },
     MuiAppBar: {
       styleOverrides: {
         root: {
@@ -220,7 +237,7 @@ function DashboardLayout() {
   const location = useLocation();
   
   // Check if we're on the PanelEditPage to remove bottom padding
-  const isPanelEditPage = location.pathname.includes('/panels/') && location.pathname.includes('/edit');
+  const isPanelEditPage = location.pathname.includes('/dashboard/') && location.pathname.includes('/panels/') && location.pathname.includes('/edit');
 
 
 
@@ -358,8 +375,8 @@ function DashboardLayout() {
             <Route path="/dashboards" element={<DashboardsPage />} />
             <Route path="/dashboard/:id" element={<DashboardViewPage />} />
             <Route path="/dashboards/:id" element={<DashboardViewPage />} />
-            <Route path="/panels/:panelId/view" element={<PanelViewPage />} />
-            <Route path="/panels/:panelId/edit" element={<PanelEditPage />} />
+            <Route path="/dashboard/:dashboardId/panels/:panelId/view" element={<PanelViewPage />} />
+            <Route path="/dashboard/:dashboardId/panels/:panelId/edit" element={<PanelEditPage />} />
             <Route path="/connection" element={<ConnectionPage />} />
             <Route path="/explore" element={<ExplorePage />} />
             <Route path="/history" element={<HistoryPage />} />

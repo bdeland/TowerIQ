@@ -19,7 +19,7 @@ import { useDashboard, DashboardPanel } from '../contexts/DashboardContext';
 import DashboardPanelView from '../components/DashboardPanelView';
 
 export function PanelViewPage() {
-  const { panelId } = useParams<{ panelId: string }>();
+  const { panelId, dashboardId } = useParams<{ panelId: string; dashboardId: string }>();
   const navigate = useNavigate();
   const { dashboards, fetchDashboards } = useDashboard();
   
@@ -30,8 +30,8 @@ export function PanelViewPage() {
 
   useEffect(() => {
     const findPanel = async () => {
-      if (!panelId) {
-        setError('Panel ID not provided');
+      if (!panelId || !dashboardId) {
+        setError('Panel ID or Dashboard ID not provided');
         setLoading(false);
         return;
       }
@@ -42,24 +42,21 @@ export function PanelViewPage() {
           await fetchDashboards();
         }
 
-        // Find the panel across all dashboards
-        let foundPanel: DashboardPanel | null = null;
-        let foundDashboard: any = null;
-
-        for (const dash of dashboards) {
-          const panelInDash = dash.config?.panels?.find((p: DashboardPanel) => p.id === panelId);
-          if (panelInDash) {
-            foundPanel = panelInDash;
-            foundDashboard = dash;
-            break;
-          }
+        // Find the specific dashboard first
+        const foundDashboard = dashboards.find(dash => dash.id === dashboardId);
+        if (!foundDashboard) {
+          setError(`Dashboard with ID "${dashboardId}" not found`);
+          setLoading(false);
+          return;
         }
 
-        if (foundPanel && foundDashboard) {
+        // Find the panel within that dashboard
+        const foundPanel = foundDashboard.config?.panels?.find((p: DashboardPanel) => p.id === panelId);
+        if (foundPanel) {
           setPanel(foundPanel);
           setDashboard(foundDashboard);
         } else {
-          setError(`Panel with ID "${panelId}" not found`);
+          setError(`Panel with ID "${panelId}" not found in dashboard "${foundDashboard.title}"`);
         }
       } catch (err) {
         setError('Failed to load panel');
@@ -70,10 +67,10 @@ export function PanelViewPage() {
     };
 
     findPanel();
-  }, [panelId, dashboards, fetchDashboards]);
+  }, [panelId, dashboardId, dashboards, fetchDashboards]);
 
   const handleEdit = () => {
-    navigate(`/panels/${panelId}/edit`);
+    navigate(`/dashboard/${dashboardId}/panels/${panelId}/edit`);
   };
 
   const handleBackToDashboard = () => {

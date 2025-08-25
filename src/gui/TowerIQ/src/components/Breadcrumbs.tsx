@@ -1,4 +1,4 @@
-import { Breadcrumbs as MuiBreadcrumbs, Link, Typography, Box } from '@mui/material';
+import { Breadcrumbs as MuiBreadcrumbs, Link, Typography, Box, useTheme, useMediaQuery } from '@mui/material';
 import { NavigateNext as NavigateNextIcon } from '@mui/icons-material';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useDashboard } from '../contexts/DashboardContext';
@@ -16,9 +16,14 @@ interface BreadcrumbsProps {
 export function Breadcrumbs({}: BreadcrumbsProps) {
   const navigate = useNavigate();
   const location = useLocation();
-  const { fetchDashboard } = useDashboard();
+  const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down('md'));
+  const isSmallScreen = useMediaQuery(theme.breakpoints.down('sm'));
+  const isExtraSmall = useMediaQuery(theme.breakpoints.down('xs'));
+  const { fetchDashboard, dashboards } = useDashboard();
   const [dashboardTitle, setDashboardTitle] = useState<string>('');
   const [isLoadingDashboard, setIsLoadingDashboard] = useState<boolean>(false);
+  const [panelTitle, setPanelTitle] = useState<string>('');
 
   // Get dashboard ID from URL
   const getDashboardIdFromUrl = () => {
@@ -30,9 +35,20 @@ export function Breadcrumbs({}: BreadcrumbsProps) {
     return null;
   };
 
+  // Get panel ID from URL
+  const getPanelIdFromUrl = () => {
+    const pathSegments = location.pathname.split('/').filter(Boolean);
+    const panelIndex = pathSegments.findIndex(segment => segment === 'panels');
+    if (panelIndex !== -1 && pathSegments[panelIndex + 1]) {
+      return pathSegments[panelIndex + 1];
+    }
+    return null;
+  };
+
   // Fetch dashboard title when URL changes
   useEffect(() => {
     const dashboardId = getDashboardIdFromUrl();
+    
     if (dashboardId) {
       console.log('Breadcrumb: Fetching dashboard for ID:', dashboardId);
       setIsLoadingDashboard(true);
@@ -58,6 +74,24 @@ export function Breadcrumbs({}: BreadcrumbsProps) {
     }
   }, [location.pathname, fetchDashboard]);
 
+  // Find panel title from dashboards
+  useEffect(() => {
+    const panelId = getPanelIdFromUrl();
+    if (panelId && dashboards.length > 0) {
+      let foundPanel = null;
+      for (const dashboard of dashboards) {
+        const panel = dashboard.config?.panels?.find((p: any) => p.id === panelId);
+        if (panel) {
+          foundPanel = panel;
+          break;
+        }
+      }
+      setPanelTitle(foundPanel?.title || 'Panel');
+    } else {
+      setPanelTitle('');
+    }
+  }, [location.pathname, dashboards]);
+
   // Generate breadcrumb items based on current path
   const getBreadcrumbItems = (): BreadcrumbItem[] => {
     const pathSegments = location.pathname.split('/').filter(Boolean);
@@ -69,6 +103,42 @@ export function Breadcrumbs({}: BreadcrumbsProps) {
     const items: BreadcrumbItem[] = [
       { label: 'Home', path: '/' }
     ];
+
+    // Special handling for panel edit page
+    if (pathSegments[0] === 'dashboard' && pathSegments[2] === 'panels' && pathSegments[4] === 'edit') {
+      // Panel edit page: Home > Dashboards > [Dashboard Name] > [Panel Name] > Edit
+      items.push({ label: 'Dashboards', path: '/dashboards' });
+      
+      if (dashboardTitle) {
+        const dashboardId = getDashboardIdFromUrl();
+        items.push({ label: dashboardTitle, path: `/dashboards/${dashboardId}` });
+      }
+      
+      if (panelTitle) {
+        const dashboardId = getDashboardIdFromUrl();
+        const panelId = getPanelIdFromUrl();
+        items.push({ label: panelTitle, path: `/dashboard/${dashboardId}/panels/${panelId}/view` });
+      }
+      
+      items.push({ label: 'Edit', path: location.pathname });
+      return items;
+    }
+
+    // Special handling for panel view page
+    if (pathSegments[0] === 'dashboard' && pathSegments[2] === 'panels' && pathSegments[4] === 'view') {
+      // Panel view page: Home > Dashboards > [Dashboard Name] > [Panel Name]
+      items.push({ label: 'Dashboards', path: '/dashboards' });
+      
+      if (dashboardTitle) {
+        const dashboardId = getDashboardIdFromUrl();
+        items.push({ label: dashboardTitle, path: `/dashboards/${dashboardId}` });
+      }
+      
+      if (panelTitle) {
+        items.push({ label: panelTitle, path: location.pathname });
+      }
+      return items;
+    }
 
     let currentPath = '';
     pathSegments.forEach((segment, index) => {
@@ -107,6 +177,70 @@ export function Breadcrumbs({}: BreadcrumbsProps) {
     navigate(path);
   };
 
+  // Progressive responsive maxItems based on screen size
+  const getMaxItems = () => {
+    if (isExtraSmall) return 2;
+    if (isSmallScreen) return 4;
+    if (isMobile) return 6;
+    return 8;
+  };
+
+  // Progressive responsive maxWidth for individual items
+  const getItemMaxWidth = () => {
+    if (isExtraSmall) return '80px';
+    if (isSmallScreen) return '120px';
+    if (isMobile) return '160px';
+    return '200px';
+  };
+
+  // Progressive collapse settings
+  const getCollapseSettings = () => {
+    if (isExtraSmall) {
+      return { itemsAfterCollapse: 1, itemsBeforeCollapse: 1 };
+    }
+    if (isSmallScreen) {
+      return { itemsAfterCollapse: 2, itemsBeforeCollapse: 1 };
+    }
+    if (isMobile) {
+      return { itemsAfterCollapse: 2, itemsBeforeCollapse: 1 };
+    }
+    return { itemsAfterCollapse: 2, itemsBeforeCollapse: 1 };
+  };
+
+  const collapseSettings = getCollapseSettings();
+
+  // Custom breadcrumb items with progressive collapse
+  const getVisibleBreadcrumbItems = () => {
+    const maxItems = getMaxItems();
+    const totalItems = breadcrumbItems.length;
+    
+    if (totalItems <= maxItems) {
+      return breadcrumbItems;
+    }
+    
+    // Show first item (Home) and last items, collapse middle
+    const itemsToShowAfter = collapseSettings.itemsAfterCollapse;
+    const itemsToShowBefore = collapseSettings.itemsBeforeCollapse;
+    
+    const visibleItems = [];
+    
+    // Always show first item
+    visibleItems.push(breadcrumbItems[0]);
+    
+    // Add collapse indicator if needed
+    if (totalItems > maxItems) {
+      visibleItems.push({ label: '...', path: '', isCollapsed: true });
+    }
+    
+    // Show last items
+    const lastItems = breadcrumbItems.slice(-itemsToShowAfter);
+    visibleItems.push(...lastItems);
+    
+    return visibleItems;
+  };
+
+  const visibleBreadcrumbItems = getVisibleBreadcrumbItems();
+
   return (
     <Box sx={{ 
       display: 'flex', 
@@ -114,35 +248,89 @@ export function Breadcrumbs({}: BreadcrumbsProps) {
       minWidth: 0,
       overflow: 'hidden',
       flex: 1,
-      maxWidth: '100%'
+      maxWidth: '100%',
+      paddingRight: 2, // Add right padding
+      [theme.breakpoints.down('xs')]: {
+        maxWidth: '200px',
+      },
+      [theme.breakpoints.down('sm')]: {
+        maxWidth: '300px',
+      },
+      [theme.breakpoints.down('md')]: {
+        maxWidth: '450px',
+      }
     }}>
       <MuiBreadcrumbs
-        maxItems={2}
-        itemsAfterCollapse={1}
-        itemsBeforeCollapse={1}
+        maxItems={visibleBreadcrumbItems.length}
         separator={<NavigateNextIcon fontSize="small" />}
         aria-label="breadcrumb"
         sx={{ 
           width: '100%',
-          maxWidth: '300px',
           overflow: 'hidden',
+          whiteSpace: 'nowrap',
           '& .MuiBreadcrumbs-ol': { 
             color: 'inherit',
             flexWrap: 'nowrap',
             overflow: 'hidden',
-            '& .MuiTypography-root': { color: 'inherit' },
-            '& .MuiLink-root': { color: 'inherit' }
+            whiteSpace: 'nowrap',
+            width: '100%',
+            '& .MuiTypography-root': { 
+              color: 'inherit',
+              whiteSpace: 'nowrap',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              maxWidth: getItemMaxWidth(),
+              minWidth: 'fit-content'
+            },
+            '& .MuiLink-root': { 
+              color: 'inherit',
+              whiteSpace: 'nowrap',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              maxWidth: getItemMaxWidth(),
+              minWidth: 'fit-content'
+            }
           }
         }}
       >
-        {breadcrumbItems.map((item, index) => {
-          const isLast = index === breadcrumbItems.length - 1;
+        {visibleBreadcrumbItems.map((item, index) => {
+          const isLast = index === visibleBreadcrumbItems.length - 1;
+          const isCollapsed = (item as any).isCollapsed;
+          
+          if (isCollapsed) {
+            return (
+              <Typography
+                key={`collapsed-${index}`}
+                color="inherit"
+                sx={{ 
+                  display: 'flex', 
+                  alignItems: 'center',
+                  whiteSpace: 'nowrap',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  maxWidth: getItemMaxWidth(),
+                  minWidth: 'fit-content',
+                  cursor: 'default'
+                }}
+              >
+                {item.label}
+              </Typography>
+            );
+          }
           
           return isLast ? (
             <Typography
               key={item.path}
               color="inherit"
-              sx={{ display: 'flex', alignItems: 'center' }}
+              sx={{ 
+                display: 'flex', 
+                alignItems: 'center',
+                whiteSpace: 'nowrap',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                maxWidth: getItemMaxWidth(),
+                minWidth: 'fit-content'
+              }}
             >
               {item.icon && <Box sx={{ mr: 0.5, display: 'flex', alignItems: 'center' }}>{item.icon}</Box>}
               {item.label}
@@ -160,6 +348,11 @@ export function Breadcrumbs({}: BreadcrumbsProps) {
                 display: 'flex',
                 alignItems: 'center',
                 textDecoration: 'none',
+                whiteSpace: 'nowrap',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                maxWidth: getItemMaxWidth(),
+                minWidth: 'fit-content',
                 '&:hover': {
                   textDecoration: 'underline',
                 },

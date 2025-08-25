@@ -227,7 +227,17 @@ const DashboardPanelView: React.FC<DashboardPanelViewProps> = ({
 
   const handleView = () => {
     handleMenuClose();
-    navigate(`/panels/${panel.id}/view`);
+    // Get dashboard ID from current URL or context
+    const pathSegments = window.location.pathname.split('/').filter(Boolean);
+    const dashboardIndex = pathSegments.findIndex(segment => segment === 'dashboard' || segment === 'dashboards');
+    const dashboardId = dashboardIndex !== -1 && pathSegments[dashboardIndex + 1] ? pathSegments[dashboardIndex + 1] : null;
+    
+    if (dashboardId) {
+      navigate(`/dashboard/${dashboardId}/panels/${panel.id}/view`);
+    } else {
+      // Fallback to old URL structure if dashboard ID not found
+      navigate(`/panels/${panel.id}/view`);
+    }
   };
 
   const handleEdit = () => {
@@ -235,7 +245,17 @@ const DashboardPanelView: React.FC<DashboardPanelViewProps> = ({
     if (onEdit) {
       onEdit(panel.id);
     } else {
-      navigate(`/panels/${panel.id}/edit`);
+      // Get dashboard ID from current URL or context
+      const pathSegments = window.location.pathname.split('/').filter(Boolean);
+      const dashboardIndex = pathSegments.findIndex(segment => segment === 'dashboard' || segment === 'dashboards');
+      const dashboardId = dashboardIndex !== -1 && pathSegments[dashboardIndex + 1] ? pathSegments[dashboardIndex + 1] : null;
+      
+      if (dashboardId) {
+        navigate(`/dashboard/${dashboardId}/panels/${panel.id}/edit`);
+      } else {
+        // Fallback to old URL structure if dashboard ID not found
+        navigate(`/panels/${panel.id}/edit`);
+      }
     }
   };
 
