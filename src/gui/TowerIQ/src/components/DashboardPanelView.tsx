@@ -97,10 +97,59 @@ const DashboardPanelView: React.FC<DashboardPanelViewProps> = ({
       return baseOption;
     }
 
+    // Helper function to intelligently map data columns
+    const getColumnMapping = (data: any[]) => {
+      if (data.length === 0) return { xAxis: null, yAxis: null, label: null };
+      
+      const firstRow = data[0];
+      const columns = Object.keys(firstRow);
+      
+      // Debug logging
+      console.log('Chart data structure:', {
+        firstRow,
+        columns,
+        dataLength: data.length
+      });
+      
+      // Try to find appropriate columns for different chart types
+      const mapping: any = {};
+      
+      // Use manual column mapping if provided, otherwise auto-detect
+      if (panel.columnMapping?.xAxis) {
+        mapping.xAxis = panel.columnMapping.xAxis;
+      } else {
+        // For x-axis (categories/labels)
+        mapping.xAxis = columns.find(col => 
+          ['category', 'name', 'label', 'title', 'id', 'type'].includes(col.toLowerCase())
+        ) || columns[0];
+      }
+      
+      if (panel.columnMapping?.yAxis) {
+        mapping.yAxis = panel.columnMapping.yAxis;
+      } else {
+        // For y-axis (values)
+        mapping.yAxis = columns.find(col => 
+          ['value', 'count', 'amount', 'number', 'score', 'total'].includes(col.toLowerCase())
+        ) || columns[1] || columns[0];
+      }
+      
+      // For labels (pie charts)
+      if (panel.columnMapping?.label) {
+        mapping.label = panel.columnMapping.label;
+      } else {
+        mapping.label = mapping.xAxis;
+      }
+      
+      console.log('Column mapping:', mapping);
+      
+      return mapping;
+    };
+
     switch (panel.type) {
       case 'stat': {
         // For stat panels, display the first value
-        const value = queryResult.data[0]?.value || 0;
+        const mapping = getColumnMapping(queryResult.data);
+        const value = queryResult.data[0]?.[mapping.yAxis] || 0;
         if (baseOption.graphic && baseOption.graphic[0]) {
           baseOption.graphic[0].style.text = String(value);
         }
@@ -109,9 +158,10 @@ const DashboardPanelView: React.FC<DashboardPanelViewProps> = ({
 
       case 'timeseries': {
         // For timeseries, transform data to ECharts format
+        const mapping = getColumnMapping(queryResult.data);
         const timeData = queryResult.data.map(row => [
-          new Date(row.timestamp).getTime(),
-          row.value
+          new Date(row[mapping.xAxis]).getTime(),
+          row[mapping.yAxis]
         ]);
         
         if (baseOption.series && baseOption.series[0]) {
@@ -122,8 +172,9 @@ const DashboardPanelView: React.FC<DashboardPanelViewProps> = ({
 
       case 'bar': {
         // For bar charts
-        const categories = queryResult.data.map(row => row.category || row.name);
-        const values = queryResult.data.map(row => row.value);
+        const mapping = getColumnMapping(queryResult.data);
+        const categories = queryResult.data.map(row => row[mapping.xAxis]);
+        const values = queryResult.data.map(row => row[mapping.yAxis]);
         
         return {
           ...baseOption,
@@ -138,9 +189,10 @@ const DashboardPanelView: React.FC<DashboardPanelViewProps> = ({
 
       case 'pie': {
         // For pie charts
+        const mapping = getColumnMapping(queryResult.data);
         const pieData = queryResult.data.map(row => ({
-          name: row.name || row.category,
-          value: row.value
+          name: row[mapping.label],
+          value: row[mapping.yAxis]
         }));
         
         return {

@@ -394,6 +394,40 @@ class DatabaseService:
             else:
                 self.logger.info("Settings table already exists")
             
+            # Create MOCK_DATA table for testing
+            if 'MOCK_DATA' not in existing_tables:
+                self.logger.info("Creating MOCK_DATA table for testing")
+                conn.execute("""
+                    CREATE TABLE MOCK_DATA (
+                        id INTEGER PRIMARY KEY,
+                        name TEXT NOT NULL,
+                        category TEXT NOT NULL,
+                        value REAL NOT NULL,
+                        count INTEGER NOT NULL,
+                        timestamp TEXT NOT NULL,
+                        status TEXT NOT NULL
+                    )
+                """)
+                
+                # Insert sample data
+                sample_data = [
+                    (1, 'Product A', 'Electronics', 150.50, 25, '2024-01-01 10:00:00', 'Active'),
+                    (2, 'Product B', 'Clothing', 75.25, 42, '2024-01-01 11:00:00', 'Active'),
+                    (3, 'Product C', 'Electronics', 200.00, 18, '2024-01-01 12:00:00', 'Inactive'),
+                    (4, 'Product D', 'Books', 25.99, 67, '2024-01-01 13:00:00', 'Active'),
+                    (5, 'Product E', 'Clothing', 89.99, 33, '2024-01-01 14:00:00', 'Active'),
+                    (6, 'Product F', 'Electronics', 120.75, 29, '2024-01-01 15:00:00', 'Active'),
+                    (7, 'Product G', 'Books', 15.50, 89, '2024-01-01 16:00:00', 'Inactive'),
+                    (8, 'Product H', 'Clothing', 45.00, 56, '2024-01-01 17:00:00', 'Active'),
+                ]
+                
+                conn.executemany("""
+                    INSERT INTO MOCK_DATA (id, name, category, value, count, timestamp, status)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                """, sample_data)
+                
+                self.logger.info("MOCK_DATA table created with sample data")
+            
             conn.commit()
             self.logger.info("Successfully created V2 database schema.")
         except Exception as e:

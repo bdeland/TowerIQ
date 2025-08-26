@@ -6,8 +6,33 @@ import {
   CircularProgress,
   Paper,
   Tabs,
-  Tab
+  Tab,
+  TextField,
+  Button,
+  Card,
+  CardContent,
+  CardActions,
+  Accordion,
+  AccordionSummary,
+  AccordionDetails,
+  Typography,
+  IconButton,
+  Tooltip,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions
 } from '@mui/material';
+import {
+  ExpandMore as ExpandMoreIcon,
+  Add as AddIcon,
+  Delete as DeleteIcon,
+  Edit as EditIcon,
+  DragIndicator as DragIndicatorIcon,
+  VisibilityOff as VisibilityOffIcon,
+  Visibility as VisibilityIcon,
+  ContentCopy as ContentCopyIcon
+} from '@mui/icons-material';
 
 import { useDashboard, DashboardPanel } from '../contexts/DashboardContext';
 import DashboardPanelView from '../components/DashboardPanelView';
@@ -28,6 +53,11 @@ export function PanelEditPage() {
   const [tabbedSectionHeight, setTabbedSectionHeight] = useState(300);
   const [isDraggingHorizontal, setIsDraggingHorizontal] = useState(false);
   const [activeTab, setActiveTab] = useState(0);
+  const [queryError, setQueryError] = useState<string | null>(null);
+  const [queries, setQueries] = useState<Array<{ id: string; query: string; name: string; visible: boolean }>>([]);
+  const [editingQueryId, setEditingQueryId] = useState<string | null>(null);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [queryToDelete, setQueryToDelete] = useState<string | null>(null);
 
   useEffect(() => {
     const findPanel = async () => {
@@ -51,14 +81,30 @@ export function PanelEditPage() {
           return;
         }
 
-        // Find the panel within that dashboard
-        const foundPanel = foundDashboard.config?.panels?.find((p: DashboardPanel) => p.id === panelId);
-        if (foundPanel) {
-          setPanel({ ...foundPanel }); // Create a copy for editing
-          setDashboard(foundDashboard);
-        } else {
-          setError(`Panel with ID "${panelId}" not found in dashboard "${foundDashboard.title}"`);
-        }
+                 // Find the panel within that dashboard
+         const foundPanel = foundDashboard.config?.panels?.find((p: DashboardPanel) => p.id === panelId);
+         if (foundPanel) {
+           setPanel({ ...foundPanel }); // Create a copy for editing
+           setDashboard(foundDashboard);
+           
+                       // Initialize queries from panel
+            if (foundPanel.options?.queryData && foundPanel.options.queryData.length > 0) {
+              // Load saved query data with names and ensure visible property exists
+              const queriesWithVisibility = foundPanel.options.queryData.map((q: any) => ({
+                ...q,
+                visible: q.visible !== undefined ? q.visible : true
+              }));
+              setQueries(queriesWithVisibility);
+            } else if (foundPanel.query) {
+              // Fallback to single query with default name
+              setQueries([{ id: '1', query: foundPanel.query, name: 'A', visible: true }]);
+            } else {
+              // Default empty query
+              setQueries([{ id: '1', query: '', name: 'A', visible: true }]);
+            }
+         } else {
+           setError(`Panel with ID "${panelId}" not found in dashboard "${foundDashboard.title}"`);
+         }
       } catch (err) {
         setError('Failed to load panel');
         console.error('Error finding panel:', err);
@@ -130,9 +176,19 @@ export function PanelEditPage() {
 
     setSaving(true);
     try {
+      // Update the panel with query data including names
+      const updatedPanel = {
+        ...panel,
+        query: queries[0]?.query || '',
+        options: {
+          ...panel.options,
+          queryData: queries // Store all query data including names
+        }
+      };
+
       // Update the panel in the dashboard's panels array
       const updatedPanels = dashboard.config.panels.map((p: DashboardPanel) =>
-        p.id === panel.id ? panel : p
+        p.id === panel.id ? updatedPanel : p
       );
 
       const updatedConfig = {
@@ -181,6 +237,143 @@ export function PanelEditPage() {
     } finally {
       setSaving(false);
     }
+  };
+
+  const handleQueryTest = async (queryText: string) => {
+    if (!queryText.trim()) {
+      setQueryError('Query cannot be empty');
+      return;
+    }
+
+    setQueryError(null);
+    try {
+      const response = await fetch('http://localhost:8000/api/query', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ query: queryText }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.detail || 'Query failed');
+      }
+
+      const result = await response.json();
+      setQueryError(`✓ Query successful! Returned ${result.rowCount} rows.`);
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Query test failed';
+      setQueryError(errorMessage);
+    }
+  };
+
+  const handleAddQuery = () => {
+    const newId = (queries.length + 1).toString();
+    const newQuery = { id: newId, query: '', name: String.fromCharCode(64 + queries.length + 1), visible: true }; // A, B, C, D...
+    setQueries([...queries, newQuery]);
+  };
+
+  const handleDeleteQuery = (id: string) => {
+    handleDeleteQueryConfirm(id);
+  };
+
+  const handleQueryChange = (id: string, query: string) => {
+    const updatedQueries = queries.map(q => 
+      q.id === id ? { ...q, query } : q
+    );
+    setQueries(updatedQueries);
+    
+    // Update panel query with the first query (assuming single query for now)
+    if (panel && updatedQueries.length > 0) {
+      const updatedPanel = { ...panel, query: updatedQueries[0].query };
+      setPanel(updatedPanel);
+    }
+  };
+
+  const handleQueryNameChange = (id: string, name: string) => {
+    const updatedQueries = queries.map(q => 
+      q.id === id ? { ...q, name } : q
+    );
+    setQueries(updatedQueries);
+  };
+
+  const handleStartEditing = (id: string) => {
+    setEditingQueryId(id);
+  };
+
+  const handleFinishEditing = (id: string, newName: string) => {
+    const updatedQueries = queries.map(q => 
+      q.id === id ? { ...q, name: newName } : q
+    );
+    setQueries(updatedQueries);
+    setEditingQueryId(null);
+  };
+
+  const handleCancelEditing = () => {
+    setEditingQueryId(null);
+  };
+
+  const handleToggleVisibility = (id: string) => {
+    const updatedQueries = queries.map(q => 
+      q.id === id ? { ...q, visible: !q.visible } : q
+    );
+    setQueries(updatedQueries);
+  };
+
+  const handleDuplicateQuery = (id: string) => {
+    const queryToDuplicate = queries.find(q => q.id === id);
+    if (queryToDuplicate) {
+      const newId = (queries.length + 1).toString();
+      const newQuery = { 
+        ...queryToDuplicate, 
+        id: newId, 
+        name: queryToDuplicate.name + ' Copy',
+        visible: true 
+      };
+      setQueries([...queries, newQuery]);
+    }
+  };
+
+  const handleDeleteQueryConfirm = (id: string) => {
+    setQueryToDelete(id);
+    setDeleteDialogOpen(true);
+  };
+
+  const handleDeleteQueryConfirmed = () => {
+    if (queryToDelete) {
+      const updatedQueries = queries.filter(q => q.id !== queryToDelete);
+      
+      if (updatedQueries.length > 0) {
+        // Renumber queries alphabetically
+        const renumberedQueries = updatedQueries.map((q, index) => ({
+          ...q,
+          name: String.fromCharCode(65 + index) // A, B, C, D...
+        }));
+        
+        setQueries(renumberedQueries);
+        
+        // Update panel query with the first remaining query
+        if (panel) {
+          const updatedPanel = { ...panel, query: renumberedQueries[0].query };
+          setPanel(updatedPanel);
+        }
+      } else {
+        // All queries deleted, set empty state
+        setQueries([]);
+        if (panel) {
+          const updatedPanel = { ...panel, query: '' };
+          setPanel(updatedPanel);
+        }
+      }
+    }
+    setDeleteDialogOpen(false);
+    setQueryToDelete(null);
+  };
+
+  const handleDeleteQueryCancel = () => {
+    setDeleteDialogOpen(false);
+    setQueryToDelete(null);
   };
 
   const handleTabChange = (event: React.SyntheticEvent, newValue: number) => {
@@ -302,7 +495,7 @@ export function PanelEditPage() {
               margin: 0
             }}
           >
-            <Tab label="Tab 1" />
+            <Tab label="Data Query" />
             <Tab label="Tab 2" />
             <Tab label="Tab 3" />
           </Tabs>
@@ -316,9 +509,190 @@ export function PanelEditPage() {
           }}>
             {activeTab === 0 && (
               <Box>
-                <h3>Tab 1 Content</h3>
-                <p>This is the content for tab 1. You can add any components or content here.</p>
-                {/* Add your tab 1 content here */}
+                <Typography variant="h6" sx={{ mb: 2 }}>Data Queries</Typography>
+                
+                                 {/* Query Cards */}
+                 {queries.length === 0 ? (
+                   <Box sx={{ 
+                     display: 'flex', 
+                     justifyContent: 'center', 
+                     alignItems: 'center', 
+                     py: 2,
+                     border: '2px dashed',
+                     borderColor: 'divider',
+                     borderRadius: 2,
+                     backgroundColor: 'background.default'
+                   }}>
+                     <Typography variant="body2" color="text.secondary">
+                       No queries defined. Click "Add Query" to get started.
+                     </Typography>
+                   </Box>
+                 ) : (
+                   queries.map((queryItem, index) => (
+                                           <Accordion key={queryItem.id} sx={{ mb: 0, borderRadius: 2, '& .MuiAccordionSummary-root': { height: '15px !important' } }}>
+                                               <AccordionSummary 
+                          expandIcon={<ExpandMoreIcon />}
+                          sx={{ 
+                            flexDirection: 'row-reverse',
+                            py: 0.5,
+                            '& .MuiAccordionSummary-expandIconWrapper': {
+                              transform: 'rotate(0deg)',
+                              marginLeft: 0,
+                              marginRight: 'auto'
+                            },
+                            '& .MuiAccordionSummary-expandIconWrapper.Mui-expanded': {
+                              transform: 'rotate(180deg)'
+                            }
+                          }}
+                        >
+                                                   <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%', ml: 1 }}>
+                            {editingQueryId === queryItem.id ? (
+                              <TextField
+                                size="small"
+                                value={queryItem.name}
+                                onChange={(e) => handleQueryNameChange(queryItem.id, e.target.value)}
+                                onBlur={() => handleFinishEditing(queryItem.id, queryItem.name)}
+                                onKeyPress={(e) => {
+                                  if (e.key === 'Enter') {
+                                    handleFinishEditing(queryItem.id, queryItem.name);
+                                  } else if (e.key === 'Escape') {
+                                    handleCancelEditing();
+                                  }
+                                }}
+                                autoFocus
+                                onClick={(e) => e.stopPropagation()}
+                                sx={{ width: 200 }}
+                              />
+                            ) : (
+                              <Box
+                                sx={{
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: 1,
+                                  padding: '0px 8px',
+                                  borderRadius: '4px',
+                                  cursor: 'pointer',
+                                  border: '1px dashed transparent',
+                                  '&:hover': {
+                                    border: '1px dashed #666',
+                                    backgroundColor: 'rgba(255, 255, 255, 0.04)',
+                                  },
+                                }}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleStartEditing(queryItem.id);
+                                }}
+                              >
+                                <Typography
+                                  sx={{
+                                    color: 'primary.main',
+                                    fontSize: '0.875rem',
+                                    fontWeight: 500,
+                                  }}
+                                >
+                                  {queryItem.name}
+                                </Typography>
+                                <EditIcon
+                                  sx={{
+                                    fontSize: '0.875rem',
+                                    color: '#666',
+                                    opacity: 0,
+                                    transition: 'opacity 0.2s ease',
+                                    '.MuiBox-root:hover &': {
+                                      opacity: 1,
+                                    },
+                                  }}
+                                />
+                              </Box>
+                            )}
+                                                       <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                              <Tooltip title="Duplicate query">
+                                <IconButton
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleDuplicateQuery(queryItem.id);
+                                  }}
+                                >
+                                  <ContentCopyIcon sx={{ fontSize: '18px' }} />
+                                </IconButton>
+                              </Tooltip>
+                              
+                              <Tooltip title={queryItem.visible ? "Hide Response" : "Show Response"}>
+                                <IconButton
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleToggleVisibility(queryItem.id);
+                                  }}
+                                >
+                                  {queryItem.visible ? <VisibilityIcon sx={{ fontSize: '18px' }} /> : <VisibilityOffIcon sx={{ fontSize: '18px' }} />}
+                                </IconButton>
+                              </Tooltip>
+                              
+                              <Tooltip title="Delete query">
+                                <IconButton
+                                  color="error"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleDeleteQuery(queryItem.id);
+                                  }}
+                                >
+                                  <DeleteIcon sx={{ fontSize: '18px' }} />
+                                </IconButton>
+                              </Tooltip>
+                              
+                              <Tooltip title="Drag and drop to reorder queries">
+                                <IconButton
+                                  sx={{ cursor: 'grab', '&:active': { cursor: 'grabbing' } }}
+                                  onClick={(e) => e.stopPropagation()}
+                                >
+                                  <DragIndicatorIcon sx={{ fontSize: '18px' }} />
+                                </IconButton>
+                              </Tooltip>
+                            </Box>
+                         </Box>
+                       </AccordionSummary>
+                                                                                           <AccordionDetails sx={{ py: 0.5 }}>
+                         <Box sx={{ width: '100%' }}>
+                                                                                 <TextField
+                              fullWidth
+                              multiline
+                              rows={2}
+                              value={queryItem.query}
+                              onChange={(e) => handleQueryChange(queryItem.id, e.target.value)}
+                              placeholder="SELECT * FROM metrics WHERE..."
+                              sx={{ mb: 0.5 }}
+                            />
+                                                                                 <Button
+                              variant="outlined"
+                              fullWidth
+                              onClick={() => handleQueryTest(queryItem.query)}
+                              disabled={!queryItem.query.trim()}
+                              sx={{ mb: 0.5 }}
+                            >
+                            Test Query
+                          </Button>
+                        </Box>
+                                             </AccordionDetails>
+                     </Accordion>
+                   ))
+                 )}
+                
+                {/* Add Query Button */}
+                <Button
+                  variant="contained"
+                  startIcon={<AddIcon />}
+                  onClick={handleAddQuery}
+                  sx={{ mt: 2 }}
+                >
+                  Add Query
+                </Button>
+                
+                {/* Query Error Display */}
+                {queryError && (
+                  <Alert severity={queryError.startsWith('✓') ? 'success' : 'error'} sx={{ mt: 2 }}>
+                    {queryError}
+                  </Alert>
+                )}
               </Box>
             )}
             {activeTab === 1 && (
@@ -400,6 +774,31 @@ export function PanelEditPage() {
           standalone={true}
         />
       </Box>
+
+      {/* Delete Confirmation Dialog */}
+      <Dialog
+        open={deleteDialogOpen}
+        onClose={handleDeleteQueryCancel}
+        aria-labelledby="delete-dialog-title"
+        aria-describedby="delete-dialog-description"
+      >
+        <DialogTitle id="delete-dialog-title">
+          Delete Query
+        </DialogTitle>
+        <DialogContent>
+          <Typography>
+            Are you sure you want to delete this query? This action cannot be undone.
+          </Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={handleDeleteQueryCancel} color="primary">
+            Cancel
+          </Button>
+          <Button onClick={handleDeleteQueryConfirmed} color="error" variant="contained">
+            Delete
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   );
 }

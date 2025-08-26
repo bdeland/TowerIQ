@@ -216,6 +216,33 @@ const theme = createTheme({
         },
       },
     },
+    MuiAccordion: {
+      styleOverrides: {
+        root: {
+          backgroundColor: '#22252b',
+          '&:before': {
+            display: 'none', // Remove the default border
+          },
+        },
+      },
+    },
+    MuiAccordionSummary: {
+      styleOverrides: {
+        root: {
+          backgroundColor: '#22252b',
+          '&:hover': {
+            backgroundColor: '#2a2d33', // Slightly lighter on hover
+          },
+        },
+      },
+    },
+    MuiAccordionDetails: {
+      styleOverrides: {
+        root: {
+          backgroundColor: '#22252b',
+        },
+      },
+    },
   },
 });
 

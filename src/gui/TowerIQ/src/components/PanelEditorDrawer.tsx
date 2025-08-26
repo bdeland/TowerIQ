@@ -42,13 +42,11 @@ const PanelEditorDrawer: React.FC<PanelEditorDrawerProps> = ({
   standalone = false,
 }) => {
   const [localPanel, setLocalPanel] = useState<DashboardPanel | null>(null);
-  const [queryError, setQueryError] = useState<string | null>(null);
 
   // Reset local panel state when panel prop changes
   useEffect(() => {
     if (panel) {
       setLocalPanel({ ...panel });
-      setQueryError(null);
     }
   }, [panel]);
 
@@ -82,34 +80,7 @@ const PanelEditorDrawer: React.FC<PanelEditorDrawerProps> = ({
     onUpdatePanel(updatedPanel);
   };
 
-  const handleQueryTest = async () => {
-    if (!localPanel.query.trim()) {
-      setQueryError('Query cannot be empty');
-      return;
-    }
 
-    setQueryError(null);
-    try {
-      const response = await fetch('http://localhost:8000/api/query', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ query: localPanel.query }),
-      });
-
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.detail || 'Query failed');
-      }
-
-      const result = await response.json();
-      setQueryError(`✓ Query successful! Returned ${result.rowCount} rows.`);
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Query test failed';
-      setQueryError(errorMessage);
-    }
-  };
 
   const getDefaultEChartsOption = (type: DashboardPanel['type']) => {
     switch (type) {
@@ -238,45 +209,17 @@ const PanelEditorDrawer: React.FC<PanelEditorDrawerProps> = ({
                 </Select>
               </FormControl>
             </Grid>
-          </Grid>
-        </AccordionDetails>
-      </Accordion>
-
-      {/* Query Settings */}
-      <Accordion defaultExpanded>
-        <AccordionSummary expandIcon={<ExpandMoreIcon />}>
-          <Typography variant="subtitle1">Data Query</Typography>
-        </AccordionSummary>
-        <AccordionDetails>
-          <Grid container spacing={2}>
             <Grid item xs={12}>
               <TextField
                 fullWidth
+                label="Query"
                 multiline
                 rows={4}
-                label="SQL Query"
                 value={localPanel.query}
                 onChange={(e) => handleFieldChange('query', e.target.value)}
-                placeholder="SELECT * FROM metrics WHERE..."
+                placeholder="Enter your SQL query here"
               />
             </Grid>
-            <Grid item xs={12}>
-              <Button
-                variant="outlined"
-                fullWidth
-                onClick={handleQueryTest}
-                disabled={!localPanel.query.trim()}
-              >
-                Test Query
-              </Button>
-            </Grid>
-            {queryError && (
-              <Grid item xs={12}>
-                <Alert severity={queryError.startsWith('✓') ? 'success' : 'error'}>
-                  {queryError}
-                </Alert>
-              </Grid>
-            )}
           </Grid>
         </AccordionDetails>
       </Accordion>

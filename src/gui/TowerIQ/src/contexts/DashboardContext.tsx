@@ -15,6 +15,11 @@ export interface DashboardPanel {
   echartsOption: Record<string, any>; // Will hold the ECharts option object
   datasourceUid?: string;
   options?: Record<string, any>; // Made optional since we're using echartsOption now
+  columnMapping?: {
+    xAxis?: string; // Column name for x-axis
+    yAxis?: string; // Column name for y-axis
+    label?: string; // Column name for labels (pie charts)
+  };
 }
 
 export interface Dashboard {
