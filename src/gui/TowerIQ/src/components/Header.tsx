@@ -1,5 +1,5 @@
 import React from 'react';
-import { AppBar, Toolbar, Box, IconButton, Button, Menu, MenuItem, ListItemIcon, ListItemText } from '@mui/material';
+import { AppBar, Toolbar, Box, IconButton, Button, Menu, MenuItem, ListItemIcon, ListItemText, Tooltip } from '@mui/material';
 import { 
   Menu as MenuIcon,
   KeyboardArrowDown as ArrowDownIcon,
@@ -7,7 +7,9 @@ import {
   ViewHeadline as RowIcon,
   ContentPaste as PasteIcon,
   Save as SaveIcon,
-  SaveAs as SaveAsIcon
+  SaveAs as SaveAsIcon,
+  ArrowBack as ArrowBackIcon,
+  Undo as UndoIcon
 } from '@mui/icons-material';
 import { Breadcrumbs } from './Breadcrumbs';
 import { SearchBar } from './SearchBar';
@@ -44,26 +46,36 @@ export function Header({
     dashboardEditContext = {
       isDashboardPage: false,
       isEditMode: false,
+      isPanelEditPage: false,
       saving: false,
+      hasUnsavedChanges: false,
       onEditToggle: undefined,
       onAddVisualization: undefined,
       onAddRow: undefined,
       onPastePanel: undefined,
       onSave: undefined,
-      onSaveAsCopy: undefined
+      onSaveAsCopy: undefined,
+      onBackToDashboard: undefined,
+      onDiscardChanges: undefined,
+      onSavePanelChanges: undefined
     };
   }
   
   const {
     isDashboardPage,
     isEditMode,
+    isPanelEditPage,
     saving,
+    hasUnsavedChanges,
     onEditToggle,
     onAddVisualization,
     onAddRow,
     onPastePanel,
     onSave,
-    onSaveAsCopy
+    onSaveAsCopy,
+    onBackToDashboard,
+    onDiscardChanges,
+    onSavePanelChanges
   } = dashboardEditContext;
   
   const [addMenuAnchor, setAddMenuAnchor] = React.useState<null | HTMLElement>(null);
@@ -109,8 +121,6 @@ export function Header({
   const handleSave = () => {
     if (onSave) {
       onSave();
-    } else {
-      console.log('Save dashboard clicked - no handler available');
     }
     handleSaveMenuClose();
   };
@@ -118,79 +128,47 @@ export function Header({
   const handleSaveAsCopy = () => {
     if (onSaveAsCopy) {
       onSaveAsCopy();
-    } else {
-      console.log('Save as copy clicked - no handler available');
     }
     handleSaveMenuClose();
   };
+
   return (
-    <AppBar
-      position="fixed"
-      sx={{
-        ...layoutStyles.appBar,
-        // Match sidebar: exactly 80px total with top/bottom borders, no internal border
-        borderTop: layout.border,
-        borderBottom: layout.border,
-        height: `${layout.appBarHeight * 2}px`, // Exactly 80px total
-        minHeight: `${layout.appBarHeight * 2}px`,
-        maxHeight: `${layout.appBarHeight * 2}px`,
-        boxSizing: 'border-box',
-        display: 'flex',
-        flexDirection: 'column',
-        padding: 0,
-        '& .MuiToolbar-root': {
-          // Default height for toolbars without internal borders
-          minHeight: `${layout.appBarHeight}px`,
-          height: `${layout.appBarHeight}px`,
-          maxHeight: `${layout.appBarHeight}px`,
-          paddingLeft: 1,
-          paddingRight: 1.5,
-          paddingTop: 0,
-          paddingBottom: 0,
-          boxSizing: 'border-box',
-          borderRight: layout.border, // Add right border to all toolbars
-          flex: 'none', // Prevent flex growing/shrinking
-        }
-      }}
-    >
+    <AppBar position="fixed" sx={{ ...layoutStyles.appBar, backgroundColor: 'background.paper' }}>
       {/* First Toolbar */}
-      <Toolbar sx={{ 
-        display: 'flex', 
-        alignItems: 'center', 
-        justifyContent: 'space-between',
-        borderBottom: layout.border,
-        boxSizing: 'border-box',
-      }}>
-        {/* Main Menu Toggle Icon - Show when not docked or when docked and hidden */}
-        <IconButton
-          aria-label="toggle sidebar"
-          onClick={onSidebarToggle}
-          sx={{ 
-            ...listItemIconStyles,
-            display: sidebarDocked ? (sidebarHidden ? 'block' : 'none') : 'block',
-            color: 'text.primary', // Explicitly set color to match theme
-            marginLeft: '-8px', // Compensate for Toolbar's left padding
-            '&:hover': {
-              backgroundColor: 'rgba(255, 255, 255, 0.04)',
-            }
-          }}
-        >
-          <MenuIcon />
-        </IconButton>
+             <Toolbar sx={{ 
+         minHeight: `${layout.appBarHeight}px !important`, 
+         maxHeight: `${layout.appBarHeight}px !important`,
+         borderTop: layout.border,
+         borderBottom: layout.border,
+         boxSizing: 'border-box',
+         padding: '0 16px',
+         display: 'flex',
+         alignItems: 'center',
+         justifyContent: 'space-between'
+       }}>
+                 {/* Left side */}
+         <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+           <IconButton
+             edge="start"
+             color="inherit"
+             aria-label="menu"
+             onClick={onSidebarToggle}
+             sx={{ 
+               color: 'text.primary',
+               display: sidebarDocked ? (sidebarHidden ? 'block' : 'none') : 'block',
+               '&:hover': {
+                 backgroundColor: 'action.hover'
+               }
+             }}
+           >
+             <MenuIcon />
+           </IconButton>
+           
+           <Breadcrumbs />
+         </Box>
 
-        {/* Breadcrumbs */}
-        <Box sx={{ flexGrow: 1, display: 'flex', alignItems: 'center' }}>
-          <Breadcrumbs />
-        </Box>
-
-        {/* Search Bar - Pushed to the right */}
-        <Box sx={{ 
-          marginLeft: 'auto',
-          margin: 0,
-          padding: 0,
-          marginRight: 0,
-          paddingRight: 0,
-        }}>
+        {/* Right side */}
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
           <SearchBar />
         </Box>
       </Toolbar>
@@ -202,12 +180,89 @@ export function Header({
         justifyContent: 'space-between',
         borderBottom: layout.border, // Add bottom border to second toolbar
         boxSizing: 'border-box',
+        minHeight: `${layout.appBarHeight}px !important`,
+        maxHeight: `${layout.appBarHeight}px !important`,
+        padding: '0 16px',
         }}>
         {/* Dashboard Edit Controls - Grafana Style */}
         <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', width: '100%' }}>
           {/* All buttons right-aligned */}
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-            {isDashboardPage && isEditMode && (
+            {isPanelEditPage && (
+              <>
+                <Button
+                  variant="outlined"
+                  startIcon={<ArrowBackIcon sx={{ fontSize: '16px' }} />}
+                  onClick={onBackToDashboard}
+                  disabled={saving}
+                  size="small"
+                  sx={{
+                    color: 'text.primary',
+                    borderColor: 'divider',
+                    height: '32px',
+                    fontSize: '0.75rem',
+                    padding: '0 12px',
+                    '&:hover': {
+                      borderColor: 'text.primary',
+                      backgroundColor: 'action.hover'
+                    }
+                  }}
+                >
+                  Back to Dashboard
+                </Button>
+                <Tooltip title={hasUnsavedChanges ? "Discard all changes" : "No changes to discard"}>
+                  <span>
+                    <Button
+                      variant="outlined"
+                      startIcon={<UndoIcon sx={{ fontSize: '16px' }} />}
+                      onClick={onDiscardChanges}
+                      disabled={saving || !hasUnsavedChanges}
+                      size="small"
+                      sx={{
+                        color: 'text.primary',
+                        borderColor: 'divider',
+                        height: '32px',
+                        fontSize: '0.75rem',
+                        padding: '0 12px',
+                        '&:hover': {
+                          borderColor: 'text.primary',
+                          backgroundColor: 'action.hover'
+                        }
+                      }}
+                    >
+                      Discard Changes
+                    </Button>
+                  </span>
+                </Tooltip>
+                <Tooltip title={hasUnsavedChanges ? "Save panel changes" : "No changes to save"}>
+                  <span>
+                    <Button
+                      variant="contained"
+                      startIcon={<SaveIcon sx={{ fontSize: '16px' }} />}
+                      onClick={onSavePanelChanges}
+                      disabled={saving || !hasUnsavedChanges}
+                      size="small"
+                      sx={{
+                        backgroundColor: '#28a745', // Green for save
+                        height: '32px',
+                        fontSize: '0.75rem',
+                        padding: '0 12px',
+                        '&:hover': {
+                          backgroundColor: '#218838',
+                        },
+                        '&:disabled': {
+                          backgroundColor: '#6c757d',
+                          color: '#adb5bd'
+                        }
+                      }}
+                    >
+                      {saving ? 'Saving...' : 'Save Changes'}
+                    </Button>
+                  </span>
+                </Tooltip>
+              </>
+            )}
+            {isDashboardPage && isEditMode && !isPanelEditPage && (
               <>
                 <Button
                   variant="contained"
@@ -271,7 +326,7 @@ export function Header({
                 </Button>
               </>
             )}
-            {isDashboardPage && !isEditMode && (
+            {isDashboardPage && !isEditMode && !isPanelEditPage && (
               <Button
                 variant="contained"
                 onClick={onEditToggle}

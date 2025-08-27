@@ -41,6 +41,7 @@ import {
 } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
 import { useDashboard, Dashboard, DashboardCreateRequest } from '../contexts/DashboardContext';
+import { generateUUID } from '../utils/uuid';
 
 export function DashboardsPage() {
   const navigate = useNavigate();
@@ -82,21 +83,21 @@ export function DashboardsPage() {
         config: {
           panels: [
             {
-              id: 'panel-1',
+              id: generateUUID(),
               type: 'stat',
               title: 'Quick Stats',
               gridPos: { x: 0, y: 0, w: 4, h: 2 },
               options: {}
             },
             {
-              id: 'panel-2',
+              id: generateUUID(),
               type: 'timeseries',
               title: 'Recent Activity',
               gridPos: { x: 4, y: 0, w: 4, h: 2 },
               options: {}
             },
             {
-              id: 'panel-3',
+              id: generateUUID(),
               type: 'table',
               title: 'System Status',
               gridPos: { x: 8, y: 0, w: 4, h: 2 },
@@ -138,7 +139,13 @@ export function DashboardsPage() {
     const dashboardData: DashboardCreateRequest = {
       title: `${dashboard.title} (Copy)`,
       description: dashboard.description,
-      config: dashboard.config,
+      config: {
+        ...dashboard.config,
+        panels: dashboard.config.panels.map(panel => ({
+          ...panel,
+          id: generateUUID() // Generate new UUID for each panel
+        }))
+      },
       tags: [...dashboard.tags]
     };
     

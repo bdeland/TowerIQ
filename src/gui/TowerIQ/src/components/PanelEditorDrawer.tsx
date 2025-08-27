@@ -82,6 +82,8 @@ const PanelEditorDrawer: React.FC<PanelEditorDrawerProps> = ({
 
 
 
+
+
   const getDefaultEChartsOption = (type: DashboardPanel['type']) => {
     switch (type) {
       case 'stat':
@@ -101,7 +103,6 @@ const PanelEditorDrawer: React.FC<PanelEditorDrawerProps> = ({
         };
       case 'timeseries':
         return {
-          title: { text: localPanel.title, left: 'center' },
           tooltip: { trigger: 'axis' },
           xAxis: { type: 'time' },
           yAxis: { type: 'value' },
@@ -114,7 +115,6 @@ const PanelEditorDrawer: React.FC<PanelEditorDrawerProps> = ({
         };
       case 'bar':
         return {
-          title: { text: localPanel.title, left: 'center' },
           tooltip: { trigger: 'axis' },
           xAxis: { type: 'category', data: [] },
           yAxis: { type: 'value' },
@@ -125,7 +125,6 @@ const PanelEditorDrawer: React.FC<PanelEditorDrawerProps> = ({
         };
       case 'pie':
         return {
-          title: { text: localPanel.title, left: 'center' },
           tooltip: { trigger: 'item' },
           series: [{
             type: 'pie',
@@ -135,7 +134,6 @@ const PanelEditorDrawer: React.FC<PanelEditorDrawerProps> = ({
         };
       case 'table':
         return {
-          title: { text: localPanel.title, left: 'center' },
           tooltip: { show: true }
         };
       default:
@@ -209,17 +207,7 @@ const PanelEditorDrawer: React.FC<PanelEditorDrawerProps> = ({
                 </Select>
               </FormControl>
             </Grid>
-            <Grid item xs={12}>
-              <TextField
-                fullWidth
-                label="Query"
-                multiline
-                rows={4}
-                value={localPanel.query}
-                onChange={(e) => handleFieldChange('query', e.target.value)}
-                placeholder="Enter your SQL query here"
-              />
-            </Grid>
+            
           </Grid>
         </AccordionDetails>
       </Accordion>

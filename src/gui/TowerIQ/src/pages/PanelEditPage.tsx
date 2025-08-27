@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { 
   Box, 
@@ -31,22 +31,34 @@ import {
   DragIndicator as DragIndicatorIcon,
   VisibilityOff as VisibilityOffIcon,
   Visibility as VisibilityIcon,
-  ContentCopy as ContentCopyIcon
+  ContentCopy as ContentCopyIcon,
+  Code as CodeIcon
 } from '@mui/icons-material';
+import { Editor } from '@monaco-editor/react';
+import { format } from 'sql-formatter';
 
 import { useDashboard, DashboardPanel } from '../contexts/DashboardContext';
+import { useDashboardEdit } from '../contexts/DashboardEditContext';
 import DashboardPanelView from '../components/DashboardPanelView';
 import PanelEditorDrawer from '../components/PanelEditorDrawer';
+import { generateUUID } from '../utils/uuid';
 
 export function PanelEditPage() {
   const { panelId, dashboardId } = useParams<{ panelId: string; dashboardId: string }>();
   const navigate = useNavigate();
   const { dashboards, fetchDashboards, updateDashboard } = useDashboard();
+  const { 
+    setIsPanelEditPage, 
+    setSaving, 
+    setHasUnsavedChanges, 
+    setPanelEditHandlers 
+  } = useDashboardEdit();
   
   const [panel, setPanel] = useState<DashboardPanel | null>(null);
+  const [originalPanel, setOriginalPanel] = useState<DashboardPanel | null>(null);
   const [dashboard, setDashboard] = useState<any>(null);
   const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
+  const [saving, setLocalSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [drawerWidth, setDrawerWidth] = useState(400);
   const [isDragging, setIsDragging] = useState(false);
@@ -55,9 +67,135 @@ export function PanelEditPage() {
   const [activeTab, setActiveTab] = useState(0);
   const [queryError, setQueryError] = useState<string | null>(null);
   const [queries, setQueries] = useState<Array<{ id: string; query: string; name: string; visible: boolean }>>([]);
+  const [originalQueries, setOriginalQueries] = useState<Array<{ id: string; query: string; name: string; visible: boolean }>>([]);
   const [editingQueryId, setEditingQueryId] = useState<string | null>(null);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [queryToDelete, setQueryToDelete] = useState<string | null>(null);
+  const [discardDialogOpen, setDiscardDialogOpen] = useState(false);
+  const [unsavedChangesDialogOpen, setUnsavedChangesDialogOpen] = useState(false);
+
+  // Update saving state in context
+  useEffect(() => {
+    setSaving(saving);
+  }, [saving, setSaving]);
+
+  const checkForChanges = useCallback(() => {
+    if (!panel || !originalPanel) return false;
+    
+    // Check panel properties
+    const panelChanged = JSON.stringify(panel) !== JSON.stringify(originalPanel);
+    
+    // Check queries
+    const queriesChanged = JSON.stringify(queries) !== JSON.stringify(originalQueries);
+    
+    return panelChanged || queriesChanged;
+  }, [panel, originalPanel, queries, originalQueries]);
+
+  // Check for changes and update context
+  useEffect(() => {
+    if (panel && originalPanel) {
+      const hasChanges = checkForChanges();
+      setHasUnsavedChanges(hasChanges);
+    }
+  }, [panel, queries, originalPanel, originalQueries, checkForChanges, setHasUnsavedChanges]);
+
+  const handleBackToDashboard = useCallback(() => {
+    if (checkForChanges()) {
+      setUnsavedChangesDialogOpen(true);
+    } else {
+      navigate(`/dashboards/${dashboardId}`);
+    }
+  }, [checkForChanges, navigate, dashboardId]);
+
+  const handleDiscardChanges = useCallback(() => {
+    setDiscardDialogOpen(true);
+  }, []);
+
+  const handleDiscardConfirmed = useCallback(() => {
+    if (originalPanel) {
+      setPanel({ ...originalPanel });
+    }
+    if (originalQueries) {
+      setQueries([...originalQueries]);
+    }
+    setDiscardDialogOpen(false);
+  }, [originalPanel, originalQueries]);
+
+  const handleDiscardCancel = useCallback(() => {
+    setDiscardDialogOpen(false);
+  }, []);
+
+  const handleSavePanelChanges = useCallback(async () => {
+    if (!panel || !dashboard) return;
+
+    setLocalSaving(true);
+    try {
+      // Update the panel with query data including names
+      const updatedPanel = {
+        ...panel,
+        query: queries[0]?.query || '',
+        options: {
+          ...panel.options,
+          queryData: queries // Store all query data including names
+        }
+      };
+
+      // Update the panel in the dashboard's panels array
+      const updatedPanels = dashboard.config.panels.map((p: DashboardPanel) =>
+        p.id === panel.id ? updatedPanel : p
+      );
+
+      const updatedConfig = {
+        ...dashboard.config,
+        panels: updatedPanels
+      };
+
+      const success = await updateDashboard(dashboard.id, { config: updatedConfig });
+      if (success) {
+        // Update original state to reflect saved state
+        setOriginalPanel({ ...updatedPanel });
+        setOriginalQueries([...queries]);
+        // Don't navigate away - stay on the edit page
+      } else {
+        setError('Failed to save panel changes');
+      }
+    } catch (err) {
+      setError('Error saving panel changes');
+      console.error('Error saving panel:', err);
+    } finally {
+      setLocalSaving(false);
+    }
+  }, [panel, dashboard, queries, updateDashboard, navigate, panelId]);
+
+  const handleUnsavedChangesSave = useCallback(() => {
+    setUnsavedChangesDialogOpen(false);
+    handleSavePanelChanges();
+  }, [handleSavePanelChanges]);
+
+  const handleUnsavedChangesDiscard = useCallback(() => {
+    setUnsavedChangesDialogOpen(false);
+    navigate(`/dashboards/${dashboardId}`);
+  }, [navigate, dashboardId]);
+
+  const handleUnsavedChangesCancel = useCallback(() => {
+    setUnsavedChangesDialogOpen(false);
+  }, []);
+
+  // Set up panel edit context
+  useEffect(() => {
+    setIsPanelEditPage(true);
+    
+    // Set up panel edit handlers
+    setPanelEditHandlers({
+      onBackToDashboard: handleBackToDashboard,
+      onDiscardChanges: handleDiscardChanges,
+      onSavePanelChanges: handleSavePanelChanges
+    });
+
+    return () => {
+      setIsPanelEditPage(false);
+    };
+  }, [setIsPanelEditPage, setPanelEditHandlers, handleBackToDashboard, handleDiscardChanges, handleSavePanelChanges]);
 
   useEffect(() => {
     const findPanel = async () => {
@@ -84,7 +222,9 @@ export function PanelEditPage() {
                  // Find the panel within that dashboard
          const foundPanel = foundDashboard.config?.panels?.find((p: DashboardPanel) => p.id === panelId);
          if (foundPanel) {
-           setPanel({ ...foundPanel }); // Create a copy for editing
+           const panelCopy = { ...foundPanel }; // Create a copy for editing
+           setPanel(panelCopy);
+           setOriginalPanel({ ...foundPanel }); // Store original for change tracking
            setDashboard(foundDashboard);
            
                        // Initialize queries from panel
@@ -95,12 +235,17 @@ export function PanelEditPage() {
                 visible: q.visible !== undefined ? q.visible : true
               }));
               setQueries(queriesWithVisibility);
+              setOriginalQueries([...queriesWithVisibility]);
             } else if (foundPanel.query) {
               // Fallback to single query with default name
-              setQueries([{ id: '1', query: foundPanel.query, name: 'A', visible: true }]);
+              const defaultQuery = { id: '1', query: foundPanel.query, name: 'A', visible: true };
+              setQueries([defaultQuery]);
+              setOriginalQueries([defaultQuery]);
             } else {
               // Default empty query
-              setQueries([{ id: '1', query: '', name: 'A', visible: true }]);
+              const emptyQuery = { id: '1', query: '', name: 'A', visible: true };
+              setQueries([emptyQuery]);
+              setOriginalQueries([emptyQuery]);
             }
          } else {
            setError(`Panel with ID "${panelId}" not found in dashboard "${foundDashboard.title}"`);
@@ -171,51 +316,10 @@ export function PanelEditPage() {
     }
   }, [isDragging, isDraggingHorizontal]);
 
-  const handleSave = async () => {
-    if (!panel || !dashboard) return;
-
-    setSaving(true);
-    try {
-      // Update the panel with query data including names
-      const updatedPanel = {
-        ...panel,
-        query: queries[0]?.query || '',
-        options: {
-          ...panel.options,
-          queryData: queries // Store all query data including names
-        }
-      };
-
-      // Update the panel in the dashboard's panels array
-      const updatedPanels = dashboard.config.panels.map((p: DashboardPanel) =>
-        p.id === panel.id ? updatedPanel : p
-      );
-
-      const updatedConfig = {
-        ...dashboard.config,
-        panels: updatedPanels
-      };
-
-      const success = await updateDashboard(dashboard.id, { config: updatedConfig });
-      if (success) {
-        navigate(`/panels/${panelId}/view`);
-      } else {
-        setError('Failed to save panel changes');
-      }
-    } catch (err) {
-      setError('Error saving panel changes');
-      console.error('Error saving panel:', err);
-    } finally {
-      setSaving(false);
-    }
-  };
-
-
-
   const handleDeletePanel = async (panelId: string) => {
     if (!dashboard) return;
 
-    setSaving(true);
+    setLocalSaving(true);
     try {
       // Remove the panel from the dashboard's panels array
       const updatedPanels = dashboard.config.panels.filter((p: DashboardPanel) => p.id !== panelId);
@@ -235,7 +339,7 @@ export function PanelEditPage() {
       setError('Error deleting panel');
       console.error('Error deleting panel:', err);
     } finally {
-      setSaving(false);
+      setLocalSaving(false);
     }
   };
 
@@ -247,7 +351,7 @@ export function PanelEditPage() {
 
     setQueryError(null);
     try {
-      const response = await fetch('http://localhost:8000/api/query', {
+      const response = await fetch('http://localhost:8000/api/query/preview', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -257,19 +361,49 @@ export function PanelEditPage() {
 
       if (!response.ok) {
         const errorData = await response.json();
-        throw new Error(errorData.detail || 'Query failed');
+        throw new Error(errorData.detail || 'Query preview failed');
       }
 
       const result = await response.json();
-      setQueryError(`✓ Query successful! Returned ${result.rowCount} rows.`);
+      if (result.status === 'success') {
+        setQueryError(`✓ ${result.message}`);
+      } else {
+        setQueryError(result.message);
+      }
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Query test failed';
+      const errorMessage = error instanceof Error ? error.message : 'Query preview failed';
       setQueryError(errorMessage);
     }
   };
 
+  const handleFormatQuery = (queryId: string) => {
+    const queryItem = queries.find(q => q.id === queryId);
+    if (queryItem && queryItem.query.trim()) {
+      try {
+        const formattedQuery = format(queryItem.query, {
+          language: 'sql',
+          keywordCase: 'upper',
+          linesBetweenQueries: 2,
+        });
+        
+        const updatedQueries = queries.map(q => 
+          q.id === queryId ? { ...q, query: formattedQuery } : q
+        );
+        setQueries(updatedQueries);
+        
+        // Update panel query with the first query (assuming single query for now)
+        if (panel && updatedQueries.length > 0) {
+          const updatedPanel = { ...panel, query: updatedQueries[0].query };
+          setPanel(updatedPanel);
+        }
+      } catch (error) {
+        setQueryError('Failed to format query. Please check syntax.');
+      }
+    }
+  };
+
   const handleAddQuery = () => {
-    const newId = (queries.length + 1).toString();
+    const newId = generateUUID();
     const newQuery = { id: newId, query: '', name: String.fromCharCode(64 + queries.length + 1), visible: true }; // A, B, C, D...
     setQueries([...queries, newQuery]);
   };
@@ -324,7 +458,7 @@ export function PanelEditPage() {
   const handleDuplicateQuery = (id: string) => {
     const queryToDuplicate = queries.find(q => q.id === id);
     if (queryToDuplicate) {
-      const newId = (queries.length + 1).toString();
+      const newId = generateUUID();
       const newQuery = { 
         ...queryToDuplicate, 
         id: newId, 
@@ -505,13 +639,16 @@ export function PanelEditPage() {
             overflow: 'auto',
             padding: 2,
             backgroundColor: 'background.paper',
-            margin: 0
+            margin: 0,
+            '&::-webkit-scrollbar': {
+              display: 'none'
+            },
+            scrollbarWidth: 'none',
+            msOverflowStyle: 'none'
           }}>
             {activeTab === 0 && (
               <Box>
-                <Typography variant="h6" sx={{ mb: 2 }}>Data Queries</Typography>
-                
-                                 {/* Query Cards */}
+                {/* Query Cards */}
                  {queries.length === 0 ? (
                    <Box sx={{ 
                      display: 'flex', 
@@ -576,6 +713,9 @@ export function PanelEditPage() {
                                   '&:hover': {
                                     border: '1px dashed #666',
                                     backgroundColor: 'rgba(255, 255, 255, 0.04)',
+                                    '& .edit-icon': {
+                                      opacity: 1,
+                                    },
                                   },
                                 }}
                                 onClick={(e) => {
@@ -593,14 +733,12 @@ export function PanelEditPage() {
                                   {queryItem.name}
                                 </Typography>
                                 <EditIcon
+                                  className="edit-icon"
                                   sx={{
                                     fontSize: '0.875rem',
                                     color: '#666',
                                     opacity: 0,
-                                    transition: 'opacity 0.2s ease',
-                                    '.MuiBox-root:hover &': {
-                                      opacity: 1,
-                                    },
+                                    transition: 'opacity 0.1s ease',
                                   }}
                                 />
                               </Box>
@@ -653,25 +791,45 @@ export function PanelEditPage() {
                        </AccordionSummary>
                                                                                            <AccordionDetails sx={{ py: 0.5 }}>
                          <Box sx={{ width: '100%' }}>
-                                                                                 <TextField
-                              fullWidth
-                              multiline
-                              rows={2}
-                              value={queryItem.query}
-                              onChange={(e) => handleQueryChange(queryItem.id, e.target.value)}
-                              placeholder="SELECT * FROM metrics WHERE..."
-                              sx={{ mb: 0.5 }}
-                            />
-                                                                                 <Button
-                              variant="outlined"
-                              fullWidth
-                              onClick={() => handleQueryTest(queryItem.query)}
-                              disabled={!queryItem.query.trim()}
-                              sx={{ mb: 0.5 }}
-                            >
-                            Test Query
-                          </Button>
-                        </Box>
+                           <Box sx={{ mb: 0.5, border: '1px solid', borderColor: 'divider', borderRadius: 1 }}>
+                             <Editor
+                               height="150px"
+                               language="sql"
+                               theme="vs-dark"
+                               value={queryItem.query}
+                               onChange={(value) => handleQueryChange(queryItem.id, value || '')}
+                               options={{
+                                 minimap: { enabled: false },
+                                 scrollBeyondLastLine: false,
+                                 fontSize: 12,
+                                 wordWrap: 'on',
+                                 automaticLayout: true,
+                                 placeholder: 'SELECT * FROM metrics WHERE...',
+                               }}
+                             />
+                           </Box>
+                           <Box sx={{ display: 'flex', gap: 1, mb: 0.5 }}>
+                             <Button
+                               variant="outlined"
+                               size="small"
+                               startIcon={<CodeIcon />}
+                               onClick={() => handleFormatQuery(queryItem.id)}
+                               disabled={!queryItem.query.trim()}
+                               sx={{ flex: 1 }}
+                             >
+                               Format Query
+                             </Button>
+                             <Button
+                               variant="outlined"
+                               size="small"
+                               onClick={() => handleQueryTest(queryItem.query)}
+                               disabled={!queryItem.query.trim()}
+                               sx={{ flex: 1 }}
+                             >
+                               Test Query
+                             </Button>
+                                                       </Box>
+                          </Box>
                                              </AccordionDetails>
                      </Accordion>
                    ))
@@ -796,6 +954,59 @@ export function PanelEditPage() {
           </Button>
           <Button onClick={handleDeleteQueryConfirmed} color="error" variant="contained">
             Delete
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Discard Changes Confirmation Dialog */}
+      <Dialog
+        open={discardDialogOpen}
+        onClose={handleDiscardCancel}
+        aria-labelledby="discard-dialog-title"
+        aria-describedby="discard-dialog-description"
+      >
+        <DialogTitle id="discard-dialog-title">
+          Discard Changes
+        </DialogTitle>
+        <DialogContent>
+          <Typography>
+            Are you sure you want to discard all changes? This action cannot be undone.
+          </Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={handleDiscardCancel} color="primary">
+            Cancel
+          </Button>
+          <Button onClick={handleDiscardConfirmed} color="error" variant="contained">
+            Discard
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Unsaved Changes Dialog */}
+      <Dialog
+        open={unsavedChangesDialogOpen}
+        onClose={handleUnsavedChangesCancel}
+        aria-labelledby="unsaved-dialog-title"
+        aria-describedby="unsaved-dialog-description"
+      >
+        <DialogTitle id="unsaved-dialog-title">
+          Unsaved Changes
+        </DialogTitle>
+        <DialogContent>
+          <Typography>
+            You have unsaved changes. Would you like to save them before leaving?
+          </Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={handleUnsavedChangesDiscard} color="primary">
+            Don't Save
+          </Button>
+          <Button onClick={handleUnsavedChangesCancel} color="primary">
+            Cancel
+          </Button>
+          <Button onClick={handleUnsavedChangesSave} color="primary" variant="contained">
+            Save
           </Button>
         </DialogActions>
       </Dialog>

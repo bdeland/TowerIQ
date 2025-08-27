@@ -7,16 +7,15 @@ import {
   Alert, 
   CircularProgress,
   IconButton,
-  Breadcrumbs,
   Link
 } from '@mui/material';
 import { 
   ArrowBack as ArrowBackIcon,
-  Edit as EditIcon,
-  Home as HomeIcon
+  Edit as EditIcon
 } from '@mui/icons-material';
 import { useDashboard, DashboardPanel } from '../contexts/DashboardContext';
 import DashboardPanelView from '../components/DashboardPanelView';
+import { Breadcrumbs } from '../components/Breadcrumbs';
 
 export function PanelViewPage() {
   const { panelId, dashboardId } = useParams<{ panelId: string; dashboardId: string }>();
@@ -75,7 +74,7 @@ export function PanelViewPage() {
 
   const handleBackToDashboard = () => {
     if (dashboard) {
-      navigate(`/dashboards/${dashboard.id}`);
+      navigate(`/dashboard/${dashboard.id}`);
     } else {
       navigate('/dashboards');
     }
@@ -137,34 +136,9 @@ export function PanelViewPage() {
         </Box>
         
         {/* Breadcrumbs */}
-        <Breadcrumbs aria-label="breadcrumb" sx={{ ml: 5 }}>
-          <Link 
-            color="inherit" 
-            href="/dashboards" 
-            onClick={(e) => {
-              e.preventDefault();
-              navigate('/dashboards');
-            }}
-            sx={{ display: 'flex', alignItems: 'center', textDecoration: 'none' }}
-          >
-            <HomeIcon sx={{ mr: 0.5 }} fontSize="inherit" />
-            Dashboards
-          </Link>
-          {dashboard && (
-            <Link
-              color="inherit"
-              href={`/dashboards/${dashboard.id}`}
-              onClick={(e) => {
-                e.preventDefault();
-                navigate(`/dashboards/${dashboard.id}`);
-              }}
-              sx={{ textDecoration: 'none' }}
-            >
-              {dashboard.title}
-            </Link>
-          )}
-          <Typography color="text.primary">{panel.title}</Typography>
-        </Breadcrumbs>
+        <Box sx={{ ml: 5 }}>
+          <Breadcrumbs />
+        </Box>
       </Box>
 
       {/* Panel Content */}

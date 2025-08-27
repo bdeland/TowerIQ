@@ -1328,11 +1328,6 @@ class DatabaseService:
             return False
         
         try:
-            # Generate UID if not provided
-            if 'uid' not in dashboard_data:
-                import uuid
-                dashboard_data['uid'] = str(uuid.uuid4())
-            
             # Ensure required fields
             required_fields = ['id', 'uid', 'title', 'config']
             for field in required_fields:

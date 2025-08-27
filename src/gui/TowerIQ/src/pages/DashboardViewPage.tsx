@@ -7,6 +7,7 @@ import { useDashboard, DashboardPanel } from '../contexts/DashboardContext';
 import { useDashboardEdit } from '../contexts/DashboardEditContext';
 import DashboardPanelView from '../components/DashboardPanelView';
 import PanelEditorDrawer from '../components/PanelEditorDrawer';
+import { generateUUID } from '../utils/uuid';
 
 const ResponsiveGridLayout = WidthProvider(Responsive);
 
@@ -22,7 +23,6 @@ export function DashboardViewPage() {
   } = useDashboardEdit();
   
   const [panels, setPanels] = useState<DashboardPanel[]>([]);
-  const [panelCounter, setPanelCounter] = useState(1);
   const [isEditMode, setIsEditMode] = useState(false);
   const [originalPanels, setOriginalPanels] = useState<DashboardPanel[]>([]);
   const [selectedPanelId, setSelectedPanelId] = useState<string | null>(null);
@@ -44,9 +44,9 @@ export function DashboardViewPage() {
   const handleAddVisualization = useCallback(() => {
     // Call addPanel function (will be defined later)
     const newPanel: DashboardPanel = {
-      id: `panel-${panelCounter}`,
+      id: generateUUID(),
       type: 'stat',
-      title: `Panel ${panelCounter}`,
+      title: `New Panel`,
       gridPos: {
         x: (panels.length * 4) % 12,
         y: Math.floor(panels.length / 3) * 2,
@@ -72,8 +72,7 @@ export function DashboardViewPage() {
     
     console.log('Adding new panel:', newPanel);
     setPanels([...panels, newPanel]);
-    setPanelCounter(panelCounter + 1);
-  }, [panels, panelCounter]);
+  }, [panels]);
 
   const handleAddRow = useCallback(() => {
     console.log('Add Row clicked');
@@ -120,7 +119,7 @@ export function DashboardViewPage() {
         ...currentDashboard.config, 
         panels: panels.map(panel => ({
           ...panel,
-          id: `${panel.id}-copy-${Date.now()}` // Ensure unique panel IDs
+          id: generateUUID() // Generate new UUID for each panel
         }))
       };
       
@@ -217,7 +216,6 @@ export function DashboardViewPage() {
           console.log('DashboardViewPage - Dashboard panels:', dashboard.config.panels);
           setCurrentDashboard(dashboard);
           setPanels(dashboard.config.panels || []);
-          setPanelCounter((dashboard.config.panels?.length || 0) + 1);
           // Reset edit mode and selection when loading
           setIsEditMode(false);
           setSelectedPanelId(null);

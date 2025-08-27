@@ -89,6 +89,14 @@ class QueryResponse(BaseModel):
     data: List[Dict[str, Any]]
     rowCount: int
 
+class QueryPreviewRequest(BaseModel):
+    query: str
+
+class QueryPreviewResponse(BaseModel):
+    status: str
+    message: str
+    plan: Optional[List[Dict[str, Any]]] = None
+
 # Global variables for the backend services
 config: Optional[ConfigurationManager] = None
 logger: Optional[Any] = None
@@ -821,9 +829,11 @@ async def create_dashboard(request: DashboardCreateRequest):
         
         import uuid
         dashboard_id = str(uuid.uuid4())
+        dashboard_uid = str(uuid.uuid4())
         
         dashboard_data = {
             'id': dashboard_id,
+            'uid': dashboard_uid,
             'title': request.title,
             'description': request.description or '',
             'config': request.config,
@@ -980,6 +990,66 @@ async def ensure_dashboards_table():
             logger.error("Error ensuring dashboards table", error=str(e))
         raise HTTPException(status_code=500, detail=f"Failed to ensure dashboards table: {str(e)}")
 
+@app.post("/api/query/preview", response_model=QueryPreviewResponse)
+async def preview_query(request: QueryPreviewRequest):
+    """Preview a SQL query to validate syntax and get execution plan without executing it."""
+    try:
+        if not db_service:
+            raise HTTPException(status_code=503, detail="Database service not available")
+        
+        if not db_service.sqlite_conn:
+            raise HTTPException(status_code=503, detail="Database connection not available")
+        
+        # Basic SQL injection protection - only allow SELECT statements
+        query_stripped = request.query.strip().upper()
+        if not query_stripped.startswith('SELECT'):
+            raise HTTPException(status_code=400, detail="Only SELECT queries are allowed")
+        
+        # Additional protection against dangerous SQL operations
+        dangerous_keywords = ['DROP', 'DELETE', 'UPDATE', 'INSERT', 'CREATE', 'ALTER', 'TRUNCATE', '--', ';']
+        for keyword in dangerous_keywords:
+            if keyword in query_stripped:
+                raise HTTPException(status_code=400, detail=f"Query contains forbidden keyword: {keyword}")
+        
+        # Use EXPLAIN QUERY PLAN to validate syntax and get execution plan
+        explain_query = f"EXPLAIN QUERY PLAN {request.query}"
+        cursor = db_service.sqlite_conn.cursor()
+        cursor.execute(explain_query)
+        
+        # Fetch the execution plan
+        plan_rows = cursor.fetchall()
+        
+        # Convert plan to list of dictionaries
+        plan = []
+        for row in plan_rows:
+            plan.append({
+                "selectid": row[0],
+                "order": row[1],
+                "from": row[2],
+                "detail": row[3]
+            })
+        
+        if logger:
+            logger.info("Query preview successful", 
+                       query=request.query, 
+                       plan_rows=len(plan))
+        
+        return QueryPreviewResponse(
+            status="success",
+            message="Query syntax is valid.",
+            plan=plan
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        if logger:
+            logger.error("Error previewing query", query=request.query, error=str(e))
+        return QueryPreviewResponse(
+            status="error",
+            message=f"Syntax error: {str(e)}"
+        )
+
 @app.post("/api/query", response_model=QueryResponse)
 async def execute_query(request: QueryRequest):
     """Execute a SQL query against the database and return the results."""
@@ -1001,9 +1071,18 @@ async def execute_query(request: QueryRequest):
             if keyword in query_stripped:
                 raise HTTPException(status_code=400, detail=f"Query contains forbidden keyword: {keyword}")
         
+        # Enforce LIMIT clause for safety
+        query = request.query.strip()
+        if not query.upper().endswith('LIMIT') and 'LIMIT' not in query.upper():
+            # Check if query already ends with a semicolon
+            if query.endswith(';'):
+                query = query[:-1] + ' LIMIT 500;'
+            else:
+                query = query + ' LIMIT 500'
+        
         # Execute the query
         cursor = db_service.sqlite_conn.cursor()
-        cursor.execute(request.query)
+        cursor.execute(query)
         
         # Fetch all results
         rows = cursor.fetchall()
@@ -1022,7 +1101,7 @@ async def execute_query(request: QueryRequest):
         
         if logger:
             logger.info("Query executed successfully", 
-                       query=request.query, 
+                       query=query, 
                        row_count=len(data))
         
         return QueryResponse(data=data, rowCount=len(data))

@@ -93,6 +93,39 @@ const DashboardPanelView: React.FC<DashboardPanelViewProps> = ({
   const getTransformedEChartsOption = () => {
     const baseOption = { ...panel.echartsOption };
     
+    // Remove title to prevent "Panel 1" from showing in chart
+    delete baseOption.title;
+    
+    // Ensure grid configuration is present for consistent chart rendering
+    if (!baseOption.grid) {
+      baseOption.grid = {};
+    }
+    baseOption.grid = {
+      ...baseOption.grid,
+      left: '2%',     // Minimal space for y-axis labels
+      right: '2%',    // Minimal space for right-side elements
+      top: '2%',      // Minimal space for top labels/titles
+      bottom: '2%',   // Minimal space for x-axis labels
+      containLabel: true // Ensure labels are contained within the grid
+    };
+    
+    // Ensure tooltips and other elements don't overflow
+    if (!baseOption.tooltip) {
+      baseOption.tooltip = {};
+    }
+    baseOption.tooltip = {
+      ...baseOption.tooltip,
+      confine: true // Prevent tooltip from overflowing the chart container
+    };
+    
+    // Ensure legend doesn't overflow
+    if (baseOption.legend) {
+      baseOption.legend = {
+        ...baseOption.legend,
+        confine: true // Prevent legend from overflowing the chart container
+      };
+    }
+    
     if (!queryResult.data || queryResult.data.length === 0) {
       return baseOption;
     }
@@ -499,7 +532,7 @@ const DashboardPanelView: React.FC<DashboardPanelViewProps> = ({
     // Table content
     if (panel.type === 'table') {
       return (
-        <Box sx={{ overflowX: 'auto', flex: 1, padding: 1 }}>
+        <Box sx={{ overflowX: 'auto', flex: 1 }}>
           <table style={{ 
             width: '100%', 
             borderCollapse: 'collapse',
@@ -510,7 +543,6 @@ const DashboardPanelView: React.FC<DashboardPanelViewProps> = ({
                 {queryResult.data.length > 0 && Object.keys(queryResult.data[0]).map(key => (
                   <th key={key} style={{ 
                     border: '1px solid var(--mui-palette-divider)', 
-                    padding: '8px', 
                     backgroundColor: 'var(--mui-palette-action-hover)',
                     fontSize: '12px',
                     color: 'var(--mui-palette-text-primary)',
@@ -527,7 +559,6 @@ const DashboardPanelView: React.FC<DashboardPanelViewProps> = ({
                   {Object.values(row).map((value, colIndex) => (
                     <td key={colIndex} style={{ 
                       border: '1px solid var(--mui-palette-divider)', 
-                      padding: '8px',
                       fontSize: '11px',
                       color: 'var(--mui-palette-text-primary)',
                       backgroundColor: index % 2 === 0 ? 'transparent' : 'var(--mui-palette-action-hover)'
@@ -545,13 +576,19 @@ const DashboardPanelView: React.FC<DashboardPanelViewProps> = ({
 
     // Chart content (for timeseries, bar, pie, stat, etc.)
     return (
-      <ReactECharts
-        ref={chartRef}
-        option={getTransformedEChartsOption()}
-        style={{ height: '100%', width: '100%' }}
-        notMerge={true}
-        lazyUpdate={true}
-      />
+      <Box sx={{ 
+        height: '100%', 
+        width: '100%',
+        overflow: 'hidden' // Ensure chart elements don't overflow the container
+      }}>
+        <ReactECharts
+          ref={chartRef}
+          option={getTransformedEChartsOption()}
+          style={{ height: '100%', width: '100%' }}
+          notMerge={true}
+          lazyUpdate={true}
+        />
+      </Box>
     );
   };
 
@@ -589,7 +626,8 @@ const DashboardPanelView: React.FC<DashboardPanelViewProps> = ({
         position: 'relative',
         minHeight: 0,
         overflow: 'hidden',
-        borderRadius: 'inherit'
+        borderRadius: 'inherit',
+        padding: '10px' // Consistent margin between content and panel boundaries
       }}>
         {renderPanelContent()}
       </Box>
