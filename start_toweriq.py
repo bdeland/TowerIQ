@@ -26,6 +26,9 @@ app_root = Path(__file__).parent
 config = ConfigurationManager(str(app_root / 'config' / 'main_config.yaml'))
 setup_logging(config)
 
+# Recreate the ConfigurationManager logger after logging is configured
+config._recreate_logger()
+
 logger = structlog.get_logger(__name__)
 
 def check_backend_health(url: str = "http://127.0.0.1:8000/", max_retries: int = 30) -> bool:

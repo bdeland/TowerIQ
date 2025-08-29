@@ -29,15 +29,22 @@ class ConfigurationManager(QObject):
 
     def __init__(self, yaml_path: str = 'config/main_config.yaml'):
         super().__init__()
-        self.logger = structlog.get_logger().bind(source="ConfigurationManager")
+        self._logger = None  # Will be created after logging is configured
         self._db_service: Optional[DatabaseService] = None
         self._file_config: dict = self._load_from_file(yaml_path)
         self._user_settings: dict = {}
         self._setting_metadata: dict = {}  # Store metadata for each setting
 
+    @property
+    def logger(self):
+        """Get the logger, creating it if necessary."""
+        if self._logger is None:
+            self._logger = structlog.get_logger().bind(source="ConfigurationManager")
+        return self._logger
+
     def _recreate_logger(self):
         """Recreate the logger after logging system is configured."""
-        self.logger = structlog.get_logger().bind(source="ConfigurationManager")
+        self._logger = structlog.get_logger().bind(source="ConfigurationManager")
 
     def get_project_root(self) -> str:
         """

@@ -1,21 +1,20 @@
 /** TOWERIQ_HOOK_METADATA
 {
     "contractVersion": "1.1",
-    "fileName": "tower_hook.js",
+    "fileName": "test.js",
     "scriptName": "test script",
-    "scriptDescription": "A comprehensive logger for all major in-game events and currencies.",
+    "scriptDescription": "A simple test script to verify database functionality.",
     "targetApp": "The Tower",
     "targetPackage": "com.TechTreeGames.TheTower",
     "supportedVersions": ["27.0.2"],
     "features": [
-        "round_start_end_events",
-        "per_wave_metric_bundle",
-        "detailed_gem_tracking"
+        "test_messages",
+        "database_verification"
     ]
 }
 */
 
-// Simple test hook script to verify Frida communication
+// Simple test hook script to verify Frida communication and database storage
 console.log("Simple test hook script loaded");
 
 // Send a test message immediately
@@ -24,6 +23,45 @@ send({
     payload: { 
         message: "Hook script is working!", 
         timestamp: Date.now() 
+    } 
+});
+
+// Send test game data message to verify database storage
+send({ 
+    type: "game_metric", 
+    payload: { 
+        roundSeed: 12345,
+        currentWave: 1,
+        coins: 100,
+        gems: 5,
+        cells: 2,
+        cash: 50,
+        stones: 1,
+        metrics: {
+            round_coins: 100,
+            wave_coins: 50,
+            coins: 100,
+            gems: 5,
+            round_cells: 2,
+            wave_cells: 1,
+            cells: 2,
+            round_cash: 50,
+            cash: 50,
+            stones: 1
+        },
+        timestamp: Date.now(),
+        gameTimestamp: Date.now()
+    } 
+});
+
+// Send a test game event
+send({ 
+    type: "game_event", 
+    payload: { 
+        event_type: "test_event",
+        run_id: "test_run_12345",
+        message: "Test game event",
+        timestamp: Date.now()
     } 
 });
 

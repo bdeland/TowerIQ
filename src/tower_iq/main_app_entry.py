@@ -53,6 +53,9 @@ def main() -> None:
     # Set up logging
     setup_logging(config)
     
+    # Recreate the ConfigurationManager logger after logging is configured
+    config._recreate_logger()
+    
     # Get logger after setup
     import structlog
     logger = structlog.get_logger()

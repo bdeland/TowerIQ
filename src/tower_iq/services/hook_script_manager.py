@@ -11,6 +11,7 @@ from __future__ import annotations
 import os
 import json
 import re
+import uuid
 from pathlib import Path
 from typing import List, Dict, Optional
 
@@ -89,7 +90,8 @@ class HookScriptManager:
                 
                 # Create a script object with content and compatibility info
                 script_with_content = {
-                    "id": file_name,
+                    "id": str(uuid.uuid4()),  # Generate unique ID
+                    "fileName": file_name,  # Keep original filename for reference
                     "name": script.get("scriptName", script.get("fileName", "Script")),
                     "description": script.get("scriptDescription", script.get("description", "No description available")),
                     "content": content,
@@ -153,7 +155,8 @@ class HookScriptManager:
             
             # Return the script with content
             return {
-                "id": file_name,
+                "id": str(uuid.uuid4()),  # Generate unique ID
+                "fileName": file_name,  # Keep original filename for reference
                 "name": selected_script.get("scriptName", selected_script.get("fileName", "The Tower Script")),
                 "description": selected_script.get("scriptDescription", selected_script.get("description", "Default script for The Tower game")),
                 "content": content,

@@ -15,7 +15,7 @@ system_defaults:
   logging:
     console:
       enabled: true
-      level: "DEBUG"
+      level: "INFO"
     file:
       enabled: false
       path: "logs/tower_iq.log"

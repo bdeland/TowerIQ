@@ -55,6 +55,7 @@ import {
 import RefreshIcon from '@mui/icons-material/Refresh';
 import { useBackend, Device, Process, HookScript, FridaStatus, ScriptStatus } from '../hooks/useBackend';
 import { ScriptStatusWidget } from '../components/ScriptStatusWidget';
+import { HookScriptCard } from '../components/HookScriptCard';
 
 // Application constants for auto-selection
 const TARGET_PROCESS_PACKAGE = 'com.TechTreeGames.TheTower';
@@ -711,7 +712,7 @@ export function ConnectionPage() {
                   {processes.filter(process => 
                     processSearchTerm === '' || 
                     process.name.toLowerCase().includes(processSearchTerm.toLowerCase()) ||
-                    process.package.toLowerCase().includes(processSearchTerm.toLowerCase())
+                    (process.package && process.package.toLowerCase().includes(processSearchTerm.toLowerCase()))
                   ).length} of {processes.length} processes
                 </Typography>
                 <IconButton
@@ -781,7 +782,7 @@ export function ConnectionPage() {
                       const filteredProcesses = processes.filter(process => 
                         processSearchTerm === '' || 
                         process.name.toLowerCase().includes(processSearchTerm.toLowerCase()) ||
-                        process.package.toLowerCase().includes(processSearchTerm.toLowerCase())
+                        (process.package && process.package.toLowerCase().includes(processSearchTerm.toLowerCase()))
                       );
                       
                       if (processes.length === 0) {
@@ -826,10 +827,10 @@ export function ConnectionPage() {
                             <TableCell>{process.pid}</TableCell>
                             <TableCell>
                               <Chip 
-                                label={process.is_system ? 'System' : 'User'} 
+                                label="User" 
                                 size="small"
-                                color={process.is_system ? 'default' : 'primary'}
-                                variant={process.is_system ? 'outlined' : 'filled'}
+                                color="primary"
+                                variant="filled"
                               />
                             </TableCell>
                           </TableRow>
@@ -1259,7 +1260,7 @@ export function ConnectionPage() {
 
           {/* Hook Script Selection */}
           <Box>
-            <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1 }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2 }}>
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                 <Typography variant="h6">
                   Available Hook Scripts
@@ -1275,61 +1276,48 @@ export function ConnectionPage() {
                 <RefreshIcon />
               </IconButton>
             </Box>
-            <RadioGroup
-              value={selectedHookScript?.id || ''}
-              onChange={(e) => {
-                const script = hookScripts.find(s => s.id === e.target.value);
-                setSelectedHookScript(script || null);
-              }}
-            >
-              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+            
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+              Select a hook script to inject into the target application. Scripts are loaded from the scripts folder and contain metadata about their target application and supported versions.
+            </Typography>
+            
+            {hookScripts.length === 0 ? (
+              <Alert severity="info" sx={{ mt: 2 }}>
+                <Typography variant="body2">
+                  No hook scripts found. Please ensure scripts are available in the scripts folder.
+                </Typography>
+              </Alert>
+            ) : (
+              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
                 {hookScripts.map((script) => (
-                  <Box key={script.id} sx={{ p: 2, border: 1, borderColor: 'divider', borderRadius: 1 }}>
-                    <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 2 }}>
-                      <FormControlLabel
-                        control={<Radio value={script.id} size="small" />}
-                        label=""
-                        sx={{ m: 0 }}
-                      />
-                      <Box sx={{ flex: 1 }}>
-                        <Typography variant="subtitle2" sx={{ mb: 1 }}>{script.name}</Typography>
-                        <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
-                          {script.description}
-                        </Typography>
-                        <Typography variant="caption" fontFamily="monospace" sx={{ display: 'block', mb: 1 }}>
-                          Target: {script.targetPackage}
-                        </Typography>
-                        {script.supportedVersions && script.supportedVersions.length > 0 && (
-                          <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5, mt: 1 }}>
-                            <Typography variant="caption" color="text.secondary">Supported versions:</Typography>
-                            {script.supportedVersions.map((version, index) => (
-                              <Chip 
-                                key={index}
-                                label={version} 
-                                size="small"
-                                variant="outlined"
-                              />
-                            ))}
-                          </Box>
-                        )}
-                      </Box>
-                    </Box>
-                  </Box>
+                  <HookScriptCard
+                    key={script.id}
+                    script={script}
+                    selected={selectedHookScript?.id === script.id}
+                    onSelect={(selectedScript) => {
+                      console.log('HookScriptCard onSelect triggered:', selectedScript.id);
+                      setSelectedHookScript(selectedScript);
+                    }}
+                  />
                 ))}
               </Box>
-            </RadioGroup>
+            )}
             
             {selectedHookScript && (
               <Alert severity="info" sx={{ mt: 2 }}>
                 <Typography variant="body2">
                   Selected script: <strong>{selectedHookScript.name}</strong>
+                  {selectedHookScript.fileName && (
+                    <span style={{ fontFamily: 'monospace', fontSize: '0.8em', marginLeft: '8px' }}>
+                      ({selectedHookScript.fileName})
+                    </span>
+                  )}
                 </Typography>
                 <Typography variant="body2" color="text.secondary">
                   {selectedHookScript.description}
                 </Typography>
               </Alert>
             )}
-
           </Box>
         </AccordionDetails>
       </Accordion>

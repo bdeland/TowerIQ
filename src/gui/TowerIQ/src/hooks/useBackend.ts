@@ -37,6 +37,7 @@ export interface Process {
 
 export interface HookScript {
   id: string;
+  fileName?: string;
   name: string;
   description: string;
   content: string;

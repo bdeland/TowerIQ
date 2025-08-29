@@ -5,7 +5,7 @@ contract_version: "1.0"
 
 script_info:
   # The relative path to the script file from the project root.
-  path: "src/tower_iq/scripts/tower_hook.js"
+  path: "src/tower_iq/scripts/tower_hook_compiled.js"
   
   # The target package name this script is designed for
   target_package: "com.TechTreeGames.TheTower"
@@ -14,5 +14,4 @@ script_info:
   # The application will only allow injection if both the package name matches
   # AND the detected game version is present in this list.
   supported_versions:
-    - "26.5.3"
-    - "27.0.2"
+    - "27.0.4"

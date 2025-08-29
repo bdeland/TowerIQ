@@ -27,6 +27,31 @@ from tower_iq.core.logging_config import setup_logging
 from tower_iq.main_controller import MainController
 from tower_iq.services.database_service import DatabaseService
 
+# Configure logging at module level to ensure it's set up before Uvicorn starts
+def configure_logging():
+    """Configure logging for the API server."""
+    app_root = Path(__file__).parent.parent.parent
+    config = ConfigurationManager(str(app_root / 'config' / 'main_config.yaml'))
+    setup_logging(config)
+    config._recreate_logger()
+    
+    # Configure all uvicorn loggers to use our system
+    import logging
+    uvicorn_loggers = [
+        "uvicorn",
+        "uvicorn.error", 
+        "uvicorn.access",
+        "uvicorn.asgi"
+    ]
+    for logger_name in uvicorn_loggers:
+        uvicorn_logger = logging.getLogger(logger_name)
+        uvicorn_logger.handlers = []  # Remove default handlers
+        uvicorn_logger.propagate = True  # Let it propagate to our root logger
+    
+    return config
+
+# Configure logging immediately when module is imported
+config = configure_logging()
 
 # Pydantic models for API requests/responses
 class ConnectionRequest(BaseModel):
@@ -98,7 +123,6 @@ class QueryPreviewResponse(BaseModel):
     plan: Optional[List[Dict[str, Any]]] = None
 
 # Global variables for the backend services
-config: Optional[ConfigurationManager] = None
 logger: Optional[Any] = None
 controller: Optional[MainController] = None
 db_service: Optional[DatabaseService] = None
