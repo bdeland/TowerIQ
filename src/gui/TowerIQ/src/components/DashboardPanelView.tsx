@@ -24,6 +24,8 @@ import {
 import ReactECharts from 'echarts-for-react';
 import { DashboardPanel } from '../contexts/DashboardContext';
 import { useNavigate } from 'react-router-dom';
+import { applyTransformations } from '../services/transformationService';
+import { grafanaToECharts, mergeWithEChartsOption } from '../utils/grafanaToECharts';
 
 interface DashboardPanelViewProps {
   panel: DashboardPanel;
@@ -31,6 +33,7 @@ interface DashboardPanelViewProps {
   isEditMode?: boolean;
   onDelete?: (panelId: string) => void;
   onEdit?: (panelId: string) => void;
+  onDataFetched?: (data: any[]) => void;
 }
 
 interface QueryResult {
@@ -43,7 +46,8 @@ const DashboardPanelView: React.FC<DashboardPanelViewProps> = ({
   onClick, 
   isEditMode = false,
   onDelete,
-  onEdit
+  onEdit,
+  onDataFetched
 }) => {
   const navigate = useNavigate();
   const [queryResult, setQueryResult] = useState<QueryResult>({ data: [] });
@@ -79,7 +83,13 @@ const DashboardPanelView: React.FC<DashboardPanelViewProps> = ({
       }
 
       const result = await response.json();
-      setQueryResult({ data: result.data || [] });
+      const data = result.data || [];
+      setQueryResult({ data });
+      
+      // Call the callback to provide data to parent component
+      if (onDataFetched) {
+        onDataFetched(data);
+      }
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Failed to fetch panel data';
       setError(errorMessage);
@@ -128,6 +138,31 @@ const DashboardPanelView: React.FC<DashboardPanelViewProps> = ({
     
     if (!queryResult.data || queryResult.data.length === 0) {
       return baseOption;
+    }
+
+    // If panel has transformations, use the new transformation service
+    if (panel.transformations && panel.transformations.length > 0) {
+      console.log('🔧 Applying transformations:', panel.transformations);
+      console.log('📊 Original data:', queryResult.data);
+      
+      try {
+        // Apply transformations using the transformation service
+        const transformedDataFrames = applyTransformations(queryResult.data, panel.transformations);
+        console.log('📈 Transformed DataFrames:', transformedDataFrames);
+        
+        // Convert transformed DataFrames to ECharts format
+        const echartsData = grafanaToECharts(transformedDataFrames, panel.type);
+        console.log('📉 ECharts data:', echartsData);
+        
+        // Merge with existing ECharts option
+        const mergedOption = mergeWithEChartsOption(echartsData, baseOption, panel.type);
+        console.log('🎯 Final merged option:', mergedOption);
+        
+        return mergedOption;
+      } catch (error) {
+        console.error('❌ Error applying transformations:', error);
+        // Fall through to legacy transformation logic
+      }
     }
 
     // Helper function to intelligently map data columns

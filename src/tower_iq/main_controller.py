@@ -8,6 +8,7 @@ instead of Qt components for compatibility with FastAPI server.
 import os
 import time
 import threading
+import asyncio
 from typing import Any, Optional, Callable, Dict, List
 from datetime import datetime
 
@@ -275,8 +276,18 @@ class MainController:
         self._running = True
         self.logger.info("Starting background operations")
         
-        # Start any background threads here if needed
-        # For now, we'll just mark as running
+        # Start the Frida message processing loop
+        import asyncio
+        try:
+            loop = asyncio.get_event_loop()
+            # Start the message processing loop as a task
+            loop.create_task(self.run())
+            self.logger.info("Frida message processing loop started")
+        except RuntimeError:
+            # If no event loop is running, we'll need to be started later
+            self.logger.info("No event loop running - message processing will be started when loop is available")
+        except Exception as e:
+            self.logger.error("Error starting Frida message processing loop", error=str(e))
     
     def scan_devices(self):
         """Scan for available devices."""
@@ -377,6 +388,219 @@ class MainController:
     def handle_heartbeat_message(self, message_data: Dict[str, Any]) -> None:
         """Handle incoming heartbeat message from hook script."""
         self.session.handle_heartbeat_message(message_data)
+
+    async def run(self):
+        """
+        Main async run loop for processing messages from Frida.
+        
+        This method continuously polls for messages from the FridaService queue
+        and processes them (storing game data in database, handling events, etc.).
+        """
+        self.logger.info("Starting MainController message processing loop")
+        
+        while self._running:
+            try:
+                # Get message from Frida service with timeout
+                message = await self.frida_service.get_message()
+                
+                if message:
+                    self.logger.debug("Processing message from Frida", message_type=message.get('type'))
+                    await self._process_frida_message(message)
+                    
+            except asyncio.TimeoutError:
+                # Timeout is normal - just continue the loop
+                continue
+            except RuntimeError as e:
+                if "shutdown" in str(e).lower():
+                    self.logger.info("Shutdown signal received, stopping message processing")
+                    break
+                else:
+                    self.logger.error("Runtime error in message processing", error=str(e))
+                    break
+            except Exception as e:
+                self.logger.error("Error processing message from Frida", error=str(e))
+                # Continue processing other messages
+                await asyncio.sleep(0.1)
+        
+        self.logger.info("MainController message processing loop stopped")
+
+    async def _process_frida_message(self, message: Dict[str, Any]) -> None:
+        """
+        Process a message received from the Frida script.
+        
+        Args:
+            message: The message dictionary from Frida
+        """
+        try:
+            message_type = message.get('type', 'unknown')
+            payload = message.get('payload', {})
+            timestamp = message.get('timestamp')
+            
+            self.logger.debug("Processing Frida message", 
+                            message_type=message_type, 
+                            payload_keys=list(payload.keys()) if isinstance(payload, dict) else 'not_dict')
+            
+            # Handle different message types
+            if message_type == 'hook_log':
+                await self._handle_hook_log_message(payload, timestamp)
+            elif message_type == 'game_data' or message_type == 'game_metric':
+                await self._handle_game_data_message(payload, timestamp)
+            elif message_type == 'game_event':
+                await self._handle_game_event_message(payload, timestamp)
+            elif message_type == 'script_error':
+                await self._handle_script_error_message(payload, timestamp)
+            elif message_type == 'test_message':
+                await self._handle_test_message(payload, timestamp)
+            else:
+                self.logger.warning("Unknown message type received from Frida", 
+                                  message_type=message_type, 
+                                  payload=payload)
+                
+        except Exception as e:
+            self.logger.error("Error processing Frida message", 
+                            message=message, 
+                            error=str(e))
+
+    async def _handle_hook_log_message(self, payload: Dict[str, Any], timestamp: Any) -> None:
+        """Handle hook log messages (heartbeats, debug info, etc.)."""
+        try:
+            event = payload.get('event', 'unknown')
+            
+            if event == 'frida_heartbeat':
+                # Heartbeat is already handled by the Frida service
+                self.logger.debug("Heartbeat message processed")
+            else:
+                self.logger.debug("Hook log event", event=event, payload=payload)
+                
+        except Exception as e:
+            self.logger.error("Error handling hook log message", error=str(e))
+
+    async def _handle_game_data_message(self, payload: Dict[str, Any], timestamp: Any) -> None:
+        """Handle game data messages and store them in the database."""
+        try:
+            if not self.db_service:
+                self.logger.warning("Cannot store game data: database service not available")
+                return
+            
+            # Extract relevant data from payload
+            run_id = payload.get('roundSeed') or payload.get('run_id')
+            wave = payload.get('currentWave')
+            
+            # Handle both direct field format and metrics object format
+            metrics = {}
+            if 'metrics' in payload:
+                # New format: metrics are in a 'metrics' object
+                for key, value in payload['metrics'].items():
+                    if value is not None:
+                        metrics[key] = float(value)
+            else:
+                # Old format: metrics are direct fields
+                coins = payload.get('coins')
+                if coins is not None:
+                    metrics['coins'] = float(coins)
+                if wave is not None:
+                    metrics['wave'] = float(wave)
+            
+            self.logger.info("Storing game data in database", 
+                           payload_keys=list(payload.keys()) if isinstance(payload, dict) else 'not_dict',
+                           metrics_count=len(metrics),
+                           run_id=run_id)
+            
+            # Store the game data in the database
+            if run_id and metrics:
+                self.db_service.write_metric(
+                    run_id=str(run_id),
+                    real_timestamp=timestamp or int(time.time() * 1000),
+                    game_timestamp=payload.get('gameTimestamp', float(timestamp or time.time())),
+                    current_wave=wave or 0,
+                    metrics=metrics
+                )
+                
+                self.logger.info("Game data stored successfully", 
+                               run_id=run_id, 
+                               coins=coins, 
+                               wave=wave)
+            else:
+                self.logger.warning("Incomplete game data received", 
+                                  run_id=run_id, 
+                                  coins=coins, 
+                                  available_keys=list(payload.keys()))
+                
+        except Exception as e:
+            self.logger.error("Error storing game data", 
+                            payload=payload, 
+                            error=str(e))
+
+    async def _handle_game_event_message(self, payload: Dict[str, Any], timestamp: Any) -> None:
+        """Handle game event messages."""
+        try:
+            if not self.db_service:
+                self.logger.warning("Cannot store game event: database service not available")
+                return
+            
+            event_type = payload.get('event_type', 'unknown')
+            
+            self.logger.info("Storing game event in database", 
+                           event_type=event_type, 
+                           payload=payload)
+            
+            # Store as an event in the database using write_event method
+            run_id = payload.get('run_id', 'unknown')
+            self.db_service.write_event(
+                run_id=str(run_id),
+                timestamp=timestamp or int(time.time() * 1000),
+                event_name=event_type,
+                data=payload
+            )
+            
+        except Exception as e:
+            self.logger.error("Error storing game event", 
+                            payload=payload, 
+                            error=str(e))
+
+    async def _handle_script_error_message(self, payload: Dict[str, Any], timestamp: Any) -> None:
+        """Handle script error messages."""
+        try:
+            error_msg = payload.get('error', 'Unknown script error')
+            stack = payload.get('stack', '')
+            
+            self.logger.error("Script error received", 
+                            error=error_msg, 
+                            stack=stack, 
+                            timestamp=timestamp)
+            
+            # Log error for now - TODO: Create proper ErrorInfo object
+            # Note: Need to check ErrorType enum values for proper error handling
+            self.logger.error("Script error details logged", 
+                            error_message=error_msg, 
+                            stack_trace=stack)
+                
+        except Exception as e:
+            self.logger.error("Error handling script error message", 
+                            payload=payload, 
+                            error=str(e))
+
+    async def _handle_test_message(self, payload: Dict[str, Any], timestamp: Any) -> None:
+        """Handle test messages from the script."""
+        try:
+            message = payload.get('message', 'No message')
+            self.logger.info("Test message received from Frida", 
+                           message=message, 
+                           timestamp=timestamp)
+            
+            # Log test message for debugging purposes
+            if self.db_service:
+                self.db_service.write_event(
+                    run_id="test_run",
+                    timestamp=timestamp or int(time.time() * 1000),
+                    event_name="test_message",
+                    data=payload
+                )
+                
+        except Exception as e:
+            self.logger.error("Error handling test message", 
+                            payload=payload, 
+                            error=str(e))
     
     def get_status(self) -> Dict[str, Any]:
         """Get overall system status."""

@@ -330,6 +330,42 @@ class EmulatorService:
             self.logger.error("Failed to get processes", device=device.serial, error=str(e), error_type=type(e).__name__)
             return []
 
+    async def get_all_processes_unfiltered(self, device: Device, timeout: float = 10.0) -> List[Process]:
+        """
+        Get ALL processes on a device without any filtering.
+        
+        Args:
+            device: Device to query
+            timeout: Maximum time to wait for process listing operations
+            
+        Returns:
+            List of Process objects with minimal information (no detailed queries)
+        """
+        try:
+            # Test device connectivity first
+            if not await asyncio.wait_for(
+                self._test_device_connection(device.serial),
+                timeout=timeout
+            ):
+                self.logger.warning("Device not accessible", device=device.serial)
+                return []
+            
+            # Get all processes without any filtering
+            processes = await asyncio.wait_for(
+                self._get_all_processes_unfiltered(device.serial),
+                timeout=timeout
+            )
+            
+            self.logger.info("Retrieved all processes (unfiltered)", device=device.serial, count=len(processes))
+            return processes
+            
+        except asyncio.TimeoutError:
+            self.logger.error("Process listing timed out", device=device.serial)
+            return []
+        except Exception as e:
+            self.logger.error("Failed to get processes", device=device.serial, error=str(e), error_type=type(e).__name__)
+            return []
+
     async def find_target_process(self, device: Device, target_package: str = "com.TechTreeGames.TheTower", timeout: float = 10.0) -> Optional[Process]:
         """
         Find the target process (The Tower game) on the device.
@@ -456,18 +492,76 @@ class EmulatorService:
                         pid = int(fields[1])
                         process_name = fields[-1]
                         
-                        # Only include processes that look like actual packages
-                        if self._is_valid_package_name(process_name):
-                            # Get complete process info
-                            process = await self._get_process_details(device_serial, process_name, pid)
-                            if process:
+                        # Include ALL processes without filtering
+                        # Check if it's a system package for display purposes
+                        is_system = self._is_system_package(process_name)
+                        
+                        # Try to get complete process info for all processes
+                        process = await self._get_process_details(device_serial, process_name, pid)
+                        if process:
+                            processes.append(process)
+                        else:
+                            # Fallback: create basic process object for any process that wasn't handled
+                            try:
+                                process = Process(
+                                    package=process_name,
+                                    name=process_name,
+                                    pid=pid,
+                                    version="Unknown",
+                                    is_system=is_system
+                                )
                                 processes.append(process)
+                            except Exception as e:
+                                self.logger.debug("Failed to create process object", process_name=process_name, error=str(e))
+                                continue
                     except (ValueError, IndexError) as e:
                         self.logger.debug("Failed to parse process line", line=line, error=str(e))
                         continue
             
-            # Sort by name
-            processes.sort(key=lambda p: p.name.lower())
+            # Sort by name, with user apps first
+            processes.sort(key=lambda p: (p.is_system, p.name.lower()))
+            return processes
+            
+        except AdbError as e:
+            self.logger.warning("Failed to get processes", device=device_serial, error=str(e))
+            return []
+
+    async def _get_all_processes_unfiltered(self, device_serial: str) -> List[Process]:
+        """Get ALL processes without any filtering or detailed queries."""
+        try:
+            # Get all running processes with ps command
+            stdout, _ = await self.adb.run_command("-s", device_serial, "shell", "ps", "-A")
+            
+            processes = []
+            for line in stdout.split('\n')[1:]:  # Skip header
+                fields = line.split()
+                if len(fields) >= 9:
+                    try:
+                        pid = int(fields[1])
+                        process_name = fields[-1]
+                        
+                        # Create basic process object for ALL processes
+                        # Check if it's a system package for display purposes
+                        is_system = self._is_system_package(process_name)
+                        
+                        try:
+                            process = Process(
+                                package=process_name,
+                                name=process_name,
+                                pid=pid,
+                                version="Unknown",
+                                is_system=is_system
+                            )
+                            processes.append(process)
+                        except Exception as e:
+                            self.logger.debug("Failed to create process object", process_name=process_name, error=str(e))
+                            continue
+                    except (ValueError, IndexError) as e:
+                        self.logger.debug("Failed to parse process line", line=line, error=str(e))
+                        continue
+            
+            # Sort by name, with user apps first
+            processes.sort(key=lambda p: (p.is_system, p.name.lower()))
             return processes
             
         except AdbError as e:
@@ -480,7 +574,7 @@ class EmulatorService:
             # Check if it's a system package
             is_system = self._is_system_package(package)
             
-            # Skip detailed queries for system packages to reduce noise
+            # For system packages, return basic info without detailed queries
             if is_system:
                 return Process(
                     package=package,
@@ -490,27 +584,39 @@ class EmulatorService:
                     is_system=True
                 )
             
-            # Get app name and version concurrently
-            name_task = self._get_package_property(device_serial, package, "application-label:")
-            version_task = self._get_package_property(device_serial, package, "versionName=")
-            
-            name, version = await asyncio.gather(name_task, version_task, return_exceptions=True)
-            
-            # Handle exceptions
-            if isinstance(name, Exception):
-                self.logger.debug("Failed to get app name", package=package, error=str(name))
-                name = None
-            if isinstance(version, Exception):
-                self.logger.debug("Failed to get app version", package=package, error=str(version))
-                version = "Unknown"
-            
-            return Process(
-                package=package,
-                name=str(name) if name else package,
-                pid=pid,
-                version=str(version) if version else "Unknown",
-                is_system=is_system
-            )
+            # For user packages, try to get detailed info
+            # Only attempt detailed queries for valid package names to avoid errors
+            if self._is_valid_package_name(package):
+                # Get app name and version concurrently
+                name_task = self._get_package_property(device_serial, package, "application-label:")
+                version_task = self._get_package_property(device_serial, package, "versionName=")
+                
+                name, version = await asyncio.gather(name_task, version_task, return_exceptions=True)
+                
+                # Handle exceptions
+                if isinstance(name, Exception):
+                    self.logger.debug("Failed to get app name", package=package, error=str(name))
+                    name = None
+                if isinstance(version, Exception):
+                    self.logger.debug("Failed to get app version", package=package, error=str(version))
+                    version = "Unknown"
+                
+                return Process(
+                    package=package,
+                    name=str(name) if name else package,
+                    pid=pid,
+                    version=str(version) if version else "Unknown",
+                    is_system=is_system
+                )
+            else:
+                # For non-valid package names (system processes, services, etc.), return basic info
+                return Process(
+                    package=package,
+                    name=package,
+                    pid=pid,
+                    version="System",
+                    is_system=is_system
+                )
             
         except Exception as e:
             if self._verbose_debug:
@@ -574,6 +680,10 @@ class EmulatorService:
         # Skip packages that are known to fail dumpsys queries
         if any(pattern in process_name for pattern in _FAILURE_PATTERNS):
             return False
+            
+        # Special case: Always include The Tower game package
+        if process_name == 'com.TechTreeGames.TheTower':
+            return True
             
         return True
 

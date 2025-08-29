@@ -153,7 +153,7 @@ export function DashboardsPage() {
   };
 
   const handleViewDashboard = (dashboard: Dashboard) => {
-    navigate(`/dashboard/${dashboard.id}`);
+            navigate(`/dashboard/${dashboard.id}`);
   };
 
   const handleEditTags = (dashboard: Dashboard) => {

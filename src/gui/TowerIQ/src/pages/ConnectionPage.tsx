@@ -31,6 +31,7 @@ import {
   Divider,
   Paper,
   Radio,
+  RadioGroup,
 } from '@mui/material';
 import {
   Check as CheckIcon,
@@ -153,6 +154,7 @@ export function ConnectionPage() {
   const [devices, setDevices] = useState<Device[]>([]);
   const [processes, setProcesses] = useState<Process[]>([]);
   const [hookScripts, setHookScripts] = useState<HookScript[]>([]);
+  const [selectedHookScript, setSelectedHookScript] = useState<HookScript | null>(null);
 
   // Loading states
   const [devicesLoading, setDevicesLoading] = useState(true);
@@ -168,6 +170,10 @@ export function ConnectionPage() {
   // Frida server status state
   const [fridaStatus, setFridaStatus] = useState<FridaStatus | null>(null);
   const [fridaStatusLoading, setFridaStatusLoading] = useState(false);
+  const [fridaError, setFridaError] = useState<string | null>(null);
+
+  // Process search state
+  const [processSearchTerm, setProcessSearchTerm] = useState<string>('');
 
   // Load initial data
   useEffect(() => {
@@ -281,11 +287,16 @@ export function ConnectionPage() {
   const loadFridaStatus = async (deviceId: string) => {
     try {
       setFridaStatusLoading(true);
+      setFridaError(null);
+      console.log('Loading Frida status for device:', deviceId);
       const status = await getFridaStatus(deviceId);
+      console.log('Frida status received:', status);
       setFridaStatus(status);
     } catch (err) {
       console.error('Failed to load Frida status:', err);
       setFridaStatus(null);
+      const errorMsg = err instanceof Error ? err.message : 'Unknown error';
+      setFridaError(`Failed to load Frida status: ${errorMsg}`);
     } finally {
       setFridaStatusLoading(false);
     }
@@ -296,6 +307,13 @@ export function ConnectionPage() {
     if (!selectedDevice) {
       setFlowState('ERROR');
       setErrorMessage('No device selected. Please select a device first.');
+      return;
+    }
+
+    // Check if hook script is selected
+    if (!selectedHookScript) {
+      setFlowState('ERROR');
+      setErrorMessage('No hook script selected. Please select a hook script first.');
       return;
     }
 
@@ -329,17 +347,8 @@ export function ConnectionPage() {
       setFlowState('STARTING_HOOK');
       setStatusMessage('Starting monitoring script...');
       
-      // Find the default Tower script
-      const targetScript = hookScripts.find(s => 
-        s.targetPackage === TARGET_PROCESS_PACKAGE || 
-        s.name.toLowerCase().includes('tower')
-      );
-      
-      if (!targetScript) {
-        throw new Error('No compatible hook script found for The Tower game.');
-      }
-
-      await activateHook(selectedDevice.id, targetProcess, targetScript.content);
+      // Use the selected hook script
+      await activateHook(selectedDevice.id, targetProcess, selectedHookScript.content);
 
       // 5. Success
       setFlowState('MONITORING_ACTIVE');
@@ -526,6 +535,7 @@ export function ConnectionPage() {
               startIcon={<PlayIcon />}
               onClick={handleStartMonitoring}
               disabled={!selectedDevice || 
+                       !selectedHookScript ||
                        flowState === 'CONNECTING_DEVICE' || 
                        flowState === 'SEARCHING_PROCESS' || 
                        flowState === 'CONFIGURING_FRIDA' || 
@@ -696,33 +706,58 @@ export function ConnectionPage() {
               <Typography variant="h6">
                 Available Processes
               </Typography>
-              <IconButton
-                onClick={async () => {
-                  if (selectedDevice) {
-                    try {
-                      setProcessesLoading(true);
-                      const processList = await getProcesses(selectedDevice.id);
-                      setProcesses(processList);
-                    } catch (err) {
-                      console.error('Failed to load processes:', err);
-                    } finally {
-                      setProcessesLoading(false);
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                <Typography variant="caption" color="text.secondary">
+                  {processes.filter(process => 
+                    processSearchTerm === '' || 
+                    process.name.toLowerCase().includes(processSearchTerm.toLowerCase()) ||
+                    process.package.toLowerCase().includes(processSearchTerm.toLowerCase())
+                  ).length} of {processes.length} processes
+                </Typography>
+                <IconButton
+                  onClick={async () => {
+                    if (selectedDevice) {
+                      try {
+                        setProcessesLoading(true);
+                        const processList = await getProcesses(selectedDevice.id);
+                        setProcesses(processList);
+                      } catch (err) {
+                        console.error('Failed to load processes:', err);
+                      } finally {
+                        setProcessesLoading(false);
+                      }
                     }
-                  }
-                }}
-                disabled={!selectedDevice || processesLoading}
-                size="small"
-              >
-                <RefreshIcon 
-                  sx={{ 
-                    transform: processesLoading ? 'rotate(360deg)' : 'rotate(0deg)',
-                    transition: 'transform 0.6s cubic-bezier(0.4, 0, 0.2, 1)',
-                  }} 
-                />
-              </IconButton>
+                  }}
+                  disabled={!selectedDevice || processesLoading}
+                  size="small"
+                >
+                  <RefreshIcon 
+                    sx={{ 
+                      transform: processesLoading ? 'rotate(360deg)' : 'rotate(0deg)',
+                      transition: 'transform 0.6s cubic-bezier(0.4, 0, 0.2, 1)',
+                    }} 
+                  />
+                </IconButton>
+              </Box>
             </Box>
+            
+            {/* Search Box */}
+            <Box sx={{ mb: 2 }}>
+              <TextField
+                fullWidth
+                size="small"
+                placeholder="Search processes by name or package..."
+                value={processSearchTerm}
+                onChange={(e) => setProcessSearchTerm(e.target.value)}
+                InputProps={{
+                  startAdornment: <SearchIcon sx={{ mr: 1, color: 'text.secondary' }} />,
+                }}
+                sx={{ mb: 1 }}
+              />
+            </Box>
+            
             <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-              All available processes on the selected device:
+              All available processes on the selected device. Use the search box above to filter processes. The Tower game should be highlighted in green if found.
             </Typography>
             
             {processesLoading ? (
@@ -730,7 +765,7 @@ export function ConnectionPage() {
                 <CircularProgress />
               </Box>
             ) : (
-              <TableContainer sx={{ maxHeight: 200, mb: 3 }}>
+              <TableContainer sx={{ maxHeight: 400, mb: 3 }}>
                 <Table size="small">
                   <TableHead>
                     <TableRow>
@@ -738,20 +773,119 @@ export function ConnectionPage() {
                       <TableCell>Package</TableCell>
                       <TableCell>Version</TableCell>
                       <TableCell>PID</TableCell>
+                      <TableCell>Type</TableCell>
                     </TableRow>
                   </TableHead>
                   <TableBody>
-                    {processes.map((process) => (
-                      <TableRow key={process.pid}>
-                        <TableCell>{process.name}</TableCell>
-                        <TableCell sx={{ fontFamily: 'monospace' }}>{process.package}</TableCell>
-                        <TableCell>{process.version}</TableCell>
-                        <TableCell>{process.pid}</TableCell>
-                      </TableRow>
-                    ))}
+                    {(() => {
+                      const filteredProcesses = processes.filter(process => 
+                        processSearchTerm === '' || 
+                        process.name.toLowerCase().includes(processSearchTerm.toLowerCase()) ||
+                        process.package.toLowerCase().includes(processSearchTerm.toLowerCase())
+                      );
+                      
+                      if (processes.length === 0) {
+                        return (
+                          <TableRow>
+                            <TableCell colSpan={5} align="center">
+                              <Typography variant="body2" color="text.secondary">
+                                No processes found. Try refreshing or check device connection.
+                              </Typography>
+                            </TableCell>
+                          </TableRow>
+                        );
+                      } else if (filteredProcesses.length === 0) {
+                        return (
+                          <TableRow>
+                            <TableCell colSpan={5} align="center">
+                              <Typography variant="body2" color="text.secondary">
+                                No processes match your search criteria.
+                              </Typography>
+                            </TableCell>
+                          </TableRow>
+                        );
+                      } else {
+                        return filteredProcesses.map((process) => (
+                          <TableRow 
+                            key={process.pid}
+                            sx={{ 
+                              backgroundColor: process.package === TARGET_PROCESS_PACKAGE ? 'success.light' : 'inherit',
+                              '&:hover': { backgroundColor: 'action.hover' }
+                            }}
+                          >
+                            <TableCell>
+                              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                                {process.package === TARGET_PROCESS_PACKAGE && (
+                                  <CheckCircleIcon color="success" fontSize="small" />
+                                )}
+                                {process.name}
+                              </Box>
+                            </TableCell>
+                            <TableCell sx={{ fontFamily: 'monospace' }}>{process.package}</TableCell>
+                            <TableCell>{process.version}</TableCell>
+                            <TableCell>{process.pid}</TableCell>
+                            <TableCell>
+                              <Chip 
+                                label={process.is_system ? 'System' : 'User'} 
+                                size="small"
+                                color={process.is_system ? 'default' : 'primary'}
+                                variant={process.is_system ? 'outlined' : 'filled'}
+                              />
+                            </TableCell>
+                          </TableRow>
+                        ));
+                      }
+                    })()}
                   </TableBody>
                 </Table>
               </TableContainer>
+            )}
+            
+            {/* Debug Information */}
+            {processes.length === 0 && selectedDevice && !processesLoading && (
+              <Alert severity="info" sx={{ mt: 2 }}>
+                <Typography variant="body2">
+                  No processes found. This could be due to:
+                </Typography>
+                <List dense sx={{ mt: 1 }}>
+                  <ListItem sx={{ display: 'list-item' }}>
+                    <Typography variant="body2">The device may not have any user applications running</Typography>
+                  </ListItem>
+                  <ListItem sx={{ display: 'list-item' }}>
+                    <Typography variant="body2">The game "The Tower" may not be installed or running</Typography>
+                  </ListItem>
+                  <ListItem sx={{ display: 'list-item' }}>
+                    <Typography variant="body2">ADB permissions may be insufficient to list processes</Typography>
+                  </ListItem>
+                </List>
+                <Typography variant="body2" sx={{ mt: 1 }}>
+                  Try refreshing the process list or ensure the game is running on the device.
+                </Typography>
+              </Alert>
+            )}
+            
+            {/* Target Process Status */}
+            {selectedDevice && processes.length > 0 && (
+              <Box sx={{ mt: 2, p: 2, borderRadius: 1, border: 1, borderColor: 'divider' }}>
+                <Typography variant="subtitle2" sx={{ mb: 1 }}>
+                  Target Process Status: {TARGET_PROCESS_NAME}
+                </Typography>
+                {processes.find(p => p.package === TARGET_PROCESS_PACKAGE) ? (
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                    <CheckCircleIcon color="success" />
+                    <Typography variant="body2" color="success.main">
+                      ✓ Found! The Tower game is running and ready for connection.
+                    </Typography>
+                  </Box>
+                ) : (
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                    <CancelIcon color="error" />
+                    <Typography variant="body2" color="error.main">
+                      ✗ Not found. Please ensure "The Tower" game is installed and running on the device.
+                    </Typography>
+                  </Box>
+                )}
+              </Box>
             )}
           </Box>
 
@@ -952,37 +1086,117 @@ export function ConnectionPage() {
               <Button
                 variant="outlined"
                 size="small"
-                onClick={() => selectedDevice && provisionFridaServer(selectedDevice.id)}
-                disabled={!selectedDevice}
+                onClick={async () => {
+                  if (selectedDevice) {
+                    try {
+                      setFridaError(null);
+                      await provisionFridaServer(selectedDevice.id);
+                      // Refresh Frida status after provisioning
+                      await loadFridaStatus(selectedDevice.id);
+                    } catch (err) {
+                      const errorMsg = err instanceof Error ? err.message : 'Unknown error';
+                      setFridaError(`Failed to provision Frida server: ${errorMsg}`);
+                      console.error('Failed to provision Frida server:', err);
+                    }
+                  }
+                }}
+                disabled={!selectedDevice || loading || (fridaStatus?.is_installed === true)}
+                title={fridaStatus?.is_installed ? 'Frida server is already installed' : undefined}
               >
-                Install Frida Server
+                {loading ? <CircularProgress size={16} /> : 'Install Frida Server'}
               </Button>
               <Button
                 variant="outlined"
                 size="small"
-                onClick={() => selectedDevice && startFridaServer(selectedDevice.id)}
-                disabled={!selectedDevice}
+                onClick={async () => {
+                  if (selectedDevice) {
+                    try {
+                      setFridaError(null);
+                      await startFridaServer(selectedDevice.id);
+                      // Refresh Frida status after starting
+                      await loadFridaStatus(selectedDevice.id);
+                    } catch (err) {
+                      const errorMsg = err instanceof Error ? err.message : 'Unknown error';
+                      setFridaError(`Failed to start Frida server: ${errorMsg}`);
+                      console.error('Failed to start Frida server:', err);
+                    }
+                  }
+                }}
+                disabled={!selectedDevice || loading || !fridaStatus?.is_installed || fridaStatus?.is_running === true}
+                title={
+                  !fridaStatus?.is_installed ? 'Frida server must be installed first' :
+                  fridaStatus?.is_running ? 'Frida server is already running' : undefined
+                }
               >
-                Start Frida Server
+                {loading ? <CircularProgress size={16} /> : 'Start Frida Server'}
               </Button>
               <Button
                 variant="outlined"
                 size="small"
-                onClick={() => selectedDevice && stopFridaServer(selectedDevice.id)}
-                disabled={!selectedDevice}
+                onClick={async () => {
+                  if (selectedDevice) {
+                    try {
+                      setFridaError(null);
+                      await stopFridaServer(selectedDevice.id);
+                      // Refresh Frida status after stopping
+                      await loadFridaStatus(selectedDevice.id);
+                    } catch (err) {
+                      const errorMsg = err instanceof Error ? err.message : 'Unknown error';
+                      setFridaError(`Failed to stop Frida server: ${errorMsg}`);
+                      console.error('Failed to stop Frida server:', err);
+                    }
+                  }
+                }}
+                disabled={!selectedDevice || loading || !fridaStatus?.is_running}
+                title={!fridaStatus?.is_running ? 'Frida server is not running' : undefined}
               >
-                Stop Frida Server
+                {loading ? <CircularProgress size={16} /> : 'Stop Frida Server'}
               </Button>
               <Button
                 variant="outlined"
                 size="small"
-                onClick={() => selectedDevice && removeFridaServer(selectedDevice.id)}
-                disabled={!selectedDevice}
+                onClick={async () => {
+                  if (selectedDevice) {
+                    try {
+                      setFridaError(null);
+                      await removeFridaServer(selectedDevice.id);
+                      // Refresh Frida status after removing
+                      await loadFridaStatus(selectedDevice.id);
+                    } catch (err) {
+                      const errorMsg = err instanceof Error ? err.message : 'Unknown error';
+                      setFridaError(`Failed to remove Frida server: ${errorMsg}`);
+                      console.error('Failed to remove Frida server:', err);
+                    }
+                  }
+                }}
+                disabled={!selectedDevice || loading || !fridaStatus?.is_installed}
+                title={!fridaStatus?.is_installed ? 'Frida server is not installed' : undefined}
               >
-                Remove Frida Server
+                {loading ? <CircularProgress size={16} /> : 'Remove Frida Server'}
               </Button>
 
             </Box>
+
+            {/* Frida Error Display */}
+            {fridaError && (
+              <Alert severity="error" sx={{ mt: 2 }}>
+                <Typography variant="body2">
+                  {fridaError}
+                </Typography>
+              </Alert>
+            )}
+
+            {/* Debug Information */}
+            {process.env.NODE_ENV === 'development' && fridaStatus && (
+              <Box sx={{ mt: 2, p: 2, borderRadius: 1, border: 1, borderColor: 'warning.main', backgroundColor: 'warning.light' }}>
+                <Typography variant="caption" color="text.secondary" sx={{ mb: 1, display: 'block' }}>
+                  Debug Info (Development Only):
+                </Typography>
+                <Typography variant="body2" fontFamily="monospace" sx={{ fontSize: '0.75rem' }}>
+                  {JSON.stringify(fridaStatus, null, 2)}
+                </Typography>
+              </Box>
+            )}
 
           </Box>
 
@@ -1061,20 +1275,60 @@ export function ConnectionPage() {
                 <RefreshIcon />
               </IconButton>
             </Box>
-            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-              {hookScripts.map((script) => (
-                <Box key={script.id} sx={{ p: 2, border: 1, borderColor: 'divider', borderRadius: 1 }}>
-                  <Typography variant="subtitle2" sx={{ mb: 1 }}>{script.name}</Typography>
-                  <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
-                    {script.description}
-                  </Typography>
-                  <Typography variant="caption" fontFamily="monospace" sx={{ display: 'block', mb: 1 }}>
-                    Target: {script.targetPackage}
-                  </Typography>
-
-                </Box>
-              ))}
-            </Box>
+            <RadioGroup
+              value={selectedHookScript?.id || ''}
+              onChange={(e) => {
+                const script = hookScripts.find(s => s.id === e.target.value);
+                setSelectedHookScript(script || null);
+              }}
+            >
+              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+                {hookScripts.map((script) => (
+                  <Box key={script.id} sx={{ p: 2, border: 1, borderColor: 'divider', borderRadius: 1 }}>
+                    <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 2 }}>
+                      <FormControlLabel
+                        control={<Radio value={script.id} size="small" />}
+                        label=""
+                        sx={{ m: 0 }}
+                      />
+                      <Box sx={{ flex: 1 }}>
+                        <Typography variant="subtitle2" sx={{ mb: 1 }}>{script.name}</Typography>
+                        <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+                          {script.description}
+                        </Typography>
+                        <Typography variant="caption" fontFamily="monospace" sx={{ display: 'block', mb: 1 }}>
+                          Target: {script.targetPackage}
+                        </Typography>
+                        {script.supportedVersions && script.supportedVersions.length > 0 && (
+                          <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5, mt: 1 }}>
+                            <Typography variant="caption" color="text.secondary">Supported versions:</Typography>
+                            {script.supportedVersions.map((version, index) => (
+                              <Chip 
+                                key={index}
+                                label={version} 
+                                size="small"
+                                variant="outlined"
+                              />
+                            ))}
+                          </Box>
+                        )}
+                      </Box>
+                    </Box>
+                  </Box>
+                ))}
+              </Box>
+            </RadioGroup>
+            
+            {selectedHookScript && (
+              <Alert severity="info" sx={{ mt: 2 }}>
+                <Typography variant="body2">
+                  Selected script: <strong>{selectedHookScript.name}</strong>
+                </Typography>
+                <Typography variant="body2" color="text.secondary">
+                  {selectedHookScript.description}
+                </Typography>
+              </Alert>
+            )}
 
           </Box>
         </AccordionDetails>

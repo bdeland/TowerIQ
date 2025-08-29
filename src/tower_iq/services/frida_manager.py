@@ -20,27 +20,53 @@ class FridaServerManager:
         self.cache_dir = Path(__file__).parent.parent.parent / "data" / "frida-server"
         self.cache_dir.mkdir(parents=True, exist_ok=True)
 
-    async def provision(self, device_id: str, arch: str, target_version: str):
+    async def provision(self, device_id: str, arch: str, target_version: str) -> bool:
         """
         Ensure a compatible frida-server is running on the device.
+        
+        Returns:
+            True if provisioning was successful, False otherwise
         """
-        self.logger.info(f"Provisioning frida-server v{target_version} for {arch} on {device_id}")
+        try:
+            self.logger.info(f"Provisioning frida-server v{target_version} for {arch} on {device_id}")
 
-        # 1. Download binary if needed
-        local_path = await self._get_frida_server_binary(arch, target_version)
+            # 1. Download binary if needed
+            try:
+                local_path = await self._get_frida_server_binary(arch, target_version)
+            except Exception as e:
+                self.logger.error(f"Failed to get frida-server binary: {e}")
+                return False
 
-        # 2. Push to device if it's missing or outdated
-        if await self._is_push_required(device_id, local_path):
-            await self._push_to_device(device_id, local_path)
-        
-        # 3. Start the server
-        await self._start_server(device_id)
+            # 2. Push to device if it's missing or outdated
+            try:
+                if await self._is_push_required(device_id, local_path):
+                    await self._push_to_device(device_id, local_path)
+            except Exception as e:
+                self.logger.error(f"Failed to push frida-server to device: {e}")
+                return False
+            
+            # 3. Start the server
+            try:
+                await self._start_server(device_id)
+            except Exception as e:
+                self.logger.error(f"Failed to start frida-server: {e}")
+                return False
 
-        # 4. Verify it's responsive
-        if not await self._wait_for_responsive(device_id):
-            raise FridaServerSetupError("Server was started but failed to become responsive.")
-        
-        self.logger.info("Frida-server provisioning successful.")
+            # 4. Verify it's responsive
+            try:
+                if not await self._wait_for_responsive(device_id):
+                    self.logger.error("Server was started but failed to become responsive.")
+                    return False
+            except Exception as e:
+                self.logger.error(f"Failed to verify frida-server responsiveness: {e}")
+                return False
+            
+            self.logger.info("Frida-server provisioning successful.")
+            return True
+            
+        except Exception as e:
+            self.logger.error(f"Frida-server provisioning failed: {e}")
+            return False
 
     async def _get_frida_server_binary(self, arch: str, version: str) -> Path:
         arch_map = {"arm64-v8a": "arm64", "armeabi-v7a": "arm", "x86_64": "x86_64", "x86": "x86"}
@@ -75,8 +101,25 @@ class FridaServerManager:
 
     async def _push_to_device(self, device_id: str, local_path: Path):
         self.logger.info(f"Pushing frida-server to {device_id}:{self.DEVICE_PATH}")
-        await self.adb.push(device_id, str(local_path), self.DEVICE_PATH)
-        await self.adb.shell(device_id, f"chmod 755 {self.DEVICE_PATH}")
+        
+        try:
+            # First try direct push (works on some devices)
+            await self.adb.push(device_id, str(local_path), self.DEVICE_PATH)
+            await self.adb.shell(device_id, f"chmod 755 {self.DEVICE_PATH}")
+            self.logger.info("Direct push successful")
+        except Exception as e:
+            self.logger.warning(f"Direct push failed: {e}, trying alternative method")
+            
+            # Alternative method: push to /sdcard first, then move with root
+            try:
+                temp_path = "/sdcard/frida-server"
+                await self.adb.push(device_id, str(local_path), temp_path)
+                await self.adb.shell(device_id, f"su -c 'cp {temp_path} {self.DEVICE_PATH} && chmod 755 {self.DEVICE_PATH}'")
+                await self.adb.shell(device_id, f"rm {temp_path}")
+                self.logger.info("Alternative push method successful")
+            except Exception as e2:
+                self.logger.error(f"Alternative push method also failed: {e2}")
+                raise e2
 
     async def _start_server(self, device_id: str):
         self.logger.info("Starting frida-server on device...")

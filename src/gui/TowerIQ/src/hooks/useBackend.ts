@@ -337,7 +337,9 @@ export const useBackend = () => {
     try {
       setLoading(true);
       setError(null);
+      console.log('useBackend: Getting Frida status for device:', deviceId);
       const result = await invoke<{frida_status: FridaStatus}>('get_frida_status', { deviceId });
+      console.log('useBackend: Frida status result:', result);
       return result.frida_status;
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Unknown error';

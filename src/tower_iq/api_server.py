@@ -138,6 +138,9 @@ async def lifespan(app: FastAPI):
     controller = MainController(config, logger, db_service=db_service)
     controller.start_background_operations()
     
+    # Start the message processing loop as a background task
+    asyncio.create_task(controller.run())
+    
     # Start the loading sequence
     controller.loading_manager.start_loading()
     controller.loading_manager.mark_step_complete('database')
@@ -146,7 +149,6 @@ async def lifespan(app: FastAPI):
     controller.loading_manager.mark_step_complete('hook_scripts')
     
     # Simulate some startup time for services
-    import asyncio
     await asyncio.sleep(2)  # Simulate 2 seconds of startup time
     
     # Signal that the API server is ready
@@ -214,6 +216,48 @@ async def get_status():
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.get("/api/health/frida")
+async def get_frida_health():
+    """Get the health status of Frida-related services."""
+    if not controller:
+        raise HTTPException(status_code=503, detail="Backend not initialized")
+    
+    try:
+        health_status = {
+            "controller_available": controller is not None,
+            "emulator_service_available": controller.emulator_service is not None if controller else False,
+            "frida_manager_available": controller.emulator_service.frida_manager is not None if controller and controller.emulator_service else False,
+            "frida_library_available": False,
+            "devices_available": False,
+            "device_count": 0
+        }
+        
+        # Check if Frida library is available
+        try:
+            import frida
+            health_status["frida_library_available"] = True
+            health_status["frida_version"] = frida.__version__
+        except ImportError:
+            pass
+        
+        # Check if devices are available
+        if controller and controller.emulator_service:
+            try:
+                devices = await controller.emulator_service.discover_devices()
+                health_status["devices_available"] = len(devices) > 0
+                health_status["device_count"] = len(devices)
+                if devices:
+                    health_status["device_serials"] = [d.serial for d in devices]
+            except Exception as e:
+                health_status["device_discovery_error"] = str(e)
+        
+        return health_status
+    except Exception as e:
+        if logger:
+            logger.error("Error getting Frida health status", error=str(e))
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.post("/api/connect")
 async def connect_device(request: ConnectionRequest):
     """Connect to a specific device."""
@@ -255,24 +299,36 @@ async def activate_hook(request: HookActivationRequest, background_tasks: Backgr
         raise HTTPException(status_code=503, detail="Backend not initialized")
     
     try:
-        def activate_hook_task():
-            try:
-                hook_data = {
-                    "device_id": request.device_id,
-                    "process_info": request.process_info,
-                    "script_content": request.script_content
-                }
-                # For now, just log the hook activation
-                # In a full implementation, this would trigger the hook activation flow
-                if logger:
-                    logger.info("Hook activation initiated", hook_data=hook_data)
-            except Exception as e:
-                if logger:
-                    logger.error("Error activating hook", error=str(e))
+        # Extract process info
+        process_info = request.process_info
+        device_id = request.device_id
+        script_content = request.script_content
         
-        background_tasks.add_task(activate_hook_task)
+        # Get the process ID from the process info
+        pid = process_info.get('pid')
+        if not pid:
+            raise HTTPException(status_code=400, detail="Process ID not found in process info")
         
-        return {"message": "Hook activation initiated"}
+        if logger:
+            logger.info("Starting hook activation", 
+                       device_id=device_id, 
+                       pid=pid, 
+                       script_length=len(script_content))
+        
+        # Use the Frida service to inject the script
+        success = await controller.frida_service.inject_and_run_script(
+            device_id=device_id,
+            pid=pid,
+            script_content=script_content
+        )
+        
+        if not success:
+            raise HTTPException(status_code=500, detail="Failed to inject hook script")
+        
+        if logger:
+            logger.info("Hook script injected successfully", device_id=device_id, pid=pid)
+        
+        return {"message": "Hook script injected successfully"}
     except Exception as e:
         if logger:
             logger.error("Error initiating hook activation", error=str(e))
@@ -418,18 +474,23 @@ async def get_processes(device_id: str):
     
     try:
         # First get the device to pass to the process listing method
+        if not controller.emulator_service:
+            raise HTTPException(status_code=503, detail="Emulator service not initialized")
+            
         devices = await controller.emulator_service.discover_devices()
         device = next((d for d in devices if d.serial == device_id), None)
         
         if not device:
-            logger.warning("Device not found", device_id=device_id)
+            if logger:
+                logger.warning("Device not found", device_id=device_id)
             return {"processes": [], "message": "Device not found"}
         
-        # Use the new process listing method
-        processes = await controller.emulator_service.get_processes(device)
+        # Use the unfiltered process listing method to show all processes
+        processes = await controller.emulator_service.get_all_processes_unfiltered(device)
         
         # Convert Process objects to dictionaries for JSON serialization
         process_dicts = []
+        target_found = False
         for process in processes:
             process_dicts.append({
                 'id': process.package,  # Use package as ID for frontend compatibility
@@ -439,16 +500,27 @@ async def get_processes(device_id: str):
                 'version': process.version,
                 'is_system': process.is_system
             })
+            
+            # Check if target process is found
+            if process.package == "com.TechTreeGames.TheTower":
+                target_found = True
         
         if not process_dicts:
-            logger.info("No processes found for device", device_id=device_id)
+            if logger:
+                logger.info("No processes found for device", device_id=device_id)
             return {"processes": [], "message": "No user processes found on device"}
         
-        logger.info("Retrieved processes for device", device_id=device_id, count=len(process_dicts))
-        return {"processes": process_dicts}
+        if logger:
+            logger.info("Retrieved processes for device", device_id=device_id, count=len(process_dicts), target_found=target_found)
+        return {
+            "processes": process_dicts,
+            "target_found": target_found,
+            "total_count": len(process_dicts)
+        }
         
     except Exception as e:
-        logger.error("Error getting processes", device_id=device_id, error=str(e))
+        if logger:
+            logger.error("Error getting processes", device_id=device_id, error=str(e))
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -480,6 +552,12 @@ async def get_frida_status(device_id: str):
         if not device:
             raise HTTPException(status_code=404, detail="Device not found")
         
+        # Use FridaServerManager methods for better status checking
+        frida_manager = controller.emulator_service.frida_manager
+        
+        # Check if server is installed
+        is_installed = await frida_manager.is_server_installed(device_id)
+        
         # Check if Frida server is running using ADB
         try:
             # Check if frida-server process is running
@@ -492,13 +570,11 @@ async def get_frida_status(device_id: str):
         
         # Get Frida version if available
         frida_version = None
-        try:
-            version_output = await controller.emulator_service.adb.shell(
-                device_id, "frida-server --version"
-            )
-            frida_version = version_output.strip()
-        except Exception:
-            pass
+        if is_installed:
+            try:
+                frida_version = await frida_manager.get_server_version(device_id)
+            except Exception:
+                pass
         
         # Get required Frida version (from Python frida library)
         required_version = None
@@ -506,14 +582,6 @@ async def get_frida_status(device_id: str):
             import frida
             required_version = frida.__version__
         except ImportError:
-            pass
-        
-        # Check if server is installed
-        is_installed = False
-        try:
-            await controller.emulator_service.adb.shell(device_id, "ls /data/local/tmp/frida-server")
-            is_installed = True
-        except Exception:
             pass
         
         # Determine if update is needed
@@ -532,10 +600,14 @@ async def get_frida_status(device_id: str):
             "needs_update": needs_update
         }
         
+        if logger:
+            logger.info("Frida status response", device_id=device_id, status=frida_status)
+        
         return {"frida_status": frida_status}
         
     except Exception as e:
-        logger.error("Error checking Frida status", device_id=device_id, error=str(e))
+        if logger:
+            logger.error("Error checking Frida status", device_id=device_id, error=str(e))
         # Return a default status instead of throwing an error
         return {
             "frida_status": {
@@ -556,22 +628,71 @@ async def provision_frida_server(device_id: str):
         if not controller:
             raise HTTPException(status_code=500, detail="Controller not available")
         
+        if not controller.emulator_service:
+            raise HTTPException(status_code=500, detail="Emulator service not available")
+        
+        if not controller.emulator_service.frida_manager:
+            raise HTTPException(status_code=500, detail="Frida manager not available")
+        
         # Get the device to provision Frida server
-        devices = await controller.emulator_service.discover_devices()
-        device = next((d for d in devices if d.serial == device_id), None)
-        if not device:
-            raise HTTPException(status_code=404, detail="Device not found")
+        try:
+            devices = await controller.emulator_service.discover_devices()
+            if not devices:
+                raise HTTPException(status_code=404, detail="No devices found")
+            
+            device = next((d for d in devices if d.serial == device_id), None)
+            if not device:
+                raise HTTPException(status_code=404, detail=f"Device {device_id} not found")
+        except Exception as e:
+            if logger:
+                logger.error("Error discovering devices", error=str(e))
+            raise HTTPException(status_code=500, detail=f"Failed to discover devices: {str(e)}")
         
         # Provision Frida server
         try:
-            await controller.emulator_service.provision_frida_server(device_id)
-            return {"message": "Frida server provisioned successfully"}
+            # Get required Frida version from Python frida library
+            try:
+                import frida
+                target_version = frida.__version__
+            except ImportError:
+                raise HTTPException(status_code=500, detail="Frida library not available")
+            except Exception as e:
+                if logger:
+                    logger.error("Error getting Frida version", error=str(e))
+                raise HTTPException(status_code=500, detail=f"Failed to get Frida version: {str(e)}")
+            
+            if logger:
+                logger.info("Provisioning Frida server with compatible version", 
+                           device_id=device_id, 
+                           architecture=device.architecture, 
+                           target_version=target_version)
+            
+            if logger:
+                logger.info("Starting frida-provision process", device_id=device_id, architecture=device.architecture, target_version=target_version)
+            
+            success = await controller.emulator_service.frida_manager.provision(device_id, device.architecture, target_version)
+            
+            if logger:
+                logger.info("Frida-provision result", device_id=device_id, success=success)
+            
+            if success:
+                return {"message": "Frida server provisioned successfully"}
+            else:
+                raise HTTPException(status_code=500, detail="Failed to provision Frida server - check logs for details")
+        except HTTPException:
+            # Re-raise HTTP exceptions as-is
+            raise
         except Exception as e:
-            logger.error("Error provisioning Frida server", device_id=device_id, error=str(e))
+            if logger:
+                logger.error("Error provisioning Frida server", device_id=device_id, error=str(e))
             raise HTTPException(status_code=500, detail=f"Failed to provision Frida server: {str(e)}")
             
+    except HTTPException:
+        # Re-raise HTTP exceptions as-is
+        raise
     except Exception as e:
-        logger.error("Error in Frida server provisioning", device_id=device_id, error=str(e))
+        if logger:
+            logger.error("Error in Frida server provisioning", device_id=device_id, error=str(e))
         raise HTTPException(status_code=500, detail=f"Failed to provision Frida server: {str(e)}")
 
 @app.post("/api/devices/{device_id}/frida-start")
@@ -667,11 +788,13 @@ async def install_frida_server(device_id: str):
                 raise HTTPException(status_code=500, detail="Failed to install Frida server")
                 
         except Exception as e:
-            logger.error("Error installing Frida server", device_id=device_id, error=str(e))
+            if logger:
+                logger.error("Error installing Frida server", device_id=device_id, error=str(e))
             raise HTTPException(status_code=500, detail=f"Failed to install Frida server: {str(e)}")
             
     except Exception as e:
-        logger.error("Error in Frida server install", device_id=device_id, error=str(e))
+        if logger:
+            logger.error("Error in Frida server install", device_id=device_id, error=str(e))
         raise HTTPException(status_code=500, detail=f"Failed to install Frida server: {str(e)}")
 
 @app.post("/api/devices/{device_id}/frida-remove")
@@ -697,11 +820,13 @@ async def remove_frida_server(device_id: str):
                 raise HTTPException(status_code=500, detail="Failed to remove Frida server")
                 
         except Exception as e:
-            logger.error("Error removing Frida server", device_id=device_id, error=str(e))
+            if logger:
+                logger.error("Error removing Frida server", device_id=device_id, error=str(e))
             raise HTTPException(status_code=500, detail=f"Failed to remove Frida server: {str(e)}")
             
     except Exception as e:
-        logger.error("Error in Frida server remove", device_id=device_id, error=str(e))
+        if logger:
+            logger.error("Error in Frida server remove", device_id=device_id, error=str(e))
         raise HTTPException(status_code=500, detail=f"Failed to remove Frida server: {str(e)}")
 
 @app.get("/api/script-status")

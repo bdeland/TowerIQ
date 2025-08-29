@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode, useCallback } from 'react';
+import { TransformationConfig } from '../services/transformationService';
 
 // Dashboard interfaces based on the backend schema
 export interface DashboardPanel {
@@ -20,6 +21,7 @@ export interface DashboardPanel {
     yAxis?: string; // Column name for y-axis
     label?: string; // Column name for labels (pie charts)
   };
+  transformations?: TransformationConfig[]; // Add this line
 }
 
 export interface Dashboard {

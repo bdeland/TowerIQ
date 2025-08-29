@@ -618,6 +618,26 @@ class FridaService:
             
             self.logger.info("Script injected successfully")
             
+            # Add a small delay to allow script to initialize
+            await asyncio.sleep(0.5)
+            
+            # Log script details for debugging
+            script_lines = script_content.split('\n')
+            script_name = "Unknown"
+            if "TOWERIQ_HOOK_METADATA" in script_content:
+                for line in script_lines:
+                    if '"scriptName"' in line:
+                        try:
+                            script_name = line.split('"scriptName"')[1].split('"')[1]
+                            break
+                        except (IndexError, ValueError):
+                            pass
+            
+            self.logger.info("Script injection details", 
+                           script_name=script_name,
+                           script_lines=len(script_lines),
+                           attached_pid=self.attached_pid)
+            
             # Update session manager with script activation
             if self._session_manager:
                 try:
@@ -694,7 +714,7 @@ class FridaService:
             data: Optional binary data from Frida
         """
         try:
-            self.logger.debug(f"_on_message received: {message}")
+            self.logger.info(f"_on_message received: {message}")
             
             # Parse the message type
             if message['type'] == 'send':

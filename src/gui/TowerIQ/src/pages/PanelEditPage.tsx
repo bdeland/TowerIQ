@@ -9,9 +9,6 @@ import {
   Tab,
   TextField,
   Button,
-  Card,
-  CardContent,
-  CardActions,
   Accordion,
   AccordionSummary,
   AccordionDetails,
@@ -32,16 +29,304 @@ import {
   VisibilityOff as VisibilityOffIcon,
   Visibility as VisibilityIcon,
   ContentCopy as ContentCopyIcon,
-  Code as CodeIcon
+  Code as CodeIcon,
+  AutoFixHigh as AutoFixHighIcon
 } from '@mui/icons-material';
 import { Editor } from '@monaco-editor/react';
 import { format } from 'sql-formatter';
+import {
+  DndContext,
+  closestCenter,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  DragEndEvent,
+} from '@dnd-kit/core';
+
+import {
+  arrayMove,
+  SortableContext,
+  sortableKeyboardCoordinates,
+  verticalListSortingStrategy,
+} from '@dnd-kit/sortable';
+import {
+  useSortable,
+} from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
 
 import { useDashboard, DashboardPanel } from '../contexts/DashboardContext';
 import { useDashboardEdit } from '../contexts/DashboardEditContext';
 import DashboardPanelView from '../components/DashboardPanelView';
 import PanelEditorDrawer from '../components/PanelEditorDrawer';
+import TransformationsEditor from '../components/TransformationsEditor';
 import { generateUUID } from '../utils/uuid';
+
+// Sortable Query Accordion Component
+interface SortableQueryAccordionProps {
+  queryItem: { id: string; query: string; name: string; visible: boolean };
+  index: number;
+  editingQueryId: string | null;
+  onStartEditing: (id: string) => void;
+  onFinishEditing: (id: string, name: string) => void;
+  onCancelEditing: () => void;
+  onQueryNameChange: (id: string, name: string) => void;
+  onQueryChange: (id: string, query: string) => void;
+  onToggleVisibility: (id: string) => void;
+  onDeleteQuery: (id: string) => void;
+  onDuplicateQuery: (id: string) => void;
+  onFormatQuery: (id: string) => void;
+  onQueryTest: (query: string) => void;
+}
+
+function SortableQueryAccordion({
+  queryItem,
+  index,
+  editingQueryId,
+  onStartEditing,
+  onFinishEditing,
+  onCancelEditing,
+  onQueryNameChange,
+  onQueryChange,
+  onToggleVisibility,
+  onDeleteQuery,
+  onDuplicateQuery,
+  onFormatQuery,
+  onQueryTest
+}: SortableQueryAccordionProps) {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ 
+    id: queryItem.id,
+  });
+
+  const style = {
+    transform: isDragging 
+      ? `translate3d(0, ${transform?.y || 0}px, 0)` 
+      : CSS.Transform.toString(transform),
+    transition: isDragging ? 'none' : 'transform 100ms ease',
+    opacity: isDragging ? 0.5 : 1,
+  };
+
+  return (
+    <div ref={setNodeRef} style={style}>
+                                         <Accordion sx={{ 
+           mb: 0, 
+           borderRadius: '12px',
+           border: '1px solid',
+           borderColor: 'divider',
+           boxShadow: 'none',
+           position: 'relative',
+           zIndex: 1,
+          '& .MuiAccordion-root': {
+            boxShadow: 'none'
+          },
+          '& .MuiAccordionSummary-root': { 
+            height: '30px !important',
+            minHeight: '30px !important',
+            padding: '0 !important'
+          },
+          '& .MuiAccordionSummary-content': {
+            margin: '0 !important',
+            padding: '0 !important'
+          },
+          '&:hover': {
+            backgroundColor: 'transparent'
+          }
+        }}>
+                 <AccordionSummary 
+           expandIcon={<ExpandMoreIcon sx={{ fontSize: '16px' }} />}
+           sx={{ 
+             flexDirection: 'row-reverse',
+             py: 0,
+             px: 6,
+             borderRadius: '4px',
+             '& .MuiAccordionSummary-expandIconWrapper': {
+               transform: 'rotate(0deg)',
+               marginLeft: 1,
+               marginRight: 'auto'
+             },
+             '& .MuiAccordionSummary-expandIconWrapper.Mui-expanded': {
+               transform: 'rotate(180deg)'
+             },
+             '&.Mui-expanded': {
+               borderBottom: '1px solid',
+               borderColor: 'divider'
+             }
+           }}
+         >
+                     <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%', ml: 0.5, py: 0.25 }}>
+            {editingQueryId === queryItem.id ? (
+              <TextField
+                size="small"
+                value={queryItem.name}
+                onChange={(e) => onQueryNameChange(queryItem.id, e.target.value)}
+                onBlur={() => onFinishEditing(queryItem.id, queryItem.name)}
+                onKeyPress={(e) => {
+                  if (e.key === 'Enter') {
+                    onFinishEditing(queryItem.id, queryItem.name);
+                  } else if (e.key === 'Escape') {
+                    onCancelEditing();
+                  }
+                }}
+                autoFocus
+                onClick={(e) => e.stopPropagation()}
+                sx={{ width: 200 }}
+              />
+            ) : (
+              <Box
+                                 sx={{
+                   display: 'flex',
+                   alignItems: 'center',
+                   gap: 0.5,
+                   padding: '0px 6px',
+                   borderRadius: '4px',
+                   cursor: 'pointer',
+                   border: '1px dashed transparent',
+                   '&:hover': {
+                     border: '1px dashed #666',
+                     backgroundColor: 'rgba(255, 255, 255, 0.04)',
+                     '& .edit-icon': {
+                       opacity: 1,
+                     },
+                   },
+                 }}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onStartEditing(queryItem.id);
+                }}
+              >
+                                 <Typography
+                   sx={{
+                     color: 'primary.main',
+                     fontSize: '0.75rem',
+                     fontWeight: 'bold',
+                   }}
+                 >
+                  {queryItem.name}
+                </Typography>
+                                 <EditIcon
+                   className="edit-icon"
+                   sx={{
+                     fontSize: '12px',
+                     color: '#666',
+                     opacity: 0,
+                     transition: 'opacity 0.1s ease',
+                   }}
+                 />
+              </Box>
+            )}
+            
+                         <Box sx={{ display: 'flex', alignItems: 'center', gap: 0 }}>
+               <Tooltip title="Format query">
+                 <IconButton
+                   onClick={(e) => {
+                     e.stopPropagation();
+                     onFormatQuery(queryItem.id);
+                   }}
+                   disabled={!queryItem.query.trim()}
+                 >
+                   <AutoFixHighIcon sx={{ fontSize: '14px' }} />
+                 </IconButton>
+               </Tooltip>
+               
+               <Tooltip title="Duplicate query">
+                 <IconButton
+                   onClick={(e) => {
+                     e.stopPropagation();
+                     onDuplicateQuery(queryItem.id);
+                   }}
+                 >
+                   <ContentCopyIcon sx={{ fontSize: '14px' }} />
+                 </IconButton>
+               </Tooltip>
+               
+               <Tooltip title={queryItem.visible ? "Hide Response" : "Show Response"}>
+                 <IconButton
+                   onClick={(e) => {
+                     e.stopPropagation();
+                     onToggleVisibility(queryItem.id);
+                   }}
+                 >
+                   {queryItem.visible ? <VisibilityIcon sx={{ fontSize: '14px' }} /> : <VisibilityOffIcon sx={{ fontSize: '14px' }} />}
+                 </IconButton>
+               </Tooltip>
+               
+               <Tooltip title="Delete query">
+                 <IconButton
+                   color="error"
+                   onClick={(e) => {
+                     e.stopPropagation();
+                     onDeleteQuery(queryItem.id);
+                   }}
+                 >
+                   <DeleteIcon sx={{ fontSize: '14px' }} />
+                 </IconButton>
+               </Tooltip>
+               
+               <Tooltip title="Drag and drop to reorder queries">
+                 <IconButton
+                   {...attributes}
+                   {...listeners}
+                   sx={{ cursor: 'grab', '&:active': { cursor: 'grabbing' } }}
+                   onClick={(e) => e.stopPropagation()}
+                 >
+                   <DragIndicatorIcon sx={{ fontSize: '14px' }} />
+                 </IconButton>
+               </Tooltip>
+             </Box>
+          </Box>
+        </AccordionSummary>
+        
+                 <AccordionDetails sx={{ 
+           py: 1, 
+           px: 1,
+           borderRadius: '0 0 4px 4px',
+           overflow: 'hidden'
+         }}>
+          <Box sx={{ width: '100%' }}>
+                         <Box sx={{ 
+                           mb: 0, 
+                           ml: 0, 
+                           mr: 0, 
+                           border: '1px solid', 
+                           borderColor: 'divider', 
+                           borderRadius: '4px', 
+                           overflow: 'hidden',
+                           '& .monaco-editor': {
+                             borderRadius: '4px',
+                           },
+                           '& .monaco-editor .overflow-guard': {
+                             borderRadius: '4px',
+                           }
+                         }}>
+               <Editor
+                 height="150px"
+                 language="sql"
+                 theme="vs-dark"
+                 value={queryItem.query}
+                 onChange={(value) => onQueryChange(queryItem.id, value || '')}
+                 options={{
+                   minimap: { enabled: false },
+                   scrollBeyondLastLine: false,
+                   fontSize: 12,
+                   wordWrap: 'on',
+                   automaticLayout: true,
+                   placeholder: 'SELECT * FROM metrics WHERE...',
+                 }}
+               />
+             </Box>
+          </Box>
+        </AccordionDetails>
+      </Accordion>
+    </div>
+  );
+}
 
 export function PanelEditPage() {
   const { panelId, dashboardId } = useParams<{ panelId: string; dashboardId: string }>();
@@ -69,10 +354,23 @@ export function PanelEditPage() {
   const [queries, setQueries] = useState<Array<{ id: string; query: string; name: string; visible: boolean }>>([]);
   const [originalQueries, setOriginalQueries] = useState<Array<{ id: string; query: string; name: string; visible: boolean }>>([]);
   const [editingQueryId, setEditingQueryId] = useState<string | null>(null);
+  const [panelData, setPanelData] = useState<any[]>([]);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [queryToDelete, setQueryToDelete] = useState<string | null>(null);
   const [discardDialogOpen, setDiscardDialogOpen] = useState(false);
   const [unsavedChangesDialogOpen, setUnsavedChangesDialogOpen] = useState(false);
+
+  // Drag and drop sensors
+  const sensors = useSensors(
+    useSensor(PointerSensor, {
+      activationConstraint: {
+        distance: 8,
+      },
+    }),
+    useSensor(KeyboardSensor, {
+      coordinateGetter: sortableKeyboardCoordinates,
+    })
+  );
 
   // Update saving state in context
   useEffect(() => {
@@ -402,6 +700,28 @@ export function PanelEditPage() {
     }
   };
 
+  // Handle drag end for reordering queries
+  const handleDragEnd = useCallback((event: DragEndEvent) => {
+    const { active, over } = event;
+
+    if (active.id !== over?.id) {
+      const oldIndex = queries.findIndex((_, index) => queries[index].id === active.id);
+      const newIndex = queries.findIndex((_, index) => queries[index].id === over?.id);
+
+      if (oldIndex !== -1 && newIndex !== -1) {
+        // Immediately update the queries array to prevent intermediate transitions
+        const updatedQueries = arrayMove(queries, oldIndex, newIndex);
+        setQueries(updatedQueries);
+        
+        // Update panel query with the first query after reordering
+        if (panel && updatedQueries.length > 0) {
+          const updatedPanel = { ...panel, query: updatedQueries[0].query };
+          setPanel(updatedPanel);
+        }
+      }
+    }
+  }, [queries, panel]);
+
   const handleAddQuery = () => {
     const newId = generateUUID();
     const newQuery = { id: newId, query: '', name: String.fromCharCode(64 + queries.length + 1), visible: true }; // A, B, C, D...
@@ -510,7 +830,7 @@ export function PanelEditPage() {
     setQueryToDelete(null);
   };
 
-  const handleTabChange = (event: React.SyntheticEvent, newValue: number) => {
+  const handleTabChange = (_event: React.SyntheticEvent, newValue: number) => {
     setActiveTab(newValue);
   };
 
@@ -563,6 +883,7 @@ export function PanelEditPage() {
               isEditMode={false}
               onEdit={() => {}} // Disable edit menu in edit mode
               onDelete={handleDeletePanel}
+              onDataFetched={setPanelData}
             />
           </Paper>
         </Box>
@@ -630,22 +951,23 @@ export function PanelEditPage() {
             }}
           >
             <Tab label="Data Query" />
-            <Tab label="Tab 2" />
+            <Tab label="Transform" />
             <Tab label="Tab 3" />
           </Tabs>
           
-          <Box sx={{ 
-            flex: 1, 
-            overflow: 'auto',
-            padding: 2,
-            backgroundColor: 'background.paper',
-            margin: 0,
-            '&::-webkit-scrollbar': {
-              display: 'none'
-            },
-            scrollbarWidth: 'none',
-            msOverflowStyle: 'none'
-          }}>
+                     <Box sx={{ 
+             flex: 1, 
+             overflow: 'auto',
+             overflowX: 'hidden', // Prevent horizontal scrolling
+             padding: 2,
+             backgroundColor: 'background.paper',
+             margin: 0,
+             '&::-webkit-scrollbar': {
+               display: 'none'
+             },
+             scrollbarWidth: 'none',
+             msOverflowStyle: 'none'
+           }}>
             {activeTab === 0 && (
               <Box>
                 {/* Query Cards */}
@@ -665,174 +987,36 @@ export function PanelEditPage() {
                      </Typography>
                    </Box>
                  ) : (
-                   queries.map((queryItem, index) => (
-                                           <Accordion key={queryItem.id} sx={{ mb: 0, borderRadius: 2, '& .MuiAccordionSummary-root': { height: '15px !important' } }}>
-                                               <AccordionSummary 
-                          expandIcon={<ExpandMoreIcon />}
-                          sx={{ 
-                            flexDirection: 'row-reverse',
-                            py: 0.5,
-                            '& .MuiAccordionSummary-expandIconWrapper': {
-                              transform: 'rotate(0deg)',
-                              marginLeft: 0,
-                              marginRight: 'auto'
-                            },
-                            '& .MuiAccordionSummary-expandIconWrapper.Mui-expanded': {
-                              transform: 'rotate(180deg)'
-                            }
-                          }}
-                        >
-                                                   <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%', ml: 1 }}>
-                            {editingQueryId === queryItem.id ? (
-                              <TextField
-                                size="small"
-                                value={queryItem.name}
-                                onChange={(e) => handleQueryNameChange(queryItem.id, e.target.value)}
-                                onBlur={() => handleFinishEditing(queryItem.id, queryItem.name)}
-                                onKeyPress={(e) => {
-                                  if (e.key === 'Enter') {
-                                    handleFinishEditing(queryItem.id, queryItem.name);
-                                  } else if (e.key === 'Escape') {
-                                    handleCancelEditing();
-                                  }
-                                }}
-                                autoFocus
-                                onClick={(e) => e.stopPropagation()}
-                                sx={{ width: 200 }}
-                              />
-                            ) : (
-                              <Box
-                                sx={{
-                                  display: 'flex',
-                                  alignItems: 'center',
-                                  gap: 1,
-                                  padding: '0px 8px',
-                                  borderRadius: '4px',
-                                  cursor: 'pointer',
-                                  border: '1px dashed transparent',
-                                  '&:hover': {
-                                    border: '1px dashed #666',
-                                    backgroundColor: 'rgba(255, 255, 255, 0.04)',
-                                    '& .edit-icon': {
-                                      opacity: 1,
-                                    },
-                                  },
-                                }}
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  handleStartEditing(queryItem.id);
-                                }}
-                              >
-                                <Typography
-                                  sx={{
-                                    color: 'primary.main',
-                                    fontSize: '0.875rem',
-                                    fontWeight: 500,
-                                  }}
-                                >
-                                  {queryItem.name}
-                                </Typography>
-                                <EditIcon
-                                  className="edit-icon"
-                                  sx={{
-                                    fontSize: '0.875rem',
-                                    color: '#666',
-                                    opacity: 0,
-                                    transition: 'opacity 0.1s ease',
-                                  }}
-                                />
-                              </Box>
-                            )}
-                                                       <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                              <Tooltip title="Duplicate query">
-                                <IconButton
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    handleDuplicateQuery(queryItem.id);
-                                  }}
-                                >
-                                  <ContentCopyIcon sx={{ fontSize: '18px' }} />
-                                </IconButton>
-                              </Tooltip>
-                              
-                              <Tooltip title={queryItem.visible ? "Hide Response" : "Show Response"}>
-                                <IconButton
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    handleToggleVisibility(queryItem.id);
-                                  }}
-                                >
-                                  {queryItem.visible ? <VisibilityIcon sx={{ fontSize: '18px' }} /> : <VisibilityOffIcon sx={{ fontSize: '18px' }} />}
-                                </IconButton>
-                              </Tooltip>
-                              
-                              <Tooltip title="Delete query">
-                                <IconButton
-                                  color="error"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    handleDeleteQuery(queryItem.id);
-                                  }}
-                                >
-                                  <DeleteIcon sx={{ fontSize: '18px' }} />
-                                </IconButton>
-                              </Tooltip>
-                              
-                              <Tooltip title="Drag and drop to reorder queries">
-                                <IconButton
-                                  sx={{ cursor: 'grab', '&:active': { cursor: 'grabbing' } }}
-                                  onClick={(e) => e.stopPropagation()}
-                                >
-                                  <DragIndicatorIcon sx={{ fontSize: '18px' }} />
-                                </IconButton>
-                              </Tooltip>
-                            </Box>
-                         </Box>
-                       </AccordionSummary>
-                                                                                           <AccordionDetails sx={{ py: 0.5 }}>
-                         <Box sx={{ width: '100%' }}>
-                           <Box sx={{ mb: 0.5, border: '1px solid', borderColor: 'divider', borderRadius: 1 }}>
-                             <Editor
-                               height="150px"
-                               language="sql"
-                               theme="vs-dark"
-                               value={queryItem.query}
-                               onChange={(value) => handleQueryChange(queryItem.id, value || '')}
-                               options={{
-                                 minimap: { enabled: false },
-                                 scrollBeyondLastLine: false,
-                                 fontSize: 12,
-                                 wordWrap: 'on',
-                                 automaticLayout: true,
-                                 placeholder: 'SELECT * FROM metrics WHERE...',
-                               }}
-                             />
-                           </Box>
-                           <Box sx={{ display: 'flex', gap: 1, mb: 0.5 }}>
-                             <Button
-                               variant="outlined"
-                               size="small"
-                               startIcon={<CodeIcon />}
-                               onClick={() => handleFormatQuery(queryItem.id)}
-                               disabled={!queryItem.query.trim()}
-                               sx={{ flex: 1 }}
-                             >
-                               Format Query
-                             </Button>
-                             <Button
-                               variant="outlined"
-                               size="small"
-                               onClick={() => handleQueryTest(queryItem.query)}
-                               disabled={!queryItem.query.trim()}
-                               sx={{ flex: 1 }}
-                             >
-                               Test Query
-                             </Button>
-                                                       </Box>
-                          </Box>
-                                             </AccordionDetails>
-                     </Accordion>
-                   ))
+                   <DndContext
+                     sensors={sensors}
+                     collisionDetection={closestCenter}
+                     onDragEnd={handleDragEnd}
+
+                   >
+                     <SortableContext
+                       items={queries.map(query => query.id)}
+                       strategy={verticalListSortingStrategy}
+                     >
+                       {queries.map((queryItem, index) => (
+                         <SortableQueryAccordion
+                           key={queryItem.id}
+                           queryItem={queryItem}
+                           index={index}
+                           editingQueryId={editingQueryId}
+                           onStartEditing={handleStartEditing}
+                           onFinishEditing={handleFinishEditing}
+                           onCancelEditing={handleCancelEditing}
+                           onQueryNameChange={handleQueryNameChange}
+                           onQueryChange={handleQueryChange}
+                           onToggleVisibility={handleToggleVisibility}
+                           onDeleteQuery={handleDeleteQuery}
+                           onDuplicateQuery={handleDuplicateQuery}
+                           onFormatQuery={handleFormatQuery}
+                           onQueryTest={handleQueryTest}
+                         />
+                       ))}
+                     </SortableContext>
+                   </DndContext>
                  )}
                 
                 {/* Add Query Button */}
@@ -854,10 +1038,16 @@ export function PanelEditPage() {
               </Box>
             )}
             {activeTab === 1 && (
-              <Box>
-                <h3>Tab 2 Content</h3>
-                <p>This is the content for tab 2. You can add any components or content here.</p>
-                {/* Add your tab 2 content here */}
+              <Box sx={{ height: '100%', overflow: 'auto' }}>
+                {panel ? (
+                  <TransformationsEditor
+                    panel={panel}
+                    onPanelUpdate={setPanel}
+                    panelData={panelData}
+                  />
+                ) : (
+                  <Typography>Loading panel configuration...</Typography>
+                )}
               </Box>
             )}
             {activeTab === 2 && (
