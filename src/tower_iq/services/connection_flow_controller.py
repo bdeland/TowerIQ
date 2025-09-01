@@ -1105,10 +1105,23 @@ class ConnectionFlowController(QObject):
             return False
         
         try:
+            # Get package name and version from process info
+            package_name = process_info.get("package", "") if process_info else ""
             version = process_info.get("version", "Unknown") if process_info else "Unknown"
             
-            # Inject the script
-            success = await self.frida_service.inject_script(version)
+            self._logger.info("Loading script for injection", package_name=package_name, version=version)
+            
+            # Load the script content using hook script manager
+            script_content = await self._load_script_content(package_name, version)
+            
+            if not script_content:
+                self._logger.error("Failed to load script content", package_name=package_name, version=version)
+                return False
+            
+            self._logger.info("Script content loaded successfully", content_length=len(script_content))
+            
+            # Inject the script with actual content
+            success = await self.frida_service.inject_script(script_content)
             
             if not success:
                 self._logger.error("Failed to inject hook script")
@@ -1120,6 +1133,50 @@ class ConnectionFlowController(QObject):
         except Exception as e:
             self._logger.error("Script injection failed", error=str(e))
             return False
+    
+    async def _load_script_content(self, package_name: str, version: str) -> Optional[str]:
+        """Load script content for the specified package and version."""
+        self._logger.debug("Loading script content", package_name=package_name, version=version)
+        
+        try:
+            # Get the hook script manager from the session manager
+            if not hasattr(self.session_manager, 'hook_script_manager') or not self.session_manager.hook_script_manager:
+                self._logger.error("Hook script manager not available")
+                return None
+            
+            hook_script_manager = self.session_manager.hook_script_manager
+            
+            # Get compatible scripts for the package and version
+            compatible_scripts = hook_script_manager.get_compatible_scripts(package_name, version)
+            
+            if not compatible_scripts:
+                self._logger.error("No compatible scripts found", package_name=package_name, version=version)
+                return None
+            
+            # Use the first compatible script
+            selected_script = compatible_scripts[0]
+            script_file_name = selected_script.get("fileName", "")
+            
+            if not script_file_name:
+                self._logger.error("Script file name not found in metadata")
+                return None
+            
+            # Load the script content
+            script_content = hook_script_manager.get_script_content(script_file_name)
+            
+            if not script_content:
+                self._logger.error("Failed to load script content", script_file_name=script_file_name)
+                return None
+            
+            self._logger.info("Script content loaded successfully", 
+                            script_name=selected_script.get("scriptName", script_file_name),
+                            content_length=len(script_content))
+            
+            return script_content
+            
+        except Exception as e:
+            self._logger.error("Error loading script content", error=str(e))
+            return None
     
     async def _verify_connection_health(self) -> bool:
         """Verify the overall connection health and functionality."""

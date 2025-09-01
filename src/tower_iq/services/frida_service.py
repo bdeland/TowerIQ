@@ -333,6 +333,11 @@ class FridaService:
         self._message_queue = asyncio.Queue()
         self._session_manager = session_manager
         
+        self.logger.info("FridaService initialized", 
+                        event_loop_running=loop.is_running() if loop else False,
+                        message_queue_initialized=self._message_queue is not None,
+                        session_manager_available=self._session_manager is not None)
+        
         # Check if Frida is available
         if frida is None:
             self.logger.warning("Frida not available - install 'frida-tools' package")
@@ -715,6 +720,7 @@ class FridaService:
         """
         try:
             self.logger.info(f"_on_message received: {message}")
+            self.logger.info(f"Message type: {message.get('type')}, Payload keys: {list(message.get('payload', {}).keys()) if isinstance(message.get('payload'), dict) else 'not_dict'}")
             
             # Parse the message type
             if message['type'] == 'send':
@@ -735,10 +741,14 @@ class FridaService:
                         self.logger.debug("Bulk message received from script", message_type=parsed_message['type'])
                 else:
                     # Add metadata
+                    # Extract timestamp from nested payload if available
+                    inner_payload = payload.get('payload', {})
+                    timestamp = inner_payload.get('timestamp') if isinstance(inner_payload, dict) else payload.get('timestamp')
+                    
                     parsed_message = {
                         'type': payload.get('type', 'unknown'),
                         'payload': payload.get('payload', {}),
-                        'timestamp': payload.get('timestamp'),
+                        'timestamp': timestamp,
                         'pid': self.attached_pid
                     }
                     
@@ -760,6 +770,7 @@ class FridaService:
                             self.logger.error("Failed to update script heartbeat", error=str(e))
                     
                     # Put message on async queue - use thread-safe approach
+                    self.logger.info("Queueing message for async processing", message_type=parsed_message['type'])
                     self._queue_message_safely(parsed_message)
                     
                     self.logger.debug("Message received from script", message_type=parsed_message['type'])
@@ -819,7 +830,7 @@ class FridaService:
             self.logger.debug(f"Message queue size: {self._message_queue.qsize()}")
                 
         except Exception as e:
-            self.logger.error("Failed to queue message", error=str(e))
+            self.logger.error("Failed to queue message", error=str(e), message_type=message.get('type') if isinstance(message, dict) else 'unknown')
     
 
     

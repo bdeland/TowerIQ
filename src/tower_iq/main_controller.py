@@ -232,6 +232,114 @@ class MainController:
         
         self.logger.info("MainController initialized")
     
+    async def _load_script_by_id(self, script_id: str) -> Optional[str]:
+        """Load script content by script ID."""
+        if not self.hook_script_manager:
+            self.logger.error("Hook script manager not available")
+            return None
+        
+        try:
+            # Get all available scripts
+            available_scripts = self.hook_script_manager.get_available_scripts()
+            
+            # Find script by ID
+            for script in available_scripts:
+                if script.get('id') == script_id:
+                    script_content = script.get('content', '')
+                    if script_content:
+                        self.logger.info("Script loaded by ID", script_id=script_id, 
+                                       script_name=script.get('name', 'Unknown'),
+                                       content_length=len(script_content))
+                        return script_content
+                    else:
+                        self.logger.error("Script found but content is empty", script_id=script_id)
+                        return None
+            
+            self.logger.error("Script not found by ID", script_id=script_id)
+            return None
+            
+        except Exception as e:
+            self.logger.error("Error loading script by ID", script_id=script_id, error=str(e))
+            return None
+    
+    async def _load_script_by_name(self, script_name: str, package_name: str, version: str) -> Optional[str]:
+        """Load script content by script name, filtering by package and version compatibility."""
+        if not self.hook_script_manager:
+            self.logger.error("Hook script manager not available")
+            return None
+        
+        try:
+            # Get compatible scripts first
+            compatible_scripts = self.hook_script_manager.get_compatible_scripts(package_name, version)
+            
+            # Find script by name among compatible scripts
+            for script in compatible_scripts:
+                if script.get('scriptName', '') == script_name:
+                    script_file_name = script.get('fileName', '')
+                    if script_file_name:
+                        script_content = self.hook_script_manager.get_script_content(script_file_name)
+                        if script_content:
+                            self.logger.info("Script loaded by name", script_name=script_name,
+                                           package_name=package_name, version=version,
+                                           content_length=len(script_content))
+                            return script_content
+                        else:
+                            self.logger.error("Script found but content is empty", script_name=script_name)
+                            return None
+            
+            self.logger.error("Script not found by name among compatible scripts", 
+                            script_name=script_name, package_name=package_name, version=version)
+            return None
+            
+        except Exception as e:
+            self.logger.error("Error loading script by name", script_name=script_name, error=str(e))
+            return None
+    
+    async def _load_compatible_script(self, package_name: str, version: str) -> Optional[str]:
+        """Load the first compatible script for the given package and version."""
+        if not self.hook_script_manager:
+            self.logger.error("Hook script manager not available")
+            return None
+        
+        try:
+            # Log when version is unknown for debugging
+            if version == "Unknown":
+                self.logger.info("Attempting to load compatible script with unknown version", 
+                               package_name=package_name, version=version)
+            
+            # Get compatible scripts
+            compatible_scripts = self.hook_script_manager.get_compatible_scripts(package_name, version)
+            
+            if not compatible_scripts:
+                self.logger.error("No compatible scripts found", package_name=package_name, version=version)
+                return None
+            
+            # Use the first compatible script
+            selected_script = compatible_scripts[0]
+            script_file_name = selected_script.get('fileName', '')
+            
+            if not script_file_name:
+                self.logger.error("Script file name not found in metadata")
+                return None
+            
+            # Load the script content
+            script_content = self.hook_script_manager.get_script_content(script_file_name)
+            
+            if not script_content:
+                self.logger.error("Failed to load script content", script_file_name=script_file_name)
+                return None
+            
+            self.logger.info("Compatible script loaded", 
+                           script_name=selected_script.get('scriptName', script_file_name),
+                           package_name=package_name, version=version,
+                           content_length=len(script_content))
+            
+            return script_content
+            
+        except Exception as e:
+            self.logger.error("Error loading compatible script", package_name=package_name, version=version, error=str(e))
+            return None
+    
     def add_device_scan_callback(self, callback: Callable[[List], None]):
         """Add callback for device scan completion."""
         self._device_scan_callbacks.append(callback)
@@ -401,14 +509,18 @@ class MainController:
         while self._running:
             try:
                 # Get message from Frida service with timeout
+                self.logger.debug("Waiting for message from Frida service...")
                 message = await self.frida_service.get_message()
                 
                 if message:
-                    self.logger.debug("Processing message from Frida", message_type=message.get('type'))
+                    self.logger.info("Received message from Frida", message_type=message.get('type'), payload_keys=list(message.get('payload', {}).keys()) if isinstance(message.get('payload'), dict) else 'not_dict')
                     await self._process_frida_message(message)
+                else:
+                    self.logger.debug("No message received from Frida service")
                     
             except asyncio.TimeoutError:
                 # Timeout is normal - just continue the loop
+                self.logger.debug("Timeout waiting for message from Frida service - continuing loop")
                 continue
             except RuntimeError as e:
                 if "shutdown" in str(e).lower():
@@ -518,12 +630,11 @@ class MainController:
                 
                 self.logger.info("Game data stored successfully", 
                                run_id=run_id, 
-                               coins=coins, 
+                               metrics_count=len(metrics),
                                wave=wave)
             else:
                 self.logger.warning("Incomplete game data received", 
                                   run_id=run_id, 
-                                  coins=coins, 
                                   available_keys=list(payload.keys()))
                 
         except Exception as e:
@@ -538,14 +649,14 @@ class MainController:
                 self.logger.warning("Cannot store game event: database service not available")
                 return
             
-            event_type = payload.get('event_type', 'unknown')
+            event_type = payload.get('event', 'unknown')
             
             self.logger.info("Storing game event in database", 
                            event_type=event_type, 
                            payload=payload)
             
             # Store as an event in the database using write_event method
-            run_id = payload.get('run_id', 'unknown')
+            run_id = payload.get('roundSeed', 'unknown')
             self.db_service.write_event(
                 run_id=str(run_id),
                 timestamp=timestamp or int(time.time() * 1000),

@@ -60,7 +60,8 @@ class ConnectionRequest(BaseModel):
 class HookActivationRequest(BaseModel):
     device_id: str
     process_info: Dict[str, Any]
-    script_content: str
+    script_id: Optional[str] = None  # Script ID for selection
+    script_name: Optional[str] = None  # Script name for selection (fallback)
 
 class HookDeactivationRequest(BaseModel):
     device_id: str
@@ -326,18 +327,49 @@ async def activate_hook(request: HookActivationRequest, background_tasks: Backgr
         # Extract process info
         process_info = request.process_info
         device_id = request.device_id
-        script_content = request.script_content
+        script_id = request.script_id
+        script_name = request.script_name
         
         # Get the process ID from the process info
         pid = process_info.get('pid')
         if not pid:
             raise HTTPException(status_code=400, detail="Process ID not found in process info")
         
+        # Load script content based on selection
+        script_content = None
+        if controller.hook_script_manager:
+            package_name = process_info.get('package', '')
+            version = process_info.get('version', 'Unknown')
+            
+            if logger:
+                logger.info("Loading script based on selection", 
+                           script_id=script_id, script_name=script_name,
+                           package_name=package_name, version=version)
+            
+            # Try to load script by ID first, then by name, then fallback to compatible scripts
+            if script_id:
+                script_content = await controller._load_script_by_id(script_id)
+            elif script_name:
+                script_content = await controller._load_script_by_name(script_name, package_name, version)
+            else:
+                # Fallback to compatible scripts
+                script_content = await controller._load_compatible_script(package_name, version)
+            
+            if script_content and logger:
+                logger.info("Script content loaded successfully", 
+                           script_id=script_id, script_name=script_name,
+                           content_length=len(script_content))
+        
+        if not script_content:
+            raise HTTPException(status_code=400, detail="No script content available")
+        
         if logger:
             logger.info("Starting hook activation", 
                        device_id=device_id, 
                        pid=pid, 
-                       script_length=len(script_content))
+                       script_id=script_id,
+                       script_name=script_name,
+                       content_length=len(script_content))
         
         # Use the Frida service to inject the script
         success = await controller.frida_service.inject_and_run_script(
@@ -393,11 +425,75 @@ async def get_compatible_scripts(request: ScriptCompatibilityRequest):
         raise HTTPException(status_code=503, detail="Backend not initialized")
     
     try:
-        # This would need to be adapted to work with the async nature
-        # For now, we'll return a placeholder
-        return {"scripts": []}
+        package_name = request.package_name
+        app_version = request.app_version
+        
+        if logger:
+            logger.info("Getting compatible scripts", package_name=package_name, app_version=app_version)
+        
+        if not controller.hook_script_manager:
+            return {"scripts": []}
+        
+        # Get compatible scripts
+        compatible_scripts = controller.hook_script_manager.get_compatible_scripts(package_name, app_version)
+        
+        # Convert to frontend-friendly format
+        scripts_for_frontend = []
+        for script in compatible_scripts:
+            scripts_for_frontend.append({
+                "id": script.get("id", ""),
+                "name": script.get("scriptName", script.get("fileName", "Unknown")),
+                "description": script.get("scriptDescription", script.get("description", "No description")),
+                "fileName": script.get("fileName", ""),
+                "targetPackage": script.get("targetPackage", ""),
+                "supportedVersions": script.get("supportedVersions", [])
+            })
+        
+        if logger:
+            logger.info("Returning compatible scripts", count=len(scripts_for_frontend))
+        
+        return {"scripts": scripts_for_frontend}
     except Exception as e:
-        logger.error("Error getting compatible scripts", error=str(e))
+        if logger:
+            logger.error("Error getting compatible scripts", error=str(e))
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/available-scripts")
+async def get_available_scripts():
+    """Get all available scripts."""
+    if not controller:
+        raise HTTPException(status_code=503, detail="Backend not initialized")
+    
+    try:
+        if logger:
+            logger.info("Getting all available scripts")
+        
+        if not controller.hook_script_manager:
+            return {"scripts": []}
+        
+        # Get all available scripts
+        available_scripts = controller.hook_script_manager.get_available_scripts()
+        
+        # Convert to frontend-friendly format
+        scripts_for_frontend = []
+        for script in available_scripts:
+            scripts_for_frontend.append({
+                "id": script.get("id", ""),
+                "name": script.get("name", script.get("fileName", "Unknown")),
+                "description": script.get("description", "No description"),
+                "fileName": script.get("fileName", ""),
+                "targetPackage": script.get("targetPackage", ""),
+                "supportedVersions": script.get("supportedVersions", [])
+            })
+        
+        if logger:
+            logger.info("Returning available scripts", count=len(scripts_for_frontend))
+        
+        return {"scripts": scripts_for_frontend}
+    except Exception as e:
+        if logger:
+            logger.error("Error getting available scripts", error=str(e))
         raise HTTPException(status_code=500, detail=str(e))
 
 

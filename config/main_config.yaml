@@ -17,9 +17,9 @@ system_defaults:
       enabled: true
       level: "INFO"
     file:
-      enabled: false
+      enabled: true
       path: "logs/tower_iq.log"
-      level: "INFO"
+      level: "DEBUG"
       max_size_mb: 50
       backup_count: 5
     categories:

@@ -64,15 +64,23 @@ class HookScriptManager:
     def get_compatible_scripts(self, package_name: str, app_version: str) -> list:
         """
         Return scripts whose targetPackage matches and app_version is in supportedVersions.
+        If app_version is "Unknown", allow any script that matches the package name.
         """
         compatible: List[Dict] = []
         for script in self.scripts:
             try:
-                if (
-                    script.get("targetPackage") == package_name
-                    and app_version in (script.get("supportedVersions") or [])
-                ):
+                target_package = script.get("targetPackage", "")
+                supported_versions = script.get("supportedVersions") or []
+                
+                # Check if package name matches
+                if target_package != package_name:
+                    continue
+                
+                # If version is "Unknown", allow the script (package match is sufficient)
+                # Otherwise, require exact version match
+                if app_version == "Unknown" or app_version in supported_versions:
                     compatible.append(script)
+                    
             except Exception:
                 continue
         return compatible
