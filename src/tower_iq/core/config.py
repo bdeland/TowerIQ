@@ -248,12 +248,14 @@ class ConfigurationManager(QObject):
 
     def _get_from_dict(self, data_dict: dict, keys: list) -> Any:
         value = data_dict
-        try:
-            for k in keys:
-                value = value[k]
-            return value
-        except (KeyError, TypeError):
-            return None
+        # Traverse using safe access to avoid raising KeyError/TypeError
+        for k in keys:
+            if not isinstance(value, dict):
+                return None
+            if k not in value:
+                return None
+            value = value.get(k)
+        return value
 
     def set(self, key: str, value: Any, description: Optional[str] = None, is_sensitive: bool = False):
         """

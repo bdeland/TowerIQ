@@ -76,6 +76,12 @@ export interface BackendError {
   message: string;
 }
 
+export interface AdbStatus {
+  running: boolean;
+  version?: string | null;
+  error?: string;
+}
+
 // Shared polling state to prevent multiple components from polling simultaneously
 let globalPollingInterval: NodeJS.Timeout | null = null;
 let globalStatus: BackendStatus | null = null;
@@ -517,6 +523,22 @@ export const useBackend = () => {
     }
   };
 
+  const getAdbStatus = async (): Promise<AdbStatus> => {
+    try {
+      setLoading(true);
+      setError(null);
+      const result = await invoke<AdbStatus>('get_adb_status');
+      return result;
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Unknown error';
+      setError(errorMessage);
+      // Return a safe default to allow UI to render
+      return { running: false, version: null, error: errorMessage };
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return {
     status,
     loading,
@@ -542,5 +564,6 @@ export const useBackend = () => {
     startAdbServer,
     killAdbServer,
     restartAdbServer,
+    getAdbStatus,
   };
 };

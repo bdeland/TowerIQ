@@ -53,7 +53,7 @@ import {
   Settings as SettingsIcon,
 } from '@mui/icons-material';
 import RefreshIcon from '@mui/icons-material/Refresh';
-import { useBackend, Device, Process, HookScript, FridaStatus, ScriptStatus } from '../hooks/useBackend';
+import { useBackend, Device, Process, HookScript, FridaStatus, ScriptStatus, AdbStatus } from '../hooks/useBackend';
 import { ScriptStatusWidget } from '../components/ScriptStatusWidget';
 import { HookScriptCard } from '../components/HookScriptCard';
 
@@ -135,7 +135,8 @@ export function ConnectionPage() {
     getScriptStatus,
     startAdbServer,
     killAdbServer,
-    restartAdbServer
+    restartAdbServer,
+    getAdbStatus
   } = useBackend();
   
   // Simplified state management
@@ -167,6 +168,20 @@ export function ConnectionPage() {
 
   // ADB server management state
   const [isAdbRestarting, setIsAdbRestarting] = useState(false);
+  const [adbStatus, setAdbStatus] = useState<AdbStatus | null>(null);
+
+  // Centralized ADB state updater with delay and optional device refresh
+  const updateAdbState = useCallback(async (shouldRefreshDevices?: boolean) => {
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    const status = await getAdbStatus();
+    setAdbStatus(status);
+    if (shouldRefreshDevices) {
+      try {
+        const deviceList = await refreshDevices();
+        setDevices(deviceList);
+      } catch (e) {}
+    }
+  }, [getAdbStatus, refreshDevices]);
 
   // Frida server status state
   const [fridaStatus, setFridaStatus] = useState<FridaStatus | null>(null);
@@ -181,6 +196,15 @@ export function ConnectionPage() {
     loadDevices();
     loadHookScripts();
     loadScriptStatus();
+    // Fetch ADB status at mount
+    (async () => {
+      try {
+        const status = await getAdbStatus();
+        setAdbStatus(status);
+      } catch (e) {
+        // ignore, UI will show unknown
+      }
+    })();
   }, []);
 
   // Load script status when connected
@@ -449,10 +473,8 @@ export function ConnectionPage() {
       
       // Restart ADB server
       await restartAdbServer();
-      
-      // Refresh devices after restart
-      const deviceList = await refreshDevices();
-      setDevices(deviceList);
+      // Centralized status refresh
+      await updateAdbState(true);
     } catch (err) {
       console.error('Failed to restart ADB server:', err);
     } finally {
@@ -465,9 +487,7 @@ export function ConnectionPage() {
     try {
       setIsAdbRestarting(true);
       await startAdbServer();
-      // Refresh devices after starting
-      const deviceList = await refreshDevices();
-      setDevices(deviceList);
+      await updateAdbState(true);
     } catch (err) {
       console.error('Failed to start ADB server:', err);
     } finally {
@@ -481,6 +501,7 @@ export function ConnectionPage() {
       await killAdbServer();
       // Clear devices after killing server
       setDevices([]);
+      await updateAdbState();
     } catch (err) {
       console.error('Failed to kill ADB server:', err);
     } finally {
@@ -767,7 +788,7 @@ export function ConnectionPage() {
               </Box>
             ) : (
               <TableContainer sx={{ maxHeight: 400, mb: 3 }}>
-                <Table size="small">
+                <Table stickyHeader size="small">
                   <TableHead>
                     <TableRow>
                       <TableCell>App Name</TableCell>
@@ -784,6 +805,13 @@ export function ConnectionPage() {
                         process.name.toLowerCase().includes(processSearchTerm.toLowerCase()) ||
                         (process.package && process.package.toLowerCase().includes(processSearchTerm.toLowerCase()))
                       );
+                      const filteredProcessesSorted = [...filteredProcesses].sort((a, b) => {
+                        const aIsTarget = a.package === TARGET_PROCESS_PACKAGE;
+                        const bIsTarget = b.package === TARGET_PROCESS_PACKAGE;
+                        if (aIsTarget && !bIsTarget) return -1;
+                        if (!aIsTarget && bIsTarget) return 1;
+                        return 0;
+                      });
                       
                       if (processes.length === 0) {
                         return (
@@ -806,7 +834,7 @@ export function ConnectionPage() {
                           </TableRow>
                         );
                       } else {
-                        return filteredProcesses.map((process) => (
+                        return filteredProcessesSorted.map((process) => (
                           <TableRow 
                             key={process.pid}
                             sx={{ 
@@ -1084,10 +1112,11 @@ export function ConnectionPage() {
             )}
 
             <Box sx={{ display: 'flex', gap: 1, mb: 2, flexWrap: 'wrap' }}>
-              <Button
-                variant="outlined"
-                size="small"
-                onClick={async () => {
+              <Box sx={{ position: 'relative' }}>
+                <Button
+                  variant="outlined"
+                  size="small"
+                  onClick={async () => {
                   if (selectedDevice) {
                     try {
                       setFridaError(null);
@@ -1101,15 +1130,21 @@ export function ConnectionPage() {
                     }
                   }
                 }}
-                disabled={!selectedDevice || loading || (fridaStatus?.is_installed === true)}
-                title={fridaStatus?.is_installed ? 'Frida server is already installed' : undefined}
-              >
-                {loading ? <CircularProgress size={16} /> : 'Install Frida Server'}
-              </Button>
-              <Button
-                variant="outlined"
-                size="small"
-                onClick={async () => {
+                  disabled={!selectedDevice || loading || (fridaStatus?.is_installed === true)}
+                  title={fridaStatus?.is_installed ? 'Frida server is already installed' : undefined}
+                  sx={{ minWidth: 160 }}
+                >
+                  Install Frida Server
+                </Button>
+                {loading && (
+                  <CircularProgress size={16} sx={{ position: 'absolute', top: '50%', left: '50%', mt: '-8px', ml: '-8px' }} />
+                )}
+              </Box>
+              <Box sx={{ position: 'relative' }}>
+                <Button
+                  variant="outlined"
+                  size="small"
+                  onClick={async () => {
                   if (selectedDevice) {
                     try {
                       setFridaError(null);
@@ -1123,18 +1158,24 @@ export function ConnectionPage() {
                     }
                   }
                 }}
-                disabled={!selectedDevice || loading || !fridaStatus?.is_installed || fridaStatus?.is_running === true}
-                title={
-                  !fridaStatus?.is_installed ? 'Frida server must be installed first' :
-                  fridaStatus?.is_running ? 'Frida server is already running' : undefined
-                }
-              >
-                {loading ? <CircularProgress size={16} /> : 'Start Frida Server'}
-              </Button>
-              <Button
-                variant="outlined"
-                size="small"
-                onClick={async () => {
+                  disabled={!selectedDevice || loading || !fridaStatus?.is_installed || fridaStatus?.is_running === true}
+                  title={
+                    !fridaStatus?.is_installed ? 'Frida server must be installed first' :
+                    fridaStatus?.is_running ? 'Frida server is already running' : undefined
+                  }
+                  sx={{ minWidth: 160 }}
+                >
+                  Start Frida Server
+                </Button>
+                {loading && (
+                  <CircularProgress size={16} sx={{ position: 'absolute', top: '50%', left: '50%', mt: '-8px', ml: '-8px' }} />
+                )}
+              </Box>
+              <Box sx={{ position: 'relative' }}>
+                <Button
+                  variant="outlined"
+                  size="small"
+                  onClick={async () => {
                   if (selectedDevice) {
                     try {
                       setFridaError(null);
@@ -1148,15 +1189,21 @@ export function ConnectionPage() {
                     }
                   }
                 }}
-                disabled={!selectedDevice || loading || !fridaStatus?.is_running}
-                title={!fridaStatus?.is_running ? 'Frida server is not running' : undefined}
-              >
-                {loading ? <CircularProgress size={16} /> : 'Stop Frida Server'}
-              </Button>
-              <Button
-                variant="outlined"
-                size="small"
-                onClick={async () => {
+                  disabled={!selectedDevice || loading || !fridaStatus?.is_running}
+                  title={!fridaStatus?.is_running ? 'Frida server is not running' : undefined}
+                  sx={{ minWidth: 160 }}
+                >
+                  Stop Frida Server
+                </Button>
+                {loading && (
+                  <CircularProgress size={16} sx={{ position: 'absolute', top: '50%', left: '50%', mt: '-8px', ml: '-8px' }} />
+                )}
+              </Box>
+              <Box sx={{ position: 'relative' }}>
+                <Button
+                  variant="outlined"
+                  size="small"
+                  onClick={async () => {
                   if (selectedDevice) {
                     try {
                       setFridaError(null);
@@ -1170,11 +1217,16 @@ export function ConnectionPage() {
                     }
                   }
                 }}
-                disabled={!selectedDevice || loading || !fridaStatus?.is_installed}
-                title={!fridaStatus?.is_installed ? 'Frida server is not installed' : undefined}
-              >
-                {loading ? <CircularProgress size={16} /> : 'Remove Frida Server'}
-              </Button>
+                  disabled={!selectedDevice || loading || !fridaStatus?.is_installed}
+                  title={!fridaStatus?.is_installed ? 'Frida server is not installed' : undefined}
+                  sx={{ minWidth: 160 }}
+                >
+                  Remove Frida Server
+                </Button>
+                {loading && (
+                  <CircularProgress size={16} sx={{ position: 'absolute', top: '50%', left: '50%', mt: '-8px', ml: '-8px' }} />
+                )}
+              </Box>
 
             </Box>
 
@@ -1187,17 +1239,7 @@ export function ConnectionPage() {
               </Alert>
             )}
 
-            {/* Debug Information */}
-            {process.env.NODE_ENV === 'development' && fridaStatus && (
-              <Box sx={{ mt: 2, p: 2, borderRadius: 1, border: 1, borderColor: 'warning.main', backgroundColor: 'warning.light' }}>
-                <Typography variant="caption" color="text.secondary" sx={{ mb: 1, display: 'block' }}>
-                  Debug Info (Development Only):
-                </Typography>
-                <Typography variant="body2" fontFamily="monospace" sx={{ fontSize: '0.75rem' }}>
-                  {JSON.stringify(fridaStatus, null, 2)}
-                </Typography>
-              </Box>
-            )}
+            {/* Debug Information removed per spec */}
 
           </Box>
 
@@ -1227,12 +1269,28 @@ export function ConnectionPage() {
                 />
               </IconButton>
             </Box>
+            {/* ADB Status Row */}
+            <Box sx={{ mb: 1 }}>
+              <Typography variant="subtitle2" sx={{ mb: 0.5 }}>ADB Server Status</Typography>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
+                <Chip 
+                  label={adbStatus?.running ? 'Running' : 'Stopped'} 
+                  size="small"
+                  color={adbStatus?.running ? 'success' : 'default'}
+                />
+                <Typography variant="caption" color="text.secondary">
+                  {adbStatus?.version ? adbStatus.version : 'Version: Unknown'}
+                </Typography>
+                {/* Redundant manual refresh removed per spec */}
+              </Box>
+            </Box>
+
             <Box sx={{ display: 'flex', gap: 1, mb: 2, flexWrap: 'wrap' }}>
               <Button
                 variant="outlined"
                 size="small"
                 onClick={handleStartAdbServer}
-                disabled={isAdbRestarting}
+                disabled={isAdbRestarting || adbStatus === null || adbStatus?.running === true}
               >
                 Start ADB Server
               </Button>
@@ -1240,7 +1298,7 @@ export function ConnectionPage() {
                 variant="outlined"
                 size="small"
                 onClick={handleKillAdbServer}
-                disabled={isAdbRestarting}
+                disabled={isAdbRestarting || adbStatus === null || adbStatus?.running === false}
               >
                 Kill ADB Server
               </Button>
@@ -1248,7 +1306,7 @@ export function ConnectionPage() {
                 variant="outlined"
                 size="small"
                 onClick={handleRestartAdbServer}
-                disabled={isAdbRestarting}
+                disabled={isAdbRestarting || adbStatus === null || adbStatus?.running === false}
               >
                 Restart ADB Server
               </Button>

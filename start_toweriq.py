@@ -11,6 +11,7 @@ import sys
 import time
 import signal
 import os
+import shutil
 from pathlib import Path
 import requests
 import threading
@@ -99,53 +100,45 @@ def start_tauri_frontend():
         # Check if node_modules exists, if not install dependencies
         if not (tauri_dir / "node_modules").exists():
             logger.info("Installing Tauri dependencies")
-            # Try to find npm in common locations
-            npm_cmd = None
-            for cmd in ["npm", "npm.cmd"]:
-                try:
-                    result = subprocess.run([cmd, "--version"], 
-                                          capture_output=True, text=True, timeout=10)
-                    if result.returncode == 0:
-                        npm_cmd = cmd
-                        break
-                except FileNotFoundError:
-                    continue
+            # Try to find npm using PATH resolution
+            npm_cmd = shutil.which("npm") or shutil.which("npm.cmd")
             
             if not npm_cmd:
-                logger.error("npm not found in PATH")
+                logger.error("npm not found in PATH. Please install Node.js LTS and ensure npm is available.")
                 os.chdir(original_dir)
                 return None
             
-            install_process = subprocess.run([npm_cmd, "install"], 
-                                           capture_output=True, text=True, timeout=120)
+            try:
+                install_process = subprocess.run([npm_cmd, "install"], 
+                                               capture_output=True, text=True, timeout=120)
+            except FileNotFoundError:
+                logger.error("Failed to execute npm. Verify Node.js installation and PATH configuration.")
+                os.chdir(original_dir)
+                return None
             if install_process.returncode != 0:
                 logger.error("Failed to install dependencies", stderr=install_process.stderr)
                 os.chdir(original_dir)
                 return None
             logger.info("Dependencies installed successfully")
         
-        # Try to find npx in common locations
-        npx_cmd = None
-        for cmd in ["npx", "npx.cmd"]:
-            try:
-                result = subprocess.run([cmd, "--version"], 
-                                      capture_output=True, text=True, timeout=10)
-                if result.returncode == 0:
-                    npx_cmd = cmd
-                    break
-            except FileNotFoundError:
-                continue
+        # Try to find npx using PATH resolution
+        npx_cmd = shutil.which("npx") or shutil.which("npx.cmd")
         
         if not npx_cmd:
-            logger.error("npx not found in PATH")
+            logger.error("npx not found in PATH. Please install Node.js LTS and ensure npx is available.")
             os.chdir(original_dir)
             return None
         
         # Start the Tauri app using npx to run the local CLI
         # Don't capture output so we can see what's happening
-        process = subprocess.Popen([
-            npx_cmd, "@tauri-apps/cli", "dev"
-        ], stdout=None, stderr=None, text=True)
+        try:
+            process = subprocess.Popen([
+                npx_cmd, "@tauri-apps/cli", "dev"
+            ], stdout=None, stderr=None, text=True)
+        except FileNotFoundError:
+            logger.error("Failed to execute npx. Verify Node.js installation and PATH configuration.")
+            os.chdir(original_dir)
+            return None
         
         logger.info("Tauri frontend started", pid=process.pid)
         return process

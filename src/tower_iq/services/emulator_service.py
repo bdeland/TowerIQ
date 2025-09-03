@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Any, Optional, Dict, List
 from dataclasses import dataclass
 from datetime import datetime, timedelta
+import socket
 
 try:
     import frida
@@ -41,6 +42,7 @@ except ImportError:
 from ..core.config import ConfigurationManager
 from ..core.utils import AdbWrapper, AdbError
 from .frida_manager import FridaServerManager, FridaServerSetupError
+from ..core.session import AdbStatus
 
 
 # Module-level constants for configuration
@@ -258,6 +260,9 @@ class EmulatorService:
             self.logger.info("Device cache cleared")
         
         try:
+            # Ensure ADB server is running before attempting discovery
+            await self._ensure_adb_server_running()
+
             # Get device list with timeout
             device_list = await asyncio.wait_for(
                 self._get_device_list(),
@@ -429,8 +434,31 @@ class EmulatorService:
                         devices.append((serial, status))
             return devices
         except AdbError as e:
-            self.logger.warning("Failed to get device list", error=str(e))
-            return []
+            # Try to start ADB server once and retry
+            self.logger.info("ADB may not be running; attempting to start server and retry device list")
+            try:
+                await self.adb.start_server()
+                stdout, _ = await self.adb.run_command("devices", timeout=5.0)
+                devices = []
+                for line in stdout.split('\n')[1:]:  # Skip header
+                    if line.strip():
+                        parts = line.split('\t')
+                        if len(parts) >= 2:
+                            serial = parts[0].strip()
+                            status = parts[1].strip()
+                            devices.append((serial, status))
+                return devices
+            except AdbError as e2:
+                self.logger.warning("Failed to get device list after starting ADB", error=str(e2))
+                return []
+
+    async def _ensure_adb_server_running(self) -> None:
+        """Best-effort ensure ADB server is running (idempotent)."""
+        try:
+            await self.adb.start_server()
+        except AdbError as e:
+            # If start fails, log and continue; downstream calls will surface errors
+            self.logger.warning("Unable to start ADB server", error=str(e))
 
     async def _get_complete_device_info(self, serial: str, adb_status: str, timeout: float) -> Optional[Device]:
         """Get complete device information using DeviceDetector."""
@@ -880,5 +908,34 @@ class EmulatorService:
     async def restart_adb_server(self) -> None:
         """Restart the ADB server."""
         await self.adb.restart_server()
+
+
+    async def is_adb_server_running(self) -> bool:
+        """Check if the local ADB server is listening on port 5037."""
+        try:
+            with socket.create_connection(("127.0.0.1", 5037), timeout=0.5):
+                return True
+        except Exception:
+            return False
+
+    async def get_adb_version(self) -> Optional[str]:
+        """Return adb version string if available."""
+        try:
+            stdout, _ = await self.adb.run_command("--version", timeout=2.0)
+            # First line usually like: Android Debug Bridge version 1.0.41
+            first_line = stdout.split("\n", 1)[0].strip()
+            return first_line
+        except Exception:
+            return None
+
+    async def get_adb_status(self) -> AdbStatus:
+        """Return complete ADB server status."""
+        try:
+            running = await self.is_adb_server_running()
+            version = await self.get_adb_version() if running else None
+            return AdbStatus(running=running, version=version)
+        except Exception as e:
+            self.logger.warning("Failed to get ADB status", error=str(e))
+            return AdbStatus(running=False, version=None)
 
 

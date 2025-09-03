@@ -62,6 +62,7 @@ class HookActivationRequest(BaseModel):
     process_info: Dict[str, Any]
     script_id: Optional[str] = None  # Script ID for selection
     script_name: Optional[str] = None  # Script name for selection (fallback)
+    script_content: Optional[str] = None  # Raw script content from UI overrides selection
 
 class HookDeactivationRequest(BaseModel):
     device_id: str
@@ -124,9 +125,10 @@ class QueryPreviewResponse(BaseModel):
     plan: Optional[List[Dict[str, Any]]] = None
 
 # Global variables for the backend services
-logger: Optional[Any] = None
-controller: Optional[MainController] = None
-db_service: Optional[DatabaseService] = None
+# Use broad types and sane defaults to satisfy static type checks across the file
+logger: Any = structlog.get_logger()
+controller: Any = None
+db_service: Any = None
 
 
 @asynccontextmanager
@@ -163,8 +165,8 @@ async def lifespan(app: FastAPI):
     controller = MainController(config, logger, db_service=db_service)
     controller.start_background_operations()
     
-    # Start the message processing loop as a background task
-    asyncio.create_task(controller.run())
+    # The controller already starts its message loop in start_background_operations
+    # Avoid starting a duplicate task here
     
     # Start the loading sequence
     controller.loading_manager.start_loading()
@@ -335,33 +337,55 @@ async def activate_hook(request: HookActivationRequest, background_tasks: Backgr
         if not pid:
             raise HTTPException(status_code=400, detail="Process ID not found in process info")
         
-        # Load script content based on selection
-        script_content = None
-        if controller.hook_script_manager:
+        # Load script content: prefer raw content from UI if provided
+        script_content = request.script_content if request.script_content else None
+
+        if not script_content and controller.hook_script_manager:
             package_name = process_info.get('package', '')
             version = process_info.get('version', 'Unknown')
-            
+
             if logger:
-                logger.info("Loading script based on selection", 
-                           script_id=script_id, script_name=script_name,
-                           package_name=package_name, version=version)
-            
+                logger.info(
+                    "Loading script based on selection",
+                    script_id=script_id,
+                    script_name=script_name,
+                    package_name=package_name,
+                    version=version,
+                )
+
             # Try to load script by ID first, then by name, then fallback to compatible scripts
             if script_id:
                 script_content = await controller._load_script_by_id(script_id)
             elif script_name:
                 script_content = await controller._load_script_by_name(script_name, package_name, version)
             else:
-                # Fallback to compatible scripts
                 script_content = await controller._load_compatible_script(package_name, version)
-            
+
             if script_content and logger:
-                logger.info("Script content loaded successfully", 
-                           script_id=script_id, script_name=script_name,
-                           content_length=len(script_content))
+                logger.info(
+                    "Script content loaded successfully",
+                    script_id=script_id,
+                    script_name=script_name,
+                    content_length=len(script_content),
+                )
         
         if not script_content:
-            raise HTTPException(status_code=400, detail="No script content available")
+            # Provide actionable error with discovered scripts
+            available = []
+            try:
+                if controller and controller.hook_script_manager:
+                    scripts = controller.hook_script_manager.get_available_scripts()
+                    available = [s.get("fileName") or s.get("name") for s in scripts]
+            except Exception:
+                pass
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "message": "No script content available",
+                    "hint": "Ensure the script metadata fileName matches the actual filename or pass raw script_content.",
+                    "available_scripts": available,
+                },
+            )
         
         if logger:
             logger.info("Starting hook activation", 
@@ -1027,6 +1051,22 @@ async def restart_adb_server():
         if logger:
             logger.error("Error restarting ADB server", error=str(e))
         raise HTTPException(status_code=500, detail=f"Failed to restart ADB server: {str(e)}")
+
+# New: ADB status endpoint (device-independent)
+@app.get("/api/adb/status")
+async def get_adb_status():
+    """Return whether the local ADB server is running and its version."""
+    try:
+        if not controller:
+            raise HTTPException(status_code=503, detail="Backend not initialized")
+        running = await controller.emulator_service.is_adb_server_running()
+        version = await controller.emulator_service.get_adb_version()
+        return {"running": running, "version": version}
+    except Exception as e:
+        if logger:
+            logger.error("Error getting ADB status", error=str(e))
+        # Return a safe default rather than 500 so UI can still render
+        return {"running": False, "version": None, "error": str(e)}
 
 # --- Dashboard Management Endpoints ---
 

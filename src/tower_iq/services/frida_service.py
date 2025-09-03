@@ -342,11 +342,7 @@ class FridaService:
         if frida is None:
             self.logger.warning("Frida not available - install 'frida-tools' package")
         
-        # Frida state
-        self.device = None
-        self.session = None
-        self.script = None
-        self.attached_pid: Optional[int] = None
+        # Frida state is maintained in SessionManager
         
         # Message handling
         self._shutdown_requested = False  # Flag to signal shutdown to message handling
@@ -362,7 +358,7 @@ class FridaService:
             return self._message_queue.qsize()
         return 0
     
-    async def get_message(self) -> dict:
+    async def get_message(self) -> Optional[dict]:
         """
         Get the next message from the Frida script queue.
         
@@ -399,15 +395,27 @@ class FridaService:
             
             self.logger.debug(f"Successfully got message from queue, new size: {queue.qsize()}")
             return message
-        except asyncio.TimeoutError:
-            # Check shutdown flag on timeout
+        except (asyncio.TimeoutError, TimeoutError):
+            # Timeout is normal; return None so callers can continue looping calmly
             if self._shutdown_requested:
                 raise RuntimeError("Shutdown requested during message wait")
-            # Re-raise timeout for the caller to handle
-            raise
+            return None
+        except asyncio.CancelledError:
+            # Translate cancellation into a controlled shutdown signal
+            self.logger.debug("get_message cancelled; treating as shutdown request")
+            raise RuntimeError("Shutdown requested via task cancellation")
         except Exception as e:
             self.logger.debug(f"Error getting message from queue: {e}, queue size: {queue.qsize()}")
             raise
+        except BaseException as e:
+            # As a last resort, treat any base-level cancellation/timeout as non-fatal unless shutting down
+            if self._shutdown_requested:
+                raise RuntimeError("Shutdown requested during message wait")
+            try:
+                self.logger.debug(f"BaseException in get_message: {type(e).__name__}: {e}")
+            except Exception:
+                pass
+            return None
     
     async def attach(self, pid: int, device_id: Optional[str] = None) -> bool:
         """
@@ -428,14 +436,20 @@ class FridaService:
         
         try:
             # Get the device
-            if device_id:
-                self.device = frida.get_device(device_id)
-            else:
-                self.device = frida.get_local_device()
+            device = frida.get_device(device_id) if device_id else frida.get_local_device()
             
             # Attach to the process
-            self.session = self.device.attach(pid, realm='emulated')
-            self.attached_pid = pid
+            session = device.attach(pid, realm='emulated')
+            
+            # Store in session manager
+            if self._session_manager:
+                try:
+                    self._session_manager.frida_device = device
+                    self._session_manager.frida_session = session
+                    self._session_manager.frida_script = None
+                    self._session_manager.frida_attached_pid = pid
+                except Exception as e:
+                    self.logger.error("Failed to update SessionManager with frida attach state", error=str(e))
             
             self.logger.info("Successfully attached to process with emulated realm", pid=pid)
             return True
@@ -505,10 +519,11 @@ class FridaService:
     async def _graceful_cleanup_sequence(self) -> None:
         """Perform graceful cleanup sequence with proper ordering."""
         # Step 1: Unload script gracefully (stops message generation)
-        if self.script:
+        script = self._session_manager.frida_script if self._session_manager else None
+        if script:
             try:
                 await asyncio.wait_for(
-                    asyncio.to_thread(self.script.unload), 
+                    asyncio.to_thread(script.unload), 
                     timeout=1.0
                 )
                 self.logger.debug("Script unloaded gracefully")
@@ -519,13 +534,15 @@ class FridaService:
                 self.logger.warning(f"Error during graceful script unload: {e}")
                 raise
             finally:
-                self.script = None
+                if self._session_manager:
+                    self._session_manager.frida_script = None
         
         # Step 2: Detach from session gracefully
-        if self.session:
+        session = self._session_manager.frida_session if self._session_manager else None
+        if session:
             try:
                 await asyncio.wait_for(
-                    asyncio.to_thread(self.session.detach), 
+                    asyncio.to_thread(session.detach), 
                     timeout=1.5
                 )
                 self.logger.debug("Session detached gracefully")
@@ -536,22 +553,25 @@ class FridaService:
                 self.logger.warning(f"Error during graceful session detach: {e}")
                 raise
             finally:
-                self.session = None
+                if self._session_manager:
+                    self._session_manager.frida_session = None
     
     async def _force_cleanup_all_resources(self) -> None:
         """Force cleanup of all resources without waiting."""
         self.logger.debug("Starting forced cleanup of all resources")
         
         # Force script cleanup
-        if self.script:
+        script = self._session_manager.frida_script if self._session_manager else None
+        if script:
             try:
                 # Try to unload without timeout
-                await asyncio.to_thread(self.script.unload)
+                await asyncio.to_thread(script.unload)
                 self.logger.debug("Script force-unloaded successfully")
             except Exception as e:
                 self.logger.debug(f"Error during forced script cleanup: {e}")
             finally:
-                self.script = None
+                if self._session_manager:
+                    self._session_manager.frida_script = None
         
         # Update session manager with script deactivation
         if self._session_manager:
@@ -562,24 +582,23 @@ class FridaService:
                 self.logger.error("Failed to update session manager with script deactivation", error=str(e))
         
         # Force session cleanup
-        if self.session:
+        session = self._session_manager.frida_session if self._session_manager else None
+        if session:
             try:
                 # Try to detach without timeout
-                await asyncio.to_thread(self.session.detach)
+                await asyncio.to_thread(session.detach)
                 self.logger.debug("Session force-detached successfully")
             except Exception as e:
                 self.logger.debug(f"Error during forced session cleanup: {e}")
             finally:
-                self.session = None
+                if self._session_manager:
+                    self._session_manager.frida_session = None
         
         self.logger.debug("Forced cleanup completed")
     
     def _cleanup_internal_state(self) -> None:
         """Clean up internal state variables."""
-        self.device = None
-        self.session = None
-        self.script = None
-        self.attached_pid = None
+        # Frida state is owned by SessionManager; nothing to clear here
         
         # Clear any remaining messages from queue
         if self._message_queue is not None:
@@ -609,17 +628,26 @@ class FridaService:
         Returns:
             True if injection was successful, False otherwise
         """
-        if not self.session:
+        session = self._session_manager.frida_session if self._session_manager else None
+        if not session:
             self.logger.error("No active session - cannot inject script")
             return False
         
         self.logger.info("Injecting script content")
         
         try:
+            # Sanitize content if it contains packaging headers that Frida cannot parse directly
+            script_to_load = self._sanitize_script_content(script_content)
+
             # Create and load the script
-            self.script = self.session.create_script(script_content)
-            self.script.on('message', self._on_message)
-            self.script.load()
+            script = session.create_script(script_to_load)
+            script.on('message', self._on_message)
+            script.load()
+            if self._session_manager:
+                try:
+                    self._session_manager.frida_script = script
+                except Exception as e:
+                    self.logger.error("Failed to store script in SessionManager", error=str(e))
             
             self.logger.info("Script injected successfully")
             
@@ -641,7 +669,7 @@ class FridaService:
             self.logger.info("Script injection details", 
                            script_name=script_name,
                            script_lines=len(script_lines),
-                           attached_pid=self.attached_pid)
+                           attached_pid=(self._session_manager.frida_attached_pid if self._session_manager else None))
             
             # Update session manager with script activation
             if self._session_manager:
@@ -670,6 +698,34 @@ class FridaService:
         except Exception as e:
             self.logger.error("Error injecting script", error=str(e))
             return False
+
+    def _sanitize_script_content(self, content: str) -> str:
+        """
+        Some distributed hook files include a packager header (e.g., lines with special
+        glyphs like '📦', '↻', '✄') before the real script. Frida's Python API may reject
+        such inputs with 'malformed package'. This method trims any header and returns
+        the actual JavaScript.
+
+        Strategy:
+        - If a TOWERIQ_HOOK_METADATA block exists and there are non-code header markers
+          before it, slice from the metadata block onward.
+        - Otherwise, return content unchanged.
+        """
+        try:
+            header_markers = ("📦", "↻", "✄")
+            has_header_marker = any(m in content[:200] for m in header_markers)
+            meta_idx = content.find("/** TOWERIQ_HOOK_METADATA")
+            if meta_idx != -1 and has_header_marker:
+                trimmed = content[meta_idx:]
+                self.logger.warning(
+                    "Sanitized hook script by removing package header",
+                    removed_prefix_length=meta_idx
+                )
+                return trimmed
+            return content
+        except Exception:
+            # On any error, fall back to original content
+            return content
     
     async def inject_and_run_script(self, device_id: str, pid: int, script_content: str) -> bool:
         """
@@ -688,23 +744,102 @@ class FridaService:
                         pid=pid)
         
         try:
-            # First attach to the process
-            if not await self.attach(pid, device_id):
-                self.logger.error("Failed to attach to process")
+            # First try native attach + inject
+            if await self.attach(pid, device_id):
+                if await self.inject_script(script_content):
+                    self.logger.info("Inject and run workflow completed successfully")
+                    return True
+                # If native injection failed, fall back to CLI approach
+                self.logger.warning("Native injection failed, falling back to frida CLI runner")
+                await self.detach()
+            else:
+                self.logger.warning("Attach failed, attempting CLI runner directly")
+
+            # CLI fallback: spawn `frida` to run the script exactly like manual usage
+            cli_ok = await self._run_script_via_cli(pid=pid, script_content=script_content)
+            if cli_ok:
+                self.logger.info("CLI frida runner started successfully")
+                return True
+            else:
+                self.logger.error("CLI frida runner failed to start")
                 return False
-            
-            # Then inject the script
-            if not await self.inject_script(script_content):
-                self.logger.error("Failed to inject script")
-                await self.detach()  # Clean up
-                return False
-            
-            self.logger.info("Inject and run workflow completed successfully")
-            return True
             
         except Exception as e:
             self.logger.error("Error in inject and run workflow", error=str(e))
             await self.detach()  # Ensure cleanup
+            return False
+
+    async def _run_script_via_cli(self, pid: int, script_content: str) -> bool:
+        """
+        Run frida via CLI (equivalent to: frida -U -p PID -l script.js --realm=emulated)
+        and stream messages from stdout into the async queue.
+        """
+        try:
+            # Write content to a temp file in cache dir
+            tmp_path = self.script_cache_dir / f"_tmp_{pid}.js"
+            tmp_path.write_text(script_content, encoding='utf-8')
+
+            import asyncio, ast
+            self.logger.info("Starting frida CLI runner", pid=pid, script=str(tmp_path))
+
+            proc = await asyncio.create_subprocess_exec(
+                'frida', '-U', '-p', str(pid), '-l', str(tmp_path), '--realm=emulated',
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+
+            async def _pump_stdout():
+                assert proc.stdout is not None
+                while True:
+                    line = await proc.stdout.readline()
+                    if not line:
+                        break
+                    text = line.decode('utf-8', errors='ignore').strip()
+                    # Parse lines like: "message: { ... } data: None"
+                    if text.startswith('message: '):
+                        try:
+                            payload_str = text[len('message: '):]
+                            if ' data:' in payload_str:
+                                payload_str = payload_str.split(' data:')[0].strip()
+                            msg = ast.literal_eval(payload_str)
+                            # Convert like _on_message would
+                            if isinstance(msg, dict) and msg.get('type') == 'send':
+                                inner = msg.get('payload', {})
+                                inner_payload = inner.get('payload', {})
+                                timestamp = inner_payload.get('timestamp') if isinstance(inner_payload, dict) else inner.get('timestamp')
+                                parsed_message = {
+                                    'type': inner.get('type', 'unknown'),
+                                    'payload': inner.get('payload', {}),
+                                    'timestamp': timestamp,
+                                    'pid': pid,
+                                }
+                                # heartbeat handling
+                                if (self._session_manager and parsed_message.get('type') == 'hook_log' and parsed_message.get('payload', {}).get('event') == 'frida_heartbeat'):
+                                    try:
+                                        self._session_manager.update_script_heartbeat(parsed_message['payload'].get('isGameReachable', False))
+                                    except Exception:
+                                        pass
+                                self._queue_message_safely(parsed_message)
+                        except Exception as e:
+                            self.logger.debug(f"Failed to parse frida CLI line: {e}", raw=text)
+
+            async def _pump_stderr():
+                assert proc.stderr is not None
+                while True:
+                    line = await proc.stderr.readline()
+                    if not line:
+                        break
+                    self.logger.debug("frida CLI stderr", line=line.decode('utf-8', errors='ignore').strip())
+
+            # Run pumps without awaiting process completion (long-running)
+            asyncio.create_task(_pump_stdout())
+            asyncio.create_task(_pump_stderr())
+            return True
+        except FileNotFoundError:
+            self.logger.error("frida CLI not found. Install frida-tools to enable CLI fallback")
+            return False
+        except Exception as e:
+            self.logger.error("Failed to start frida CLI runner", error=str(e))
             return False
     
     def _on_message(self, message: dict, data: Any) -> None:
@@ -734,7 +869,7 @@ class FridaService:
                             'type': item.get('type', 'unknown'),
                             'payload': item.get('payload', {}),
                             'timestamp': item.get('timestamp'),
-                            'pid': self.attached_pid
+                            'pid': (self._session_manager.frida_attached_pid if self._session_manager else None)
                         }
                         self.logger.debug(f"Parsed bulk message: {parsed_message}")
                         self._queue_message_safely(parsed_message)
@@ -749,7 +884,7 @@ class FridaService:
                         'type': payload.get('type', 'unknown'),
                         'payload': payload.get('payload', {}),
                         'timestamp': timestamp,
-                        'pid': self.attached_pid
+                        'pid': (self._session_manager.frida_attached_pid if self._session_manager else None)
                     }
                     
                     self.logger.debug(f"Parsed message: {parsed_message}")
@@ -787,7 +922,7 @@ class FridaService:
                         'lineNumber': message.get('lineNumber')
                     },
                     'timestamp': None,
-                    'pid': self.attached_pid
+                    'pid': (self._session_manager.frida_attached_pid if self._session_manager else None)
                 }
                 
                 # Put error message on async queue
@@ -836,11 +971,15 @@ class FridaService:
     
     def is_attached(self) -> bool:
         """Check if Frida is currently attached to a process."""
-        return self.session is not None and self.attached_pid is not None
+        if not self._session_manager:
+            return False
+        return self._session_manager.frida_session is not None and self._session_manager.frida_attached_pid is not None
     
     def get_attached_pid(self) -> Optional[int]:
         """Get the PID of the currently attached process."""
-        return self.attached_pid
+        if not self._session_manager:
+            return None
+        return self._session_manager.frida_attached_pid
     
     def is_ready_for_connection(self) -> bool:
         """
@@ -887,14 +1026,14 @@ class FridaService:
         return {
             "frida_available": frida is not None,
             "is_attached": self.is_attached(),
-            "attached_pid": self.attached_pid,
+            "attached_pid": (self._session_manager.frida_attached_pid if self._session_manager else None),
             "shutdown_requested": self._shutdown_requested,
             "event_loop_set": self._event_loop is not None,
             "message_queue_initialized": self._message_queue is not None,
             "message_queue_size": self.queue_size,
-            "device_connected": self.device is not None,
-            "session_active": self.session is not None,
-            "script_loaded": self.script is not None
+            "device_connected": (self._session_manager.frida_device is not None if self._session_manager else False),
+            "session_active": (self._session_manager.frida_session is not None if self._session_manager else False),
+            "script_loaded": (self._session_manager.frida_script is not None if self._session_manager else False)
         }
     
     def validate_service_health(self) -> tuple[bool, list[str]]:
@@ -911,15 +1050,15 @@ class FridaService:
             issues.append("Frida library not available")
         
         # Check if we have a valid session
-        if self.session is None:
+        if not self._session_manager or self._session_manager.frida_session is None:
             issues.append("No active Frida session")
         
         # Check if we have a valid script
-        if self.script is None:
+        if not self._session_manager or self._session_manager.frida_script is None:
             issues.append("No active Frida script")
         
         # Check if we have a valid device
-        if self.device is None:
+        if not self._session_manager or self._session_manager.frida_device is None:
             issues.append("No active Frida device")
         
         return len(issues) == 0, issues

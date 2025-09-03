@@ -15,6 +15,12 @@ import threading
 import time
 
 
+@dataclass
+class AdbStatus:
+    """ADB server status for centralized session state."""
+    running: bool
+    version: Optional[str] = None
+
 class ConnectionState(Enum):
     """Main connection states for the application."""
     DISCONNECTED = "disconnected"
@@ -223,6 +229,9 @@ class SessionManager(QObject):
     script_heartbeat_received = pyqtSignal(datetime)  # Timestamp of heartbeat
     script_health_changed = pyqtSignal(bool)  # True if healthy, False if unhealthy
 
+    # ADB status signals
+    adb_status_changed = pyqtSignal(object)  # AdbStatus object
+
     def __init__(self):
         super().__init__()
         self.logger = structlog.get_logger().bind(source="SessionManager")
@@ -240,6 +249,12 @@ class SessionManager(QObject):
         # Device connection state (moved from EmulatorService)
         self._connected_device_serial = None
         self._device_architecture = None
+        
+        # Frida connection objects (single source of truth)
+        self._frida_device = None
+        self._frida_session = None
+        self._frida_script = None
+        self._frida_attached_pid = None
         
         # Heartbeat management
         self._heartbeat_thread = None
@@ -278,6 +293,9 @@ class SessionManager(QObject):
             
             # Initialize script status
             self._script_status = ScriptStatus(is_active=False)
+
+            # Initialize ADB status
+            self._adb_status = AdbStatus(running=False, version="Unknown")
 
     def _set_property(self, name: str, value: Any, signal: Any = None):
         """Generic thread-safe property setter that emits a signal on change."""
@@ -364,6 +382,14 @@ class SessionManager(QObject):
             return self._connection_main_state in [ConnectionState.CONNECTED, ConnectionState.ACTIVE]
 
     @property
+    def adb_status(self) -> AdbStatus:
+        with QMutexLocker(self._mutex):
+            return self._adb_status
+    @adb_status.setter
+    def adb_status(self, value: AdbStatus):
+        self._set_property('_adb_status', value, self.adb_status_changed)
+
+    @property
     def selected_target_package(self) -> Optional[str]:
         with QMutexLocker(self._mutex): return self._selected_target_package
     @selected_target_package.setter
@@ -423,6 +449,11 @@ class SessionManager(QObject):
             self._is_hook_compatible = False
             self.clear_stage_progress()
             self.clear_error_info()
+            # Clear Frida objects
+            self._frida_script = None
+            self._frida_session = None
+            self._frida_device = None
+            self._frida_attached_pid = None
             
             # Finally, perform the transition
             self.transition_to_state(ConnectionState.DISCONNECTED)
@@ -781,6 +812,71 @@ class SessionManager(QObject):
         with QMutexLocker(self._mutex):
             self._last_error_info = None 
 
+    # --- Frida connection object accessors ---
+    @property
+    def frida_device(self):
+        with QMutexLocker(self._mutex):
+            return self._frida_device
+    @frida_device.setter
+    def frida_device(self, value):
+        with QMutexLocker(self._mutex):
+            self._frida_device = value
+
+    @property
+    def frida_session(self):
+        with QMutexLocker(self._mutex):
+            return self._frida_session
+    @frida_session.setter
+    def frida_session(self, value):
+        with QMutexLocker(self._mutex):
+            self._frida_session = value
+
+    @property
+    def frida_script(self):
+        with QMutexLocker(self._mutex):
+            return self._frida_script
+    @frida_script.setter
+    def frida_script(self, value):
+        with QMutexLocker(self._mutex):
+            self._frida_script = value
+
+    def cleanup_frida_connection(self) -> None:
+        """Unload script and detach session if present, then clear Frida objects.
+
+        This is synchronous; call from a worker thread if needed.
+        """
+        script_to_unload = None
+        session_to_detach = None
+        with QMutexLocker(self._mutex):
+            script_to_unload = self._frida_script
+            session_to_detach = self._frida_session
+        try:
+            if script_to_unload:
+                try:
+                    script_to_unload.unload()
+                except Exception as e:
+                    self.logger.warning("Failed to unload frida script", error=str(e))
+            if session_to_detach:
+                try:
+                    session_to_detach.detach()
+                except Exception as e:
+                    self.logger.warning("Failed to detach frida session", error=str(e))
+        finally:
+            with QMutexLocker(self._mutex):
+                self._frida_script = None
+                self._frida_session = None
+                self._frida_device = None
+                self._frida_attached_pid = None
+
+    @property
+    def frida_attached_pid(self) -> Optional[int]:
+        with QMutexLocker(self._mutex):
+            return self._frida_attached_pid
+    @frida_attached_pid.setter
+    def frida_attached_pid(self, value: Optional[int]):
+        with QMutexLocker(self._mutex):
+            self._frida_attached_pid = value
+
     # --- Device Connection Management (moved from EmulatorService) ---
     
     async def connect_to_device(self, device_serial: str, emulator_service) -> bool:
@@ -845,3 +941,14 @@ class SessionManager(QObject):
         with QMutexLocker(self._mutex):
             self._connection_stages = stages
         self.connection_stages_changed.emit(stages)
+
+    # --- ADB Status Management ---
+    async def update_adb_status(self, emulator_service) -> None:
+        """Fetch and update ADB server status from emulator service."""
+        try:
+            status = await emulator_service.get_adb_status()
+            if status is None:
+                status = AdbStatus(running=False, version=None)
+            self.adb_status = status
+        except Exception as e:
+            self.logger.error("Failed to update ADB status", error=str(e))

@@ -335,6 +335,18 @@ impl ApiClient {
         let result: serde_json::Value = response.json().await?;
         Ok(result)
     }
+
+    async fn get_adb_status(&self) -> Result<serde_json::Value, Box<dyn std::error::Error>> {
+        let client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(5))
+            .build()?;
+        let response = client
+            .get(&format!("{}/api/adb/status", self.base_url))
+            .send()
+            .await?;
+        let result: serde_json::Value = response.json().await?;
+        Ok(result)
+    }
 }
 
 // Tauri commands
@@ -457,6 +469,12 @@ async fn get_script_status() -> Result<serde_json::Value, String> {
 }
 
 #[tauri::command]
+async fn get_adb_status() -> Result<serde_json::Value, String> {
+    let client = ApiClient::new();
+    client.get_adb_status().await.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 async fn start_adb_server() -> Result<serde_json::Value, String> {
     let client = ApiClient::new();
     client.start_adb_server().await.map_err(|e| e.to_string())
@@ -504,7 +522,8 @@ pub fn run() {
             get_script_status,
             start_adb_server,
             kill_adb_server,
-            restart_adb_server
+            restart_adb_server,
+            get_adb_status
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

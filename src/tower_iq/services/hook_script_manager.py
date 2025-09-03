@@ -14,6 +14,7 @@ import re
 import uuid
 from pathlib import Path
 from typing import List, Dict, Optional
+import structlog
 
 
 class HookScriptManager:
@@ -31,6 +32,7 @@ class HookScriptManager:
     def __init__(self, hooks_dir_path: str) -> None:
         self.hooks_dir_path = Path(hooks_dir_path)
         self.scripts: List[Dict] = []
+        self.logger = structlog.get_logger().bind(source="HookScriptManager")
 
     def discover_scripts(self) -> None:
         """
@@ -54,8 +56,19 @@ class HookScriptManager:
             json_str = match.group(1)
             try:
                 metadata = json.loads(json_str)
-                # Ensure fileName is present; if not, fill from actual filename
-                metadata.setdefault("fileName", script_path.name)
+                # Warn if metadata filename mismatches the actual file
+                meta_name = metadata.get("fileName")
+                actual_name = script_path.name
+                if meta_name and meta_name != actual_name:
+                    # Emit a warning to help diagnose future issues
+                    self.logger.warning(
+                        "Hook script metadata filename mismatch",
+                        metadata_fileName=meta_name,
+                        actual_fileName=actual_name,
+                        path=str(script_path)
+                    )
+                # Prefer the actual filename on disk to avoid load failures
+                metadata["fileName"] = actual_name
                 self.scripts.append(metadata)
             except Exception:
                 # Ignore malformed metadata blocks
@@ -120,6 +133,12 @@ class HookScriptManager:
         try:
             return full_path.read_text(encoding="utf-8")
         except FileNotFoundError:
+            # Emit a warning to surface discovery/config mismatches
+            self.logger.warning(
+                "Hook script file not found when loading content",
+                requested_fileName=file_name,
+                expected_path=str(full_path)
+            )
             return ""
         except Exception:
             return ""

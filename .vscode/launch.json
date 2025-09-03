@@ -3,52 +3,15 @@
     "configurations": [
         {
             "name": "Debug TowerIQ (Main Entry)",
-            "type": "python",
+            "type": "debugpy",
             "request": "launch",
-            "program": "${workspaceFolder}/src/tower_iq/main_app_entry.py",
+            "program": "${workspaceFolder}/start_toweriq.py",
             "console": "integratedTerminal",
             "cwd": "${workspaceFolder}",
             "python": "${workspaceFolder}/.venv/Scripts/python.exe",
             "args": [],
-            "env": {
-                "CUDA_PATH": "C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v12.6/bin"
-            },
-            "justMyCode": false,
+            "justMyCode": true,
             "stopOnEntry": false,
-            "pythonPath": "${workspaceFolder}/.venv/Scripts/python.exe"
-        },
-        {
-            "name": "Debug TowerIQ (Function Call)",
-            "type": "python",
-            "request": "launch",
-            "program": "${workspaceFolder}/.venv/Scripts/python.exe",
-            "console": "integratedTerminal",
-            "cwd": "${workspaceFolder}",
-            "args": ["-c", "from tower_iq.main_app_entry import main; main()"],
-            "env": {},
-            "justMyCode": false,
-            "stopOnEntry": false
-        },
-        {
-            "name": "Debug TowerIQ with Args",
-            "type": "python",
-            "request": "launch",
-            "program": "${workspaceFolder}/src/tower_iq/main_app_entry.py",
-            "console": "integratedTerminal",
-            "cwd": "${workspaceFolder}",
-            "python": "${workspaceFolder}/.venv/Scripts/python.exe",
-            "args": [
-                // Add any command line arguments here
-                // "--debug",
-                // "--verbose"
-            ],
-            "env": {
-                // Add any environment variables here
-                // "DEBUG": "1",
-                // "LOG_LEVEL": "DEBUG"
-            },
-            "justMyCode": false,
-            "stopOnEntry": false
         }
     ]
 } 

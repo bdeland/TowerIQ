@@ -1,3 +1,20 @@
+/** TOWERIQ_HOOK_METADATA
+{
+    "contractVersion": "1.1",
+    "fileName": "test_simple_hook_compiled.js",
+    "scriptName": "test script",
+    "scriptDescription": "A simple test script to verify database functionality.",
+    "targetApp": "The Tower",
+    "targetPackage": "com.TechTreeGames.TheTower",
+    "supportedVersions": ["27.0.4"],
+    "features": [
+        "round_start_end_events",
+        "per_wave_metric_bundle",
+        "detailed_gem_tracking"
+    ]
+}
+*/
+
 // Simple test hook script to verify Frida communication
 console.log("Simple test hook script loaded");
 
