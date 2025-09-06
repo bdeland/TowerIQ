@@ -9,5 +9,7 @@
             "database": "${workspaceFolder:TowerIQ}/data/toweriq.sqlite",
             "group": "tower"
         }
-    ]
+    ],
+    "cursorpyright.analysis.autoImportCompletions": true,
+    "cursorpyright.analysis.typeCheckingMode": "basic"
 }

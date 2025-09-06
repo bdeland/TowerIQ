@@ -161,9 +161,8 @@ async def lifespan(app: FastAPI):
     # Link database service to config manager
     config.link_database_service(db_service)
     
-    # Initialize main controller
+    # Initialize main controller (do not start message loop until a script is injected)
     controller = MainController(config, logger, db_service=db_service)
-    controller.start_background_operations()
     
     # The controller already starts its message loop in start_background_operations
     # Avoid starting a duplicate task here
@@ -405,6 +404,8 @@ async def activate_hook(request: HookActivationRequest, background_tasks: Backgr
         if not success:
             raise HTTPException(status_code=500, detail="Failed to inject hook script")
         
+        # Start background message processing only after successful injection
+        controller.start_background_operations()
         if logger:
             logger.info("Hook script injected successfully", device_id=device_id, pid=pid)
         
