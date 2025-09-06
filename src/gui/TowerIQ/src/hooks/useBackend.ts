@@ -432,11 +432,11 @@ export const useBackend = () => {
     }
   };
 
-  const activateHook = async (deviceId: string, processInfo: any, scriptContent: string): Promise<any> => {
+  const activateHook = async (deviceId: string, processInfo: any, scriptId: string): Promise<any> => {
     try {
       setLoading(true);
       setError(null);
-      const result = await invoke('activate_hook', { deviceId, processInfo, scriptContent });
+      const result = await invoke('activate_hook', { deviceId, processInfo, scriptId });
       return result;
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Unknown error';

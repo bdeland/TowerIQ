@@ -111,7 +111,8 @@ class HookScriptManager:
                 
                 # Create a script object with content and compatibility info
                 script_with_content = {
-                    "id": str(uuid.uuid4()),  # Generate unique ID
+                    # Use stable ID derived from filename so selections remain valid across requests
+                    "id": file_name or str(uuid.uuid4()),
                     "fileName": file_name,  # Keep original filename for reference
                     "name": script.get("scriptName", script.get("fileName", "Script")),
                     "description": script.get("scriptDescription", script.get("description", "No description available")),

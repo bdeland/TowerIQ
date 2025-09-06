@@ -62,7 +62,6 @@ class HookActivationRequest(BaseModel):
     process_info: Dict[str, Any]
     script_id: Optional[str] = None  # Script ID for selection
     script_name: Optional[str] = None  # Script name for selection (fallback)
-    script_content: Optional[str] = None  # Raw script content from UI overrides selection
 
 class HookDeactivationRequest(BaseModel):
     device_id: str
@@ -336,10 +335,9 @@ async def activate_hook(request: HookActivationRequest, background_tasks: Backgr
         if not pid:
             raise HTTPException(status_code=400, detail="Process ID not found in process info")
         
-        # Load script content: prefer raw content from UI if provided
-        script_content = request.script_content if request.script_content else None
-
-        if not script_content and controller.hook_script_manager:
+        # Always load script content on backend using id/name; UI does not send content
+        script_content = None
+        if controller.hook_script_manager:
             package_name = process_info.get('package', '')
             version = process_info.get('version', 'Unknown')
 
@@ -352,7 +350,7 @@ async def activate_hook(request: HookActivationRequest, background_tasks: Backgr
                     version=version,
                 )
 
-            # Try to load script by ID first, then by name, then fallback to compatible scripts
+            # Load script by ID first, then by name, then fallback to compatible scripts
             if script_id:
                 script_content = await controller._load_script_by_id(script_id)
             elif script_name:
@@ -394,12 +392,12 @@ async def activate_hook(request: HookActivationRequest, background_tasks: Backgr
                        script_name=script_name,
                        content_length=len(script_content))
         
-        # Use the Frida service to inject the script
-        success = await controller.frida_service.inject_and_run_script(
-            device_id=device_id,
-            pid=pid,
-            script_content=script_content
-        )
+        # Use the Frida service to attach and inject the script (no fallbacks)
+        attached = await controller.frida_service.attach(pid, device_id)
+        if not attached:
+            raise HTTPException(status_code=500, detail="Failed to attach to process")
+
+        success = await controller.frida_service.inject_script(script_content)
         
         if not success:
             raise HTTPException(status_code=500, detail="Failed to inject hook script")

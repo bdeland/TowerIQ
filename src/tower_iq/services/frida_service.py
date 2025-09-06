@@ -374,11 +374,8 @@ class FridaService:
         self.logger.info("Injecting script content")
         
         try:
-            # Sanitize content if it contains packaging headers that Frida cannot parse directly
-            script_to_load = self._sanitize_script_content(script_content)
-
-            # Create and load the script
-            script = session.create_script(script_to_load)
+            # Create and load the script via Frida API without any sanitization
+            script = session.create_script(script_content)
             script.on('message', self._on_message)
             script.load()
             if self._session_manager:
@@ -467,117 +464,25 @@ class FridaService:
     
     async def inject_and_run_script(self, device_id: str, pid: int, script_content: str) -> bool:
         """
-        Complete workflow to attach to process and inject script.
-        
-        Args:
-            device_id: Device serial ID
-            pid: Process ID to attach to
-            script_content: Script content to inject
-            
-        Returns:
-            True if successful, False otherwise
+        Attach to the process and inject the script using the Frida API only.
         """
-        self.logger.info("Starting inject and run workflow", 
-                        device_id=device_id, 
-                        pid=pid)
-        
+        self.logger.info("Starting inject and run (Frida API only)", device_id=device_id, pid=pid)
         try:
-            # First try native attach + inject
-            if await self.attach(pid, device_id):
-                if await self.inject_script(script_content):
-                    self.logger.info("Inject and run workflow completed successfully")
-                    return True
-                # If native injection failed, fall back to CLI approach
-                self.logger.warning("Native injection failed, falling back to frida CLI runner")
-                await self.detach()
-            else:
-                self.logger.warning("Attach failed, attempting CLI runner directly")
-
-            # CLI fallback: spawn `frida` to run the script exactly like manual usage
-            cli_ok = await self._run_script_via_cli(pid=pid, script_content=script_content)
-            if cli_ok:
-                self.logger.info("CLI frida runner started successfully")
-                return True
-            else:
-                self.logger.error("CLI frida runner failed to start")
+            if not await self.attach(pid, device_id):
+                self.logger.error("Attach failed")
                 return False
-            
-        except Exception as e:
-            self.logger.error("Error in inject and run workflow", error=str(e))
-            await self.detach()  # Ensure cleanup
-            return False
-
-    async def _run_script_via_cli(self, pid: int, script_content: str) -> bool:
-        """
-        Run frida via CLI (equivalent to: frida -U -p PID -l script.js --realm=emulated)
-        and stream messages from stdout into the async queue.
-        """
-        try:
-            # Write content to a temp file in cache dir
-            tmp_path = self.script_cache_dir / f"_tmp_{pid}.js"
-            tmp_path.write_text(script_content, encoding='utf-8')
-
-            import asyncio, ast
-            self.logger.info("Starting frida CLI runner", pid=pid, script=str(tmp_path))
-
-            proc = await asyncio.create_subprocess_exec(
-                'frida', '-U', '-p', str(pid), '-l', str(tmp_path), '--realm=emulated',
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE
-            )
-
-            async def _pump_stdout():
-                assert proc.stdout is not None
-                while True:
-                    line = await proc.stdout.readline()
-                    if not line:
-                        break
-                    text = line.decode('utf-8', errors='ignore').strip()
-                    # Parse lines like: "message: { ... } data: None"
-                    if text.startswith('message: '):
-                        try:
-                            payload_str = text[len('message: '):]
-                            if ' data:' in payload_str:
-                                payload_str = payload_str.split(' data:')[0].strip()
-                            msg = ast.literal_eval(payload_str)
-                            # Convert like _on_message would
-                            if isinstance(msg, dict) and msg.get('type') == 'send':
-                                inner = msg.get('payload', {})
-                                inner_payload = inner.get('payload', {})
-                                timestamp = inner_payload.get('timestamp') if isinstance(inner_payload, dict) else inner.get('timestamp')
-                                parsed_message = {
-                                    'type': inner.get('type', 'unknown'),
-                                    'payload': inner.get('payload', {}),
-                                    'timestamp': timestamp,
-                                    'pid': pid,
-                                }
-                                # heartbeat handling
-                                if (self._session_manager and parsed_message.get('type') == 'hook_log' and parsed_message.get('payload', {}).get('event') == 'frida_heartbeat'):
-                                    try:
-                                        self._session_manager.update_script_heartbeat(parsed_message['payload'].get('isGameReachable', False))
-                                    except Exception:
-                                        pass
-                                self._queue_message_safely(parsed_message)
-                        except Exception as e:
-                            self.logger.debug(f"Failed to parse frida CLI line: {e}", raw=text)
-
-            async def _pump_stderr():
-                assert proc.stderr is not None
-                while True:
-                    line = await proc.stderr.readline()
-                    if not line:
-                        break
-                    self.logger.debug("frida CLI stderr", line=line.decode('utf-8', errors='ignore').strip())
-
-            # Run pumps without awaiting process completion (long-running)
-            asyncio.create_task(_pump_stdout())
-            asyncio.create_task(_pump_stderr())
+            if not await self.inject_script(script_content):
+                self.logger.error("Script injection failed")
+                await self.detach()
+                return False
+            self.logger.info("Inject and run completed successfully")
             return True
-        except FileNotFoundError:
-            self.logger.error("frida CLI not found. Install frida-tools to enable CLI fallback")
-            return False
         except Exception as e:
-            self.logger.error("Failed to start frida CLI runner", error=str(e))
+            self.logger.error("Error in inject and run", error=str(e))
+            try:
+                await self.detach()
+            except Exception:
+                pass
             return False
     
     def _on_message(self, message: dict, data: Any) -> None:

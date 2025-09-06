@@ -238,7 +238,7 @@ impl ApiClient {
         Ok(result)
     }
 
-    async fn activate_hook(&self, device_id: String, process_info: serde_json::Value, script_content: String) -> Result<serde_json::Value, Box<dyn std::error::Error>> {
+    async fn activate_hook(&self, device_id: String, process_info: serde_json::Value, script_id: String) -> Result<serde_json::Value, Box<dyn std::error::Error>> {
         let client = reqwest::Client::builder()
             .timeout(std::time::Duration::from_secs(30)) // 30 second timeout
             .build()?;
@@ -246,7 +246,7 @@ impl ApiClient {
         let request_body = serde_json::json!({
             "device_id": device_id,
             "process_info": process_info,
-            "script_content": script_content
+            "script_id": script_id
         });
         
         let response = client
@@ -451,9 +451,9 @@ async fn remove_frida_server(device_id: String) -> Result<serde_json::Value, Str
 }
 
 #[tauri::command]
-async fn activate_hook(device_id: String, process_info: serde_json::Value, script_content: String) -> Result<serde_json::Value, String> {
+async fn activate_hook(device_id: String, process_info: serde_json::Value, script_id: String) -> Result<serde_json::Value, String> {
     let client = ApiClient::new();
-    client.activate_hook(device_id, process_info, script_content).await.map_err(|e| e.to_string())
+    client.activate_hook(device_id, process_info, script_id).await.map_err(|e| e.to_string())
 }
 
 #[tauri::command]

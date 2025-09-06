@@ -372,8 +372,8 @@ export function ConnectionPage() {
       setFlowState('STARTING_HOOK');
       setStatusMessage('Starting monitoring script...');
       
-      // Use the selected hook script
-      await activateHook(selectedDevice.id, targetProcess, selectedHookScript.content);
+      // Use the selected hook script by id only
+      await activateHook(selectedDevice.id, targetProcess, selectedHookScript.id);
 
       // 5. Success
       setFlowState('MONITORING_ACTIVE');
