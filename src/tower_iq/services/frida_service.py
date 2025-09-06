@@ -8,7 +8,6 @@ script loading, and secure communication with injected scripts.
 import asyncio
 import hashlib
 import json
-import yaml
 from pathlib import Path
 from typing import Any, Dict, Optional
 
@@ -20,293 +19,32 @@ except ImportError:
     frida = None
 
 from ..core.config import ConfigurationManager
+from .hook_script_manager import HookScriptManager
 
 
-class HookContractValidator:
+class HookContractValidator:  # Deprecated placeholder for backward compatibility
     """
-    Validates hook script compatibility with target applications.
-    
-    This class handles all business logic related to script compatibility
-    checking, including loading hook contracts, validating package and
-    version compatibility, and verifying script file existence.
+    Deprecated: The YAML hook contract has been removed in favor of
+    metadata embedded in hook scripts. This class remains as a no-op
+    to avoid import errors in legacy references.
     """
-    
     def __init__(self, config: ConfigurationManager, logger: Any) -> None:
-        """
-        Initialize the hook contract validator.
-        
-        Args:
-            config: Configuration manager instance
-            logger: Logger instance
-        """
         self.logger = logger.bind(source="HookContractValidator")
         self.config = config
-    
     def check_local_hook_compatibility(self, package_name: str, game_version: str) -> bool:
-        """
-        Check if the local hook script is compatible with the selected package and game version.
-        
-        This method orchestrates the compatibility checking process by:
-        1. Loading the hook contract configuration
-        2. Checking package name compatibility
-        3. Checking version compatibility
-        4. Verifying the script file exists
-        
-        Args:
-            package_name: Package name of the game to check compatibility for
-            game_version: Version of the game to check compatibility for
-            
-        Returns:
-            True if the local hook is compatible and the script file exists, False otherwise
-        """
-        self.logger.info("Validating hook script compatibility with selected package and version", 
-                        selected_package_name=package_name, 
-                        selected_package_version=game_version)
-        
-        try:
-            # Load the hook contract
-            contract = self._load_hook_contract()
-            if not contract:
-                return False
-            
-            # Check all compatibility requirements
-            if not self._check_script_file_exists(contract):
-                return False
-            
-            if not self._check_package_and_version_compatibility(package_name, game_version, contract):
-                return False
-            
-            # All checks passed - log with script path for confirmation
-            script_info = contract.get('script_info', {})
-            script_path = script_info.get('path', '')
-            project_root = self.config.get_project_root()
-            full_script_path = Path(project_root) / script_path
-            
-            self.logger.info("Local hook compatibility confirmed", 
-                           package_name=package_name,
-                           game_version=game_version,
-                           script_path=str(full_script_path))
-            return True
-            
-        except Exception as e:
-            self.logger.error("Error checking local hook compatibility", 
-                            package_name=package_name,
-                            game_version=game_version, 
-                            error=str(e))
-            return False
-
-    def _load_hook_contract(self) -> Optional[dict]:
-        """
-        Load and parse the hook contract YAML file.
-        
-        Returns:
-            Parsed contract dictionary, or None if loading failed
-        """
-        self.logger.debug("Loading hook contract")
-        try:
-            # Get the path to the hook contract from configuration
-            contract_path = self.config.get("frida.hook_contract_path")
-            if not contract_path:
-                self.logger.error("Hook contract path not configured", contract_path=contract_path)
-                return None
-            else:
-                self.logger.debug("Hook contract path configured", contract_path=contract_path)
-            
-            # Build full path relative to project root
-            project_root = self.config.get_project_root()
-            self.logger.debug("Project root", project_root=project_root)
-            full_contract_path = Path(project_root) / contract_path
-            self.logger.debug("Full hook contract path", full_contract_path=full_contract_path)
-            # Load and parse the YAML file
-            with open(full_contract_path, 'r', encoding='utf-8') as f:
-                contract = yaml.safe_load(f)
-            self.logger.debug("Hook contract loaded", contract=contract)
-            return contract
-            
-        except FileNotFoundError:
-            self.logger.error("Hook contract file not found", path=contract_path, full_contract_path=full_contract_path)
-            return None
-        except yaml.YAMLError as e:
-            self.logger.error("Error parsing hook contract YAML", error=str(e), full_contract_path=full_contract_path)
-            return None
-
-    def _check_package_and_version_compatibility(self, package_name: str, package_version: str, contract: dict) -> bool:
-        """
-        Check if the package name and version are compatible with the hook contract.
-        
-        This method validates all compatibility requirements in one block:
-        - Hook contract must define target_package
-        - Hook contract must define supported_versions
-        - Package name must match target_package
-        - Package version must be in supported_versions list
-        
-        Args:
-            package_name: Package name to check
-            package_version: Package version to check
-            contract: Full hook contract dictionary
-            
-        Returns:
-            True if both package and version are compatible, False otherwise
-        """
-        self.logger.debug("Checking package and version compatibility", 
-                         package_name=package_name, 
-                         package_version=package_version, 
-                         contract_keys=list(contract.keys()) if isinstance(contract, dict) else None)
-        
-        try:
-            # Validate input parameters
-            if not isinstance(contract, dict):
-                self.logger.error("Invalid contract parameter: must be a dictionary",
-                                current_type=type(contract).__name__,
-                                expected_type="dict")
-                return False
-            
-            if not package_name or not isinstance(package_name, str):
-                self.logger.error("Invalid package_name parameter: must be a non-empty string",
-                                current_value=package_name,
-                                current_type=type(package_name).__name__)
-                return False
-            
-            if not package_version or not isinstance(package_version, str):
-                self.logger.error("Invalid package_version parameter: must be a non-empty string",
-                                current_value=package_version,
-                                current_type=type(package_version).__name__)
-                return False
-            
-            # Extract script info from contract
-            script_info = contract.get('script_info', {})
-            if not isinstance(script_info, dict):
-                self.logger.error("script_info section missing or invalid in hook contract",
-                                current_type=type(script_info).__name__,
-                                expected_type="dict")
-                return False
-            
-            # Extract contract requirements
-            target_package = script_info.get('target_package')
-            supported_versions = script_info.get('supported_versions')
-            
-            # Validate all compatibility requirements in one block
-            # Check if target_package is defined in the contract
-            if not target_package:
-                self.logger.error("Target package not defined in hook contract",
-                                contract_section="script_info",
-                                missing_field="target_package",
-                                action_required="Update hook contract to specify target_package")
-                return False
-            
-            # Check if supported_versions is defined in the contract
-            if not supported_versions:
-                self.logger.error("Supported package versions not defined in hook contract",
-                                contract_section="script_info", 
-                                missing_field="supported_versions",
-                                action_required="Update hook contract to specify supported_versions list")
-                return False
-            
-            # Check if supported_versions is a list
-            if not isinstance(supported_versions, list):
-                self.logger.error("supported_versions in hook contractmust be a list",
-                                contract_section="script_info",
-                                current_type=type(supported_versions).__name__,
-                                expected_type="list",
-                                action_required="Update hook contract to make supported_versions a list")
-                return False
-            
-            # Check if package name matches target_package
-            if package_name != target_package:
-                self.logger.error("Package mismatch: wrong package targeted for hook contract",
-                                detected_package=package_name,
-                                target_package=target_package,
-                                action_required="Either select correct package or update hook contract target_package")
-                return False
-            
-            # Check if package version is in supported_versions
-            if package_version not in supported_versions:
-                self.logger.error("Version mismatch: package version not supported by hook contract",
-                                detected_version=package_version,
-                                supported_versions=supported_versions,
-                                action_required="Either select supported version or update hook contract supported_versions")
-                return False
-            
-            # All compatibility checks passed
-            self.logger.debug("Package and version compatibility confirmed", 
-                             package_name=package_name,
-                             package_version=package_version,
-                             target_package=target_package,
-                             supported_versions=supported_versions)
-            return True
-            
-        except TypeError as e:
-            self.logger.error("Type error during compatibility check",
-                            error=str(e),
-                            package_name=package_name,
-                            package_version=package_version,
-                            script_info_type=type(script_info).__name__)
-            return False
-        except AttributeError as e:
-            self.logger.error("Attribute error during compatibility check",
-                            error=str(e),
-                            package_name=package_name,
-                            package_version=package_version)
-            return False
-        except Exception as e:
-            self.logger.error("Unexpected error during compatibility check",
-                            error=str(e),
-                            error_type=type(e).__name__,
-                            package_name=package_name,
-                            package_version=package_version)
-            return False
-
-    def _check_script_file_exists(self, contract: dict) -> bool:
-        """
-        Check if the hook script file actually exists at the specified path.
-        
-        Args:
-            contract: Full hook contract dictionary
-            
-        Returns:
-            True if script file exists, False otherwise
-        """
-        try:
-            # Validate contract parameter
-            if not isinstance(contract, dict):
-                self.logger.error("Invalid contract parameter: must be a dictionary",
-                                current_type=type(contract).__name__,
-                                expected_type="dict")
-                return False
-            
-            # Extract script info from contract
-            script_info = contract.get('script_info', {})
-            if not isinstance(script_info, dict):
-                self.logger.error("script_info section missing or invalid in hook contract",
-                                current_type=type(script_info).__name__,
-                                expected_type="dict")
-                return False
-            
-            script_path = script_info.get('path')
-            if not script_path:
-                self.logger.error("Script path not specified in hook contract",
-                                contract_section="script_info",
-                                missing_field="path")
-                return False
-            
-            # Resolve script path relative to the project root
-            project_root = self.config.get_project_root()
-            full_script_path = Path(project_root) / script_path
-            
-            if not full_script_path.exists():
-                self.logger.error("Hook script file not found", 
-                                path=str(full_script_path),
-                                action_required="Ensure hook script file exists at specified path")
-                return False
-            
-            self.logger.debug("Hook script file exists", path=str(full_script_path))
-            return True
-            
-        except Exception as e:
-            self.logger.error("Error checking script file existence",
-                            error=str(e),
-                            error_type=type(e).__name__)
-            return False
+        self.logger.warning(
+            "HookContractValidator is deprecated; using script metadata for compatibility checks instead"
+        )
+        project_root = self.config.get_project_root()
+        hooks_dir = Path(project_root) / 'src' / 'tower_iq' / 'scripts'
+        manager = HookScriptManager(str(hooks_dir))
+        manager.discover_scripts()
+        compatible = manager.get_compatible_scripts(package_name, game_version)
+        for meta in compatible:
+            file_name = meta.get('fileName', '')
+            if file_name and (hooks_dir / file_name).exists():
+                return True
+        return False
 
 
 class FridaService:

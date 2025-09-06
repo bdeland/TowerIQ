@@ -1,0 +1,39 @@
+(tower-iq-py3.11) PS C:\Users\delan\Documents\GitHub\TowerIQ> frida -U "The Tower" -l tower_hook_compiled.js --realm=emulated
+     ____
+    / _  |   Frida 15.2.2 - A world-class dynamic instrumentation toolkit
+   | (_| |
+    > _  |   Commands:
+   /_/ |_|       help      -> Displays the help system
+   . . . .       object?   -> Display information about 'object'
+   . . . .       exit/quit -> Exit
+   . . . .
+   . . . .   More info at https://frida.re/docs/home/
+   . . . .
+   . . . .   Connected to Android Emulator 5554 (id=emulator-5554)
+
+message: {'type': 'send', 'payload': {'type': 'hook_log', 'payload': {'event': 'frida_log', 'message': 'Il2Cpp Bridge is ready and running in the emulated realm.', 'level': 'INFO', 'timestamp': 1757189019426}}} data: None
+message: {'type': 'send', 'payload': {'type': 'hook_log', 'payload': {'event': 'frida_log', 'message': 'Heartbeat initiated. Will send a signal every 15 seconds.', 'level': 'INFO', 'timestamp': 1757189019428}}} data: None
+message: {'type': 'send', 'payload': {'type': 'hook_log', 'payload': {'event': 'frida_log', 'message': 'Handshake receiver is active. Ready for messages from the application.', 'level': 'INFO', 'timestamp': 1757189019429}}} data: None
+message: {'type': 'send', 'payload': {'type': 'hook_log', 'payload': {'event': 'frida_log', 'message': 'Performing proactive check for an in-progress round...', 'level': 'INFO', 'timestamp': 1757189019429}}} data: None
+message: {'type': 'send', 'payload': {'type': 'hook_log', 'payload': {'event': 'frida_log', 'message': 'Hook on Main.StartNewRound is live.', 'level': 'INFO', 'timestamp': 1757189019463}}} data: None
+message: {'type': 'send', 'payload': {'type': 'hook_log', 'payload': {'event': 'frida_log', 'message': 'Hook on Main.GameOver is live.', 'level': 'INFO', 'timestamp': 1757189019469}}} data: None
+message: {'type': 'send', 'payload': {'type': 'hook_log', 'payload': {'event': 'frida_log', 'message': 'Hook on Main.Pause is live.', 'level': 'INFO', 'timestamp': 1757189019471}}} data: None
+message: {'type': 'send', 'payload': {'type': 'hook_log', 'payload': {'event': 'frida_log', 'message': 'Hook on Main.Unpause is live.', 'level': 'INFO', 'timestamp': 1757189019474}}} data: None
+message: {'type': 'send', 'payload': {'type': 'hook_log', 'payload': {'event': 'frida_log', 'message': 'Hook on Main.NewWave is live.', 'level': 'INFO', 'timestamp': 1757189019477}}} data: None
+message: {'type': 'send', 'payload': {'type': 'hook_log', 'payload': {'event': 'frida_log', 'message': 'Hook on Main.GemBlockTap is live.', 'level': 'INFO', 'timestamp': 1757189019481}}} data: None
+message: {'type': 'send', 'payload': {'type': 'hook_log', 'payload': {'event': 'frida_log', 'message': 'Hook on Main.GemBlockSpawn is live.', 'level': 'INFO', 'timestamp': 1757189019485}}} data: None
+message: {'type': 'send', 'payload': {'type': 'hook_log', 'payload': {'event': 'frida_log', 'message': 'Hook on Ads.AdGemRewardClaim is live.', 'level': 'INFO', 'timestamp': 1757189019531}}} data: None
+[Android Emulator 5554::The Tower ]-> message: {'type': 'send', 'payload': {'type': 'hook_log', 'payload': {'event': 'frida_log', 'message': 'Game speed changed to 1.50x', 'level': 'INFO', 'timestamp': 1757189022988}}} data: None
+message: {'type': 'send', 'payload': {'type': 'game_event', 'payload': {'timestamp': 1757189022989, 'roundStartTime': 1757189022989, 'gameTimestamp': 0, 'roundSeed': 0, 'isRoundActive': True, 'currentWave': 0, 'event': 'gameSpeedChanged', 'value': 1.5}}} data: None
+message: {'type': 'send', 'payload': {'type': 'hook_log', 'payload': {'event': 'frida_log', 'message': 'New round detected! Seed: 694257930, Tier: 1', 'level': 'INFO', 'timestamp': 1757189023005}}} data: None
+message: {'type': 'send', 'payload': {'type': 'game_event', 'payload': {'timestamp': 1757189023005, 'roundStartTime': 1757189023005, 'gameTimestamp': 0, 'roundSeed': 694257930, 'isRoundActive': True, 'currentWave': 1, 'event': 'startNewRound', 'tier': 1}}} data: None
+message: {'type': 'send', 'payload': {'type': 'hook_log', 'payload': {'event': 'frida_heartbeat', 'timestamp': 1757189034444, 'message': 'Frida script is alive.', 'isGameReachable': True}}} data: None
+message: {'type': 'send', 'payload': {'type': 'game_metric', 'payload': {'timestamp': 1757189046057, 'roundStartTime': 1757189023005, 'gameTimestamp': 34.98873519897461, 'roundSeed': 694257930, 'isRoundActive': True, 'currentWave': 1, 'metrics': {'round_coins': 0, 'wave_coins': 0, 'coins': 69, 'gems': 0, 'round_cells': 0, 'wave_cells': 0, 'cells': 0, 'round_cash': 24, 'cash': 104, 'stones': 0, 'round_gems_from_blocks_count': 0, 'round_gems_from_blocks_value': 0, 'round_gems_from_ads_count': 0, 'round_gems_from_ads_value': 0, 'round_gems_from_guardian': 0}}}} data: None
+message: {'type': 'send', 'payload': {'type': 'hook_log', 'payload': {'event': 'frida_heartbeat', 'timestamp': 1757189049458, 'message': 'Frida script is alive.', 'isGameReachable': True}}} data: None
+message: {'type': 'send', 'payload': {'type': 'hook_log', 'payload': {'event': 'frida_log', 'message': 'Intercepted Main.GameOver(bool)!', 'level': 'INFO', 'timestamp': 1757189054165}}} data: None
+message: {'type': 'send', 'payload': {'type': 'hook_log', 'payload': {'event': 'frida_log', 'message': 'Capturing final stats for round seed: 694257930', 'level': 'INFO', 'timestamp': 1757189054165}}} data: None
+message: {'type': 'send', 'payload': {'type': 'game_event', 'payload': {'timestamp': 1757189054166, 'roundStartTime': 1757189023005, 'gameTimestamp': 48.001991271972656, 'roundSeed': 694257930, 'isRoundActive': True, 'currentWave': 2, 'event': 'gameOver', 'coinsEarned': 1}}} data: None
+message: {'type': 'send', 'payload': {'type': 'hook_log', 'payload': {'event': 'frida_log', 'message': 'Round over. Resetting state.', 'level': 'INFO', 'timestamp': 1757189054167}}} data: None
+[Android Emulator 5554::The Tower ]-> exit
+
+Thank you for using Frida!

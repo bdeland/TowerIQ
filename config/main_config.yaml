@@ -8,7 +8,7 @@ database:
 
 # Frida configuration (system file paths)
 frida:
-  hook_contract_path: "config/hook_contract.yaml"
+  # hook_contract_path removed; compatibility is determined by script metadata
 
 # System defaults (can be overridden in database)
 system_defaults:

@@ -1,4 +1,3 @@
-
 /** TOWERIQ_HOOK_METADATA
 {
     "contractVersion": "1.1",
@@ -24,6 +23,7 @@
 // v27: Correctly implemented Ad Gem tracking by hooking Ads.AdGemRewardClaim(bool).
 // v26: Added detailed gem tracking for multiple sources.
 // v25: Refactored round start logic.
+
 import "frida-il2cpp-bridge";
 Il2Cpp.perform(() => {
     log("INFO", "Il2Cpp Bridge is ready and running in the emulated realm.");
