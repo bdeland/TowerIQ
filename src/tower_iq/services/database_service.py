@@ -84,8 +84,24 @@ class DatabaseService:
             # Connect to standard SQLite database
             self.sqlite_conn = sqlite3.connect(self.db_path, check_same_thread=False)
             
+            # Set reasonable busy timeout
+            self.sqlite_conn.execute("PRAGMA busy_timeout=3000;")
+
             # Enable WAL mode for better concurrency
             self.sqlite_conn.execute("PRAGMA journal_mode=WAL;")
+
+            # If prior run left WAL/SHM, checkpoint them safely at startup
+            try:
+                wal_exists = os.path.exists(f"{self.db_path}-wal")
+                shm_exists = os.path.exists(f"{self.db_path}-shm")
+                if wal_exists or shm_exists:
+                    self.logger.info("Existing SQLite journal files detected at startup; checkpointing",
+                                     wal_exists=wal_exists, shm_exists=shm_exists)
+                    # Merge WAL contents and truncate
+                    self.sqlite_conn.execute("PRAGMA wal_checkpoint(TRUNCATE);")
+            except Exception as checkpoint_err:
+                # Non-fatal; continue with connection and migrations
+                self.logger.warning("Startup WAL checkpoint failed", error=str(checkpoint_err))
             
             # Test connection
             self.sqlite_conn.execute("SELECT 1")
@@ -117,6 +133,18 @@ class DatabaseService:
                 
                 # Close the connection
                 self.sqlite_conn.close()
+                
+                # Best-effort removal of any remaining -wal/-shm files
+                try:
+                    wal_path = f"{self.db_path}-wal"
+                    shm_path = f"{self.db_path}-shm"
+                    for fpath in (wal_path, shm_path):
+                        if os.path.exists(fpath):
+                            os.remove(fpath)
+                            self.logger.debug("Removed SQLite journal file", file=fpath)
+                except Exception as cleanup_err:
+                    # Non-fatal: log at debug to avoid noise
+                    self.logger.debug("Could not remove SQLite journal file(s)", error=str(cleanup_err))
                 self.logger.info("SQLite connection closed and WAL files cleaned up")
             except Exception as e:
                 self.logger.error("Error closing SQLite connection", error=str(e))
@@ -806,6 +834,58 @@ class DatabaseService:
         # Reset index to get real_timestamp as a column
         result = df_wide.reset_index()[["real_timestamp", "total_gems"]]
         return result
+
+    @db_operation(default_return_value={})
+    def get_final_round_totals(self, run_id: str) -> Dict[str, Optional[float]]:
+        """
+        Compute final aggregate values for a run from the metrics table.
+        Returns a dict with keys: round_cells, round_gems, round_cash.
+        """
+        if not self.sqlite_conn:
+            return {}
+
+        try:
+            # Get the last value for each metric of interest
+            metrics_of_interest = [
+                'round_cells',
+                'round_cash',
+                'round_gems_from_blocks_value',
+                'round_gems_from_ads_value',
+            ]
+            placeholders = ','.join(['?'] * len(metrics_of_interest))
+            query = f"""
+                SELECT metric_name, metric_value
+                FROM (
+                    SELECT metric_name, metric_value, real_timestamp,
+                           ROW_NUMBER() OVER (PARTITION BY metric_name ORDER BY real_timestamp DESC) as rn
+                    FROM metrics
+                    WHERE run_id = ? AND metric_name IN ({placeholders})
+                )
+                WHERE rn = 1
+            """
+            params = [str(run_id)] + metrics_of_interest
+            cursor = self.sqlite_conn.execute(query, params)
+            latest_values: Dict[str, float] = {}
+            for name, value in cursor.fetchall():
+                latest_values[name] = float(value)
+
+            round_cells = latest_values.get('round_cells')
+            round_cash = latest_values.get('round_cash')
+            # Sum value-based gem metrics to get a total gem value for the round
+            round_gems_blocks = latest_values.get('round_gems_from_blocks_value')
+            round_gems_ads = latest_values.get('round_gems_from_ads_value')
+            round_gems = None
+            if round_gems_blocks is not None or round_gems_ads is not None:
+                round_gems = (round_gems_blocks or 0.0) + (round_gems_ads or 0.0)
+
+            return {
+                'round_cells': float(round_cells) if round_cells is not None else None,
+                'round_gems': float(round_gems) if round_gems is not None else None,
+                'round_cash': float(round_cash) if round_cash is not None else None,
+            }
+        except Exception as e:
+            self.logger.error("Failed computing final round totals", run_id=run_id, error=str(e))
+            return {}
 
     @db_operation(default_return_value=[])
     def get_all_run_ids(self):

@@ -173,6 +173,23 @@ class FridaService:
         self.logger.info("Attaching to process", pid=pid, device_id=device_id)
         
         try:
+            # Reset shutdown state so message processing can resume after a previous detach
+            self._shutdown_requested = False
+            # Ensure the message queue is available and clear any leftover messages (including poison pill)
+            if self._message_queue is None:
+                self._message_queue = asyncio.Queue()
+            else:
+                try:
+                    cleared_count = 0
+                    while not self._message_queue.empty():
+                        self._message_queue.get_nowait()
+                        cleared_count += 1
+                    if cleared_count:
+                        self.logger.debug(f"Cleared {cleared_count} stale messages from queue before attach")
+                except Exception:
+                    # Non-fatal; continue
+                    pass
+
             # Get the device
             device = frida.get_device(device_id) if device_id else frida.get_local_device()
             

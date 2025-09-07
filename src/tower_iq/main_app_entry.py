@@ -154,6 +154,12 @@ def main() -> None:
             # Cleanup
             logger.info("Shutting down controller")
             controller.shutdown()
+            try:
+                if 'db_service' in locals() and db_service:
+                    logger.info("Closing database service")
+                    db_service.close()
+            except Exception as e:
+                logger.warning("Error during database service close", error=str(e))
     
     except Exception as e:
         # Handle any startup errors

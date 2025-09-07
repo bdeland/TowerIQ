@@ -397,6 +397,14 @@ class MainController:
         except Exception as e:
             self.logger.error("Error starting Frida message processing loop", error=str(e))
     
+    def stop_background_operations(self):
+        """Stop background operations (message processing loop)."""
+        if not self._running:
+            return
+        self.logger.info("Stopping background operations")
+        # Flip the running flag so the run() loop exits after current await returns
+        self._running = False
+    
     def scan_devices(self):
         """Scan for available devices."""
         self.logger.info("Starting device scan")
@@ -655,11 +663,66 @@ class MainController:
                            event_type=event_type, 
                            payload=payload)
             
+            # Handle run lifecycle alongside writing the raw event
+            run_id = payload.get('roundSeed')
+            # Normalize timestamp to ms int
+            event_ts = int(timestamp or int(time.time() * 1000))
+
+            try:
+                if event_type == 'startNewRound' and run_id is not None:
+                    start_time = int(payload.get('roundStartTime') or event_ts)
+                    game_version = getattr(self.session, 'selected_target_version', None)
+                    tier = payload.get('tier')
+                    self.db_service.insert_run_start(
+                        run_id=str(run_id),
+                        start_time=start_time,
+                        game_version=str(game_version) if game_version else None,
+                        tier=int(tier) if isinstance(tier, (int, float)) else None,
+                    )
+                    # Mark round active in session
+                    try:
+                        self.session.current_round_seed = run_id
+                        self.session.is_round_active = True
+                    except Exception:
+                        pass
+
+                elif event_type == 'gameOver' and run_id is not None:
+                    final_wave = payload.get('currentWave')
+                    coins_earned = payload.get('coinsEarned')
+                    duration_gametime = payload.get('gameTimestamp')
+                    # Fetch final totals derived from metrics
+                    totals = {}
+                    try:
+                        totals = self.db_service.get_final_round_totals(str(run_id)) or {}
+                    except Exception:
+                        totals = {}
+                    self.db_service.update_run_end(
+                        run_id=str(run_id),
+                        end_time=event_ts,
+                        final_wave=int(final_wave) if isinstance(final_wave, (int, float)) else None,
+                        coins_earned=float(coins_earned) if isinstance(coins_earned, (int, float)) else None,
+                        duration_realtime=None,  # compute from start_time if available
+                        duration_gametime=float(duration_gametime) if isinstance(duration_gametime, (int, float)) else None,
+                        round_cells=totals.get('round_cells'),
+                        round_gems=totals.get('round_gems'),
+                        round_cash=totals.get('round_cash'),
+                    )
+                    # Mark round inactive in session
+                    try:
+                        self.session.is_round_active = False
+                        self.session.current_round_seed = None
+                    except Exception:
+                        pass
+            except Exception as lifecycle_err:
+                self.logger.error("Error handling run lifecycle for event",
+                                  event_type=event_type,
+                                  run_id=run_id,
+                                  error=str(lifecycle_err))
+
             # Store as an event in the database using write_event method
-            run_id = payload.get('roundSeed', 'unknown')
             self.db_service.write_event(
-                run_id=str(run_id),
-                timestamp=timestamp or int(time.time() * 1000),
+                run_id=str(run_id) if run_id is not None else 'unknown',
+                timestamp=event_ts,
                 event_name=event_type,
                 data=payload
             )

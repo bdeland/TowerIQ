@@ -189,6 +189,15 @@ async def lifespan(app: FastAPI):
         if logger:
             logger.info("Shutting down controller")
         controller.shutdown()
+    # Ensure database connection is closed and journal files are cleaned
+    if db_service:
+        try:
+            if logger:
+                logger.info("Closing database service")
+            db_service.close()
+        except Exception as e:
+            if logger:
+                logger.warning("Error during database service close", error=str(e))
     if logger:
         logger.info("TowerIQ API Server shutdown complete")
 
@@ -421,21 +430,25 @@ async def deactivate_hook(request: HookDeactivationRequest, background_tasks: Ba
         raise HTTPException(status_code=503, detail="Backend not initialized")
     
     try:
-        def deactivate_hook_task():
-            try:
-                hook_data = {
-                    "device_id": request.device_id,
-                    "process_info": request.process_info
-                }
-                # For now, just log the hook deactivation
-                # In a full implementation, this would trigger the hook deactivation flow
-                logger.info("Hook deactivation initiated", hook_data=hook_data)
-            except Exception as e:
-                logger.error("Error deactivating hook", error=str(e))
-        
-        background_tasks.add_task(deactivate_hook_task)
-        
-        return {"message": "Hook deactivation initiated"}
+        if logger:
+            logger.info("Deactivating hook and detaching Frida")
+
+        # Stop background message processing first so no further get_message calls occur
+        controller.stop_background_operations()
+
+        # Detach from Frida (graceful with fallback to force cleanup inside)
+        await controller.frida_service.detach()
+
+        # Mark script inactive at session level for good measure
+        try:
+            controller.session.set_script_inactive()
+        except Exception:
+            pass
+
+        if logger:
+            logger.info("Hook deactivated and Frida detached successfully")
+
+        return {"message": "Hook deactivated successfully"}
     except Exception as e:
         logger.error("Error initiating hook deactivation", error=str(e))
         raise HTTPException(status_code=500, detail=str(e))
@@ -763,6 +776,37 @@ async def get_frida_status(device_id: str):
                 "error": str(e)
             }
         }
+
+# --- Shutdown Endpoint ---
+@app.post("/api/shutdown")
+async def shutdown_services():
+    """Close services and database to ensure journal cleanup. Does not exit the process."""
+    try:
+        # Stop controller background operations and detach frida if possible
+        try:
+            if controller:
+                controller.stop_background_operations()
+                # Best-effort: detach frida without raising
+                try:
+                    await controller.frida_service.detach()
+                except Exception:
+                    pass
+                controller.shutdown()
+        except Exception as e:
+            if logger:
+                logger.warning("Error during controller shutdown", error=str(e))
+        # Close database connection explicitly
+        if db_service:
+            try:
+                db_service.close()
+            except Exception as e:
+                if logger:
+                    logger.warning("Error during database close", error=str(e))
+        return {"message": "Shutdown sequence completed"}
+    except Exception as e:
+        if logger:
+            logger.error("Error in shutdown endpoint", error=str(e))
+        raise HTTPException(status_code=500, detail=f"Shutdown failed: {str(e)}")
 
 @app.post("/api/devices/{device_id}/frida-provision")
 async def provision_frida_server(device_id: str):

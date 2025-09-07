@@ -196,6 +196,12 @@ def main():
         # Cleanup processes
         if backend_process:
             logger.info("Stopping backend server")
+            # Attempt graceful shutdown via API so DB can cleanup WAL/SHM
+            try:
+                requests.post("http://127.0.0.1:8000/api/shutdown", timeout=2)
+            except Exception:
+                pass
+            # Then terminate the process
             backend_process.terminate()
             try:
                 backend_process.wait(timeout=5)
