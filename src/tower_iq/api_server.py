@@ -108,6 +108,34 @@ class DashboardResponse(BaseModel):
     is_default: bool
     schema_version: int
 
+# Backup settings models
+class BackupSettings(BaseModel):
+    enabled: bool
+    backup_dir: str
+    retention_count: int
+    interval_seconds: int
+    on_shutdown: bool
+    compress_zip: bool
+    filename_prefix: str
+
+class BackupRunResponse(BaseModel):
+    success: bool
+    message: str
+
+class DatabasePathResponse(BaseModel):
+    sqlite_path: str
+
+class DatabasePathUpdate(BaseModel):
+    sqlite_path: str
+
+class RestoreRequest(BaseModel):
+    backup_path: str
+
+class RestoreSuggestion(BaseModel):
+    suggest: bool
+    reason: Optional[str] = None
+    latest_backup: Optional[str] = None
+
 class QueryRequest(BaseModel):
     query: str
 
@@ -182,9 +210,74 @@ async def lifespan(app: FastAPI):
     if logger:
         logger.info("TowerIQ API Server started successfully")
     
+    # Periodic backup task
+    async def _periodic_backup_task():
+        try:
+            while True:
+                try:
+                    if config and db_service and bool(config.get('database.backup.enabled', True)):
+                        interval = int(config.get('database.backup.interval_seconds', 86400))
+                        await asyncio.sleep(max(60, interval))
+                        db_service.backup_database()
+                    else:
+                        # Sleep a default period if disabled to avoid tight loop
+                        await asyncio.sleep(600)
+                except asyncio.CancelledError:
+                    break
+                except Exception as e:
+                    if logger:
+                        logger.warning("Periodic backup failed", error=str(e))
+                    await asyncio.sleep(600)
+        except Exception:
+            pass
+
+    backup_task = asyncio.create_task(_periodic_backup_task())
+
+    # Compute restore suggestion: if db file missing or empty and backups exist
+    restore_suggestion = {
+        "suggest": False,
+        "reason": None,
+        "latest_backup": None,
+    }
+    try:
+        if config:
+            db_path = Path(str(config.get('database.sqlite_path', 'data/toweriq.sqlite')))
+            db_missing = not db_path.exists()
+            db_empty = db_path.exists() and db_path.stat().st_size == 0
+            if db_missing or db_empty:
+                backup_dir = Path(str(config.get('database.backup.backup_dir', 'data/backups')))
+                if backup_dir.exists():
+                    backups = sorted(
+                        [p for p in backup_dir.glob("*.sqlite*")],
+                        key=lambda p: p.stat().st_mtime,
+                        reverse=True
+                    )
+                    if backups:
+                        restore_suggestion["suggest"] = True
+                        restore_suggestion["reason"] = "database missing" if db_missing else "database empty"
+                        restore_suggestion["latest_backup"] = str(backups[0])
+        globals()['_restore_suggestion_cache'] = restore_suggestion
+    except Exception as e:
+        if logger:
+            logger.warning("Failed to compute restore suggestion", error=str(e))
+
     yield
     
     # Cleanup
+    # Optionally run a shutdown backup
+    try:
+        if config and db_service and bool(config.get('database.backup.on_shutdown', True)):
+            db_service.backup_database()
+    except Exception as e:
+        if logger:
+            logger.warning("Shutdown backup failed", error=str(e))
+
+    # Cancel periodic backup
+    try:
+        backup_task.cancel()
+    except Exception:
+        pass
+
     if controller:
         if logger:
             logger.info("Shutting down controller")
@@ -1318,6 +1411,129 @@ async def ensure_dashboards_table():
             logger.error("Error ensuring dashboards table", error=str(e))
         raise HTTPException(status_code=500, detail=f"Failed to ensure dashboards table: {str(e)}")
 
+@app.get("/api/settings/database/backup", response_model=BackupSettings)
+async def get_backup_settings():
+    try:
+        if not config:
+            raise HTTPException(status_code=503, detail="Configuration not available")
+        return BackupSettings(
+            enabled=bool(config.get('database.backup.enabled', True)),
+            backup_dir=str(config.get('database.backup.backup_dir', 'data/backups')),
+            retention_count=int(config.get('database.backup.retention_count', 7)),
+            interval_seconds=int(config.get('database.backup.interval_seconds', 86400)),
+            on_shutdown=bool(config.get('database.backup.on_shutdown', True)),
+            compress_zip=bool(config.get('database.backup.compress_zip', True)),
+            filename_prefix=str(config.get('database.backup.filename_prefix', 'toweriq_backup_'))
+        )
+    except Exception as e:
+        if logger:
+            logger.error("Error getting backup settings", error=str(e))
+        raise HTTPException(status_code=500, detail=f"Failed to get backup settings: {str(e)}")
+
+@app.put("/api/settings/database/backup", response_model=BackupSettings)
+async def update_backup_settings(new: BackupSettings):
+    try:
+        if not config:
+            raise HTTPException(status_code=503, detail="Configuration not available")
+        # Persist settings into DB-backed config
+        config.set('database.backup.enabled', new.enabled, description='Enable scheduled backups')
+        config.set('database.backup.backup_dir', new.backup_dir, description='Backup directory path')
+        config.set('database.backup.retention_count', new.retention_count, description='Number of backups to retain')
+        config.set('database.backup.interval_seconds', new.interval_seconds, description='Backup interval in seconds')
+        config.set('database.backup.on_shutdown', new.on_shutdown, description='Run backup on shutdown')
+        config.set('database.backup.compress_zip', new.compress_zip, description='Compress backups to zip')
+        config.set('database.backup.filename_prefix', new.filename_prefix, description='Backup filename prefix')
+        return new
+    except Exception as e:
+        if logger:
+            logger.error("Error updating backup settings", error=str(e))
+        raise HTTPException(status_code=500, detail=f"Failed to update backup settings: {str(e)}")
+
+@app.post("/api/database/backup", response_model=BackupRunResponse)
+async def run_backup_now():
+    try:
+        if not db_service:
+            raise HTTPException(status_code=503, detail="Database service not available")
+        ok = db_service.backup_database()
+        return BackupRunResponse(success=bool(ok), message="Backup completed" if ok else "Backup failed")
+    except Exception as e:
+        if logger:
+            logger.error("Error running backup", error=str(e))
+        raise HTTPException(status_code=500, detail=f"Failed to run backup: {str(e)}")
+
+@app.get("/api/database/restore-suggestion", response_model=RestoreSuggestion)
+async def get_restore_suggestion():
+    try:
+        # Return computed suggestion captured during startup
+        suggest = globals().get('_restore_suggestion_cache', None)
+        if suggest is None:
+            # Fallback compute if cache is missing
+            if not config:
+                return RestoreSuggestion(suggest=False)
+            db_path = Path(str(config.get('database.sqlite_path', 'data/toweriq.sqlite')))
+            db_missing = not db_path.exists()
+            db_empty = db_path.exists() and db_path.stat().st_size == 0
+            if db_missing or db_empty:
+                backup_dir = Path(str(config.get('database.backup.backup_dir', 'data/backups')))
+                if backup_dir.exists():
+                    backups = sorted(
+                        [p for p in backup_dir.glob("*.sqlite*")],
+                        key=lambda p: p.stat().st_mtime,
+                        reverse=True
+                    )
+                    if backups:
+                        return RestoreSuggestion(
+                            suggest=True,
+                            reason="database missing" if db_missing else "database empty",
+                            latest_backup=str(backups[0])
+                        )
+            return RestoreSuggestion(suggest=False)
+        return RestoreSuggestion(**suggest)
+    except Exception as e:
+        if logger:
+            logger.error("Error getting restore suggestion", error=str(e))
+        raise HTTPException(status_code=500, detail=f"Failed to get restore suggestion: {str(e)}")
+
+@app.post("/api/database/restore")
+async def restore_database(req: RestoreRequest):
+    try:
+        if not db_service:
+            raise HTTPException(status_code=503, detail="Database service not available")
+        ok = db_service.restore_database(req.backup_path)
+        if not ok:
+            raise HTTPException(status_code=500, detail="Restore failed")
+        return {"message": "Restore completed"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        if logger:
+            logger.error("Error restoring database", error=str(e))
+        raise HTTPException(status_code=500, detail=f"Failed to restore database: {str(e)}")
+
+@app.get("/api/settings/database/path", response_model=DatabasePathResponse)
+async def get_database_path():
+    try:
+        if not config:
+            raise HTTPException(status_code=503, detail="Configuration not available")
+        path = str(config.get('database.sqlite_path', 'data/toweriq.sqlite'))
+        return DatabasePathResponse(sqlite_path=path)
+    except Exception as e:
+        if logger:
+            logger.error("Error getting database path", error=str(e))
+        raise HTTPException(status_code=500, detail=f"Failed to get database path: {str(e)}")
+
+@app.put("/api/settings/database/path", response_model=DatabasePathResponse)
+async def update_database_path(update: DatabasePathUpdate):
+    try:
+        if not config:
+            raise HTTPException(status_code=503, detail="Configuration not available")
+        # Persist to DB-backed config
+        config.set('database.sqlite_path', update.sqlite_path, description='Primary SQLite database path')
+        return DatabasePathResponse(sqlite_path=update.sqlite_path)
+    except Exception as e:
+        if logger:
+            logger.error("Error updating database path", error=str(e))
+        raise HTTPException(status_code=500, detail=f"Failed to update database path: {str(e)}")
 @app.post("/api/query/preview", response_model=QueryPreviewResponse)
 async def preview_query(request: QueryPreviewRequest):
     """Preview a SQL query to validate syntax and get execution plan without executing it."""

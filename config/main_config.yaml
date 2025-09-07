@@ -94,3 +94,12 @@ system_defaults:
       server_responsive: 15
       server_shell: 5.0
       server_start: 3.0 
+  database:
+    backup:
+      enabled: true
+      backup_dir: "data/backups"
+      retention_count: 7
+      interval_seconds: 86400
+      on_shutdown: true
+      compress_zip: true
+      filename_prefix: "toweriq_backup_"

@@ -6,6 +6,7 @@ import {
   ThemeProvider,
   createTheme,
 } from '@mui/material';
+import { Alert, Snackbar, Button } from '@mui/material';
 import {
   Home as HomeIcon,
   Dashboard as DashboardIcon,
@@ -417,6 +418,8 @@ function DashboardLayout() {
 
 function App() {
   const [isLoading, setIsLoading] = useState(true);
+  const [restorePrompt, setRestorePrompt] = useState<{open: boolean, latest?: string, reason?: string}>({ open: false });
+  const [restoring, setRestoring] = useState(false);
 
   useEffect(() => {
     const checkLoadingStatus = async () => {
@@ -425,6 +428,14 @@ function App() {
         const data = await response.json();
         
         if (data.loading_complete) {
+          // Also check restore suggestion once after backend is ready
+          try {
+            const r = await fetch('http://localhost:8000/api/database/restore-suggestion');
+            const s = await r.json();
+            if (s?.suggest) {
+              setRestorePrompt({ open: true, latest: s.latest_backup, reason: s.reason });
+            }
+          } catch {}
           // Wait a bit more to ensure minimum splash screen time
           setTimeout(() => {
             setIsLoading(false);
@@ -459,6 +470,40 @@ function App() {
           </DashboardEditProvider>
         </DashboardProvider>
       </Router>
+      <Snackbar open={restorePrompt.open} anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}>
+        <Alert
+          severity="warning"
+          sx={{ width: '100%' }}
+          action={
+            <>
+              <Button color="inherit" size="small" disabled={restoring} onClick={async () => {
+                try {
+                  setRestoring(true);
+                  const latest = restorePrompt.latest;
+                  if (!latest) return;
+                  const res = await fetch('http://localhost:8000/api/database/restore', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ backup_path: latest })
+                  });
+                  if (!res.ok) {
+                    const data = await res.json().catch(() => ({}));
+                    throw new Error(data?.detail || 'Restore failed');
+                  }
+                  setRestorePrompt({ open: false });
+                } catch (e) {
+                  setRestorePrompt({ open: false });
+                } finally {
+                  setRestoring(false);
+                }
+              }}>Restore</Button>
+              <Button color="inherit" size="small" onClick={() => setRestorePrompt({ open: false })}>Dismiss</Button>
+            </>
+          }
+        >
+          The main database is {restorePrompt.reason}. Restore from latest backup?
+        </Alert>
+      </Snackbar>
       {isLoading && <SplashScreen onComplete={() => setIsLoading(false)} />}
     </>
   );

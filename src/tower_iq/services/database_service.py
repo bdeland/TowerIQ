@@ -8,11 +8,14 @@ used by the embedded application architecture.
 import json
 import sqlite3
 import os
+import shutil
 from typing import Any, Optional, Dict, List, cast
 from pathlib import Path
 from datetime import datetime
 import pandas as pd
 import functools
+import tempfile
+import zipfile
 
 from ..core.config import ConfigurationManager
 
@@ -1152,19 +1155,53 @@ class DatabaseService:
             return False
         
         try:
+            # Determine backup directory and filename
             if backup_path is None:
-                # Create backup in data/backups directory
-                backup_dir = Path(self.db_path).parent / "backups"
-                backup_dir.mkdir(exist_ok=True)
-                
+                configured_dir = self.config.get('database.backup.backup_dir', None) if hasattr(self, 'config') else None
+                backup_dir = Path(configured_dir) if configured_dir else (Path(self.db_path).parent / "backups")
+                backup_dir.mkdir(parents=True, exist_ok=True)
+                prefix = self.config.get('database.backup.filename_prefix', 'toweriq_backup_') if hasattr(self, 'config') else 'toweriq_backup_'
                 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-                backup_path = str(backup_dir / f"toweriq_backup_{timestamp}.sqlite")
+                backup_path = str(backup_dir / f"{prefix}{timestamp}.sqlite")
             
             # Create backup using SQLite backup API
             backup_conn = sqlite3.connect(backup_path)
             self.sqlite_conn.backup(backup_conn)
             backup_conn.close()
             
+            # Optional compression
+            compress_zip = self.config.get('database.backup.compress_zip', True) if hasattr(self, 'config') else True
+            zip_path = None
+            if compress_zip:
+                try:
+                    import zipfile
+                    zip_path = f"{backup_path}.zip"
+                    with zipfile.ZipFile(zip_path, 'w', compression=zipfile.ZIP_DEFLATED) as zf:
+                        zf.write(backup_path, arcname=Path(backup_path).name)
+                    # Keep both by default; we could delete the .sqlite if desired
+                except Exception as zip_err:
+                    self.logger.warning("Backup compression failed", error=str(zip_err))
+
+            # Rotate backups according to retention
+            try:
+                retention = int(self.config.get('database.backup.retention_count', 7)) if hasattr(self, 'config') else 7
+                backup_dir_final = Path(backup_path).parent
+                prefix = self.config.get('database.backup.filename_prefix', 'toweriq_backup_') if hasattr(self, 'config') else 'toweriq_backup_'
+                # Collect .sqlite and .sqlite.zip that match prefix
+                candidates = sorted(
+                    [p for p in backup_dir_final.glob(f"{prefix}*.sqlite*")],
+                    key=lambda p: p.stat().st_mtime,
+                    reverse=True
+                )
+                for old in candidates[retention:]:
+                    try:
+                        old.unlink()
+                        self.logger.debug("Removed old backup", file=str(old))
+                    except Exception as rm_err:
+                        self.logger.warning("Failed to remove old backup", file=str(old), error=str(rm_err))
+            except Exception as rot_err:
+                self.logger.warning("Backup rotation failed", error=str(rot_err))
+
             # Update last backup timestamp
             self.set_setting('last_backup_timestamp', datetime.now().isoformat())
             
@@ -1173,6 +1210,89 @@ class DatabaseService:
             
         except Exception as e:
             self.logger.error("Database backup failed", error=str(e))
+            return False
+
+    def restore_database(self, backup_path: str) -> bool:
+        """
+        Restore the main SQLite database from a backup file.
+        Supports raw .sqlite files and .zip archives created by backup_database.
+
+        Returns True on success.
+        """
+        try:
+            if not backup_path or not os.path.exists(backup_path):
+                self.logger.error("Backup file not found", backup_path=str(backup_path))
+                return False
+
+            # Close current connection to release file handles
+            try:
+                self.close()
+            except Exception:
+                pass
+
+            target_path = Path(self.db_path)
+            target_path.parent.mkdir(parents=True, exist_ok=True)
+
+            # Determine source db file
+            source_db_path: Optional[Path] = None
+            temp_file: Optional[Path] = None
+            try:
+                if backup_path.lower().endswith('.zip'):
+                    with zipfile.ZipFile(backup_path, 'r') as zf:
+                        # Pick first .sqlite entry
+                        entry = next((i for i in zf.infolist() if i.filename.lower().endswith('.sqlite')), None)
+                        if not entry:
+                            self.logger.error("No .sqlite file found in zip", backup_path=backup_path)
+                            return False
+                        tmp_dir = Path(tempfile.mkdtemp(prefix='toweriq_restore_'))
+                        zf.extract(entry, path=tmp_dir)
+                        temp_file = tmp_dir / entry.filename
+                        source_db_path = temp_file
+                else:
+                    source_db_path = Path(backup_path)
+
+                if not source_db_path or not source_db_path.exists():
+                    self.logger.error("Resolved backup source not found", source=str(source_db_path))
+                    return False
+
+                # Backup existing db if present
+                if target_path.exists():
+                    ts = datetime.now().strftime('%Y%m%d_%H%M%S')
+                    bak_path = target_path.with_suffix(f'.pre_restore_{ts}.sqlite.bak')
+                    try:
+                        shutil.copy2(str(target_path), str(bak_path))
+                        self.logger.info("Backed up existing database before restore", backup=str(bak_path))
+                    except Exception as copy_err:
+                        self.logger.warning("Failed to backup existing database before restore", error=str(copy_err))
+
+                # Copy source over target
+                shutil.copy2(str(source_db_path), str(target_path))
+
+            finally:
+                # Cleanup temp extracted file/folder
+                try:
+                    if temp_file is not None and temp_file.exists():
+                        try:
+                            os.remove(str(temp_file))
+                        except Exception:
+                            pass
+                        # remove parent temp dir
+                        try:
+                            parent_dir = temp_file.parent
+                            # attempt to remove entire temp dir tree
+                            shutil.rmtree(parent_dir, ignore_errors=True)
+                        except Exception:
+                            pass
+                except Exception:
+                    pass
+
+            # Reconnect
+            self.connect()
+            self.set_setting('last_restore_timestamp', datetime.now().isoformat())
+            self.logger.info("Database restored successfully", from_backup=backup_path, target=str(target_path))
+            return True
+        except Exception as e:
+            self.logger.error("Database restore failed", error=str(e), backup_path=str(backup_path))
             return False
 
     def _check_settings_value_types(self) -> List[Dict[str, Any]]:
