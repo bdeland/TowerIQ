@@ -936,6 +936,265 @@ class DatabaseService:
             rows = cursor.fetchall()
             return [{'key': row[0], 'value': row[1]} for row in rows]
 
+    # ============================================================================
+    # BULK INSERT METHODS FOR PERFORMANCE OPTIMIZATION
+    # ============================================================================
+    
+    @db_operation()
+    def bulk_insert_runs(self, runs_data: List[Dict[str, Any]]) -> None:
+        """
+        Bulk insert run records for better performance.
+        Each run_data dict should contain: run_id, start_time, game_version, tier
+        """
+        if not self.sqlite_conn or not runs_data:
+            return
+        
+        # Prepare data for bulk insert
+        run_records = []
+        for run_data in runs_data:
+            run_records.append((
+                str(run_data['run_id']),
+                int(run_data['start_time']),
+                str(run_data.get('game_version', '')),
+                int(run_data.get('tier', 0)) if run_data.get('tier') is not None else None,
+                None,  # CPH
+                None,  # round_cells
+                None,  # round_gems
+                None   # round_cash
+            ))
+        
+        sql = """
+            INSERT OR IGNORE INTO runs 
+            (run_id, start_time, game_version, tier, CPH, round_cells, round_gems, round_cash) 
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        """
+        self.sqlite_conn.executemany(sql, run_records)
+        self.logger.debug("Bulk inserted runs", count=len(run_records))
+    
+    @db_operation()
+    def bulk_insert_events(self, events_data: List[Dict[str, Any]]) -> None:
+        """
+        Bulk insert event records for better performance.
+        Each event_data dict should contain: run_id, timestamp, event_name, data
+        """
+        if not self.sqlite_conn or not events_data:
+            return
+        
+        # Prepare data for bulk insert
+        event_records = []
+        for event_data in events_data:
+            data_json = json.dumps(event_data.get('data', {}))
+            event_records.append((
+                str(event_data['run_id']),
+                int(event_data['timestamp']),
+                str(event_data['event_name']),
+                data_json
+            ))
+        
+        sql = """
+            INSERT INTO events (run_id, timestamp, event_name, data) 
+            VALUES (?, ?, ?, ?)
+        """
+        self.sqlite_conn.executemany(sql, event_records)
+        self.logger.debug("Bulk inserted events", count=len(event_records))
+    
+    @db_operation()
+    def bulk_insert_metrics(self, metrics_data: List[Dict[str, Any]]) -> None:
+        """
+        Bulk insert metric records for better performance.
+        Each metric_data dict should contain: run_id, real_timestamp, game_timestamp, current_wave, metrics
+        """
+        if not self.sqlite_conn or not metrics_data:
+            return
+        
+        # Prepare data for bulk insert - flatten metrics into individual rows
+        metric_records = []
+        for metric_data in metrics_data:
+            run_id = str(metric_data['run_id'])
+            real_timestamp = int(metric_data['real_timestamp'])
+            game_timestamp = float(metric_data['game_timestamp'])
+            current_wave = int(metric_data['current_wave'])
+            metrics = metric_data['metrics']
+            
+            for name, value in metrics.items():
+                if value is not None:
+                    metric_records.append((
+                        run_id,
+                        real_timestamp,
+                        game_timestamp,
+                        current_wave,
+                        str(name),
+                        float(value)
+                    ))
+        
+        if not metric_records:
+            return
+        
+        sql = """
+            INSERT INTO metrics 
+            (run_id, real_timestamp, game_timestamp, current_wave, metric_name, metric_value) 
+            VALUES (?, ?, ?, ?, ?, ?)
+        """
+        self.sqlite_conn.executemany(sql, metric_records)
+        self.logger.debug("Bulk inserted metrics", count=len(metric_records))
+    
+    @db_operation()
+    def bulk_update_runs_end(self, runs_end_data: List[Dict[str, Any]]) -> None:
+        """
+        Bulk update run records with end data for better performance.
+        Each run_end_data dict should contain: run_id, end_time, final_wave, coins_earned, 
+        duration_realtime, duration_gametime, round_cells, round_gems, round_cash
+        """
+        if not self.sqlite_conn or not runs_end_data:
+            return
+        
+        # Prepare data for bulk update
+        run_updates = []
+        for run_data in runs_end_data:
+            # Calculate CPH if we have coins_earned and duration_realtime
+            CPH = None
+            coins_earned = run_data.get('coins_earned')
+            duration_realtime = run_data.get('duration_realtime')
+            
+            if coins_earned is not None and duration_realtime and duration_realtime > 0:
+                # Convert duration_realtime from ms to seconds if needed
+                if duration_realtime > 10000:
+                    duration_realtime = duration_realtime // 1000
+                hours = duration_realtime / 3600.0
+                if hours > 0:
+                    CPH = float(coins_earned) / hours
+            
+            run_updates.append((
+                int(run_data.get('end_time', 0)) if run_data.get('end_time') is not None else None,
+                int(run_data.get('final_wave', 0)) if run_data.get('final_wave') is not None else None,
+                float(coins_earned) if coins_earned is not None else None,
+                int(duration_realtime) if duration_realtime is not None else None,
+                float(run_data.get('duration_gametime', 0)) if run_data.get('duration_gametime') is not None else None,
+                float(CPH) if CPH is not None else None,
+                float(run_data.get('round_cells', 0)) if run_data.get('round_cells') is not None else None,
+                float(run_data.get('round_gems', 0)) if run_data.get('round_gems') is not None else None,
+                float(run_data.get('round_cash', 0)) if run_data.get('round_cash') is not None else None,
+                str(run_data['run_id'])
+            ))
+        
+        sql = """
+            UPDATE runs SET 
+                end_time = ?, final_wave = ?, coins_earned = ?, duration_realtime = ?, 
+                duration_gametime = ?, CPH = ?, round_cells = ?, round_gems = ?, round_cash = ?
+            WHERE run_id = ?
+        """
+        self.sqlite_conn.executemany(sql, run_updates)
+        self.logger.debug("Bulk updated runs end", count=len(run_updates))
+    
+    @db_operation()
+    def bulk_write_run_data(self, run_data: Dict[str, Any]) -> None:
+        """
+        Write a complete run's data (start, events, metrics, end) in a single transaction.
+        This is the most efficient way to write a single run's data.
+        """
+        if not self.sqlite_conn:
+            return
+        
+        try:
+            # Start transaction
+            self.sqlite_conn.execute("BEGIN TRANSACTION")
+            
+            # Insert run start
+            self.sqlite_conn.execute(
+                "INSERT OR IGNORE INTO runs (run_id, start_time, game_version, tier, CPH, round_cells, round_gems, round_cash) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    str(run_data['run_id']),
+                    int(run_data['start_time']),
+                    str(run_data.get('game_version', '')),
+                    int(run_data.get('tier', 0)) if run_data.get('tier') is not None else None,
+                    None, None, None, None
+                )
+            )
+            
+            # Insert events
+            if run_data.get('events'):
+                event_records = []
+                for event in run_data['events']:
+                    data_json = json.dumps(event.get('data', {}))
+                    event_records.append((
+                        str(event['run_id']),
+                        int(event['timestamp']),
+                        str(event['event_name']),
+                        data_json
+                    ))
+                
+                if event_records:
+                    self.sqlite_conn.executemany(
+                        "INSERT INTO events (run_id, timestamp, event_name, data) VALUES (?, ?, ?, ?)",
+                        event_records
+                    )
+            
+            # Insert metrics
+            if run_data.get('metrics'):
+                metric_records = []
+                for metric in run_data['metrics']:
+                    run_id = str(metric['run_id'])
+                    real_timestamp = int(metric['real_timestamp'])
+                    game_timestamp = float(metric['game_timestamp'])
+                    current_wave = int(metric['current_wave'])
+                    metrics_dict = metric['metrics']
+                    
+                    for name, value in metrics_dict.items():
+                        if value is not None:
+                            metric_records.append((
+                                run_id, real_timestamp, game_timestamp, current_wave,
+                                str(name), float(value)
+                            ))
+                
+                if metric_records:
+                    self.sqlite_conn.executemany(
+                        "INSERT INTO metrics (run_id, real_timestamp, game_timestamp, current_wave, metric_name, metric_value) VALUES (?, ?, ?, ?, ?, ?)",
+                        metric_records
+                    )
+            
+            # Update run end
+            CPH = None
+            coins_earned = run_data.get('coins_earned')
+            duration_realtime = run_data.get('duration_realtime')
+            
+            if coins_earned is not None and duration_realtime and duration_realtime > 0:
+                if duration_realtime > 10000:
+                    duration_realtime = duration_realtime // 1000
+                hours = duration_realtime / 3600.0
+                if hours > 0:
+                    CPH = float(coins_earned) / hours
+            
+            self.sqlite_conn.execute(
+                """
+                UPDATE runs SET 
+                    end_time = ?, final_wave = ?, coins_earned = ?, duration_realtime = ?, 
+                    duration_gametime = ?, CPH = ?, round_cells = ?, round_gems = ?, round_cash = ?
+                WHERE run_id = ?
+                """,
+                (
+                    int(run_data.get('end_time', 0)) if run_data.get('end_time') is not None else None,
+                    int(run_data.get('final_wave', 0)) if run_data.get('final_wave') is not None else None,
+                    float(coins_earned) if coins_earned is not None else None,
+                    int(duration_realtime) if duration_realtime is not None else None,
+                    float(run_data.get('duration_gametime', 0)) if run_data.get('duration_gametime') is not None else None,
+                    float(CPH) if CPH is not None else None,
+                    float(run_data.get('round_cells', 0)) if run_data.get('round_cells') is not None else None,
+                    float(run_data.get('round_gems', 0)) if run_data.get('round_gems') is not None else None,
+                    float(run_data.get('round_cash', 0)) if run_data.get('round_cash') is not None else None,
+                    str(run_data['run_id'])
+                )
+            )
+            
+            # Commit transaction
+            self.sqlite_conn.commit()
+            self.logger.debug("Bulk wrote run data", run_id=run_data['run_id'])
+            
+        except Exception as e:
+            # Rollback on error
+            self.sqlite_conn.rollback()
+            self.logger.error("Failed to bulk write run data", run_id=run_data.get('run_id'), error=str(e))
+            raise
+
     @db_operation(default_return_value={})
     def get_database_statistics(self) -> dict:
         """

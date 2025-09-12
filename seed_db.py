@@ -1,0 +1,829 @@
+import sys
+import json
+import math
+import random
+import uuid
+import multiprocessing as mp
+from datetime import datetime, timedelta
+from pathlib import Path
+from concurrent.futures import ProcessPoolExecutor, as_completed
+import queue
+import threading
+import os
+
+# Ensure we can import the project src package when running from repo root
+PROJECT_ROOT = Path(__file__).parent.resolve()
+SRC_PATH = PROJECT_ROOT / "src"
+if str(SRC_PATH) not in sys.path:
+    sys.path.insert(0, str(SRC_PATH))
+
+import structlog
+
+from tower_iq.core.config import ConfigurationManager
+from tower_iq.core.logging_config import setup_logging
+from tower_iq.services.database_service import DatabaseService
+
+
+# ============================================================================
+# CONFIGURATION VARIABLES - Edit these to customize the seeding behavior
+# ============================================================================
+
+# Default command line arguments (can be overridden with --runs, --tiers, etc.)
+DEFAULT_RUNS = 50
+DEFAULT_TIERS = "5-8"  # Tier range, e.g. "5-8" or single tier like "7"
+DEFAULT_MIN_WAVE = 800
+DEFAULT_MAX_WAVE = 1500
+DEFAULT_SEED = 42
+DEFAULT_WORKERS = None  # None = use CPU count
+
+# Game simulation parameters
+GAME_VERSION = "27.0.4"
+SECONDS_PER_WAVE = 5.0  # Game time per wave
+STAGGER_MINUTES = 10  # Minutes between run start times
+
+# Survival probability parameters
+SURVIVAL_PROB_MIN_WAVE = 0.95  # 95% survival at min_wave
+SURVIVAL_PROB_MAX_WAVE = 0.50  # 50% survival at max_wave
+
+# Coin generation parameters
+BASE_COINS_MIN = 1000
+BASE_COINS_MAX = 30000
+WAVE_SCALE_FACTOR = 0.05  # Each wave gives 5% more base coins
+COIN_MULTIPLIERS = [0.1, 0.3, 0.8, 1.2, 2.0, 4.0, 8.0]
+BONUS_WAVE_CHANCE = 0.15  # 15% chance of bonus wave
+BONUS_MULTIPLIER_MIN = 15.0
+BONUS_MULTIPLIER_MAX = 40.0
+PENALTY_WAVE_CHANCE = 0.15  # 5% chance of penalty wave
+PENALTY_MULTIPLIER_MIN = 0.01
+PENALTY_MULTIPLIER_MAX = 0.3
+
+# Cell generation parameters
+CELLS_MIN = 10
+CELLS_MAX = 5000
+CELLS_TOTAL_MULTIPLIER = 2.0
+CELLS_RANDOM_MAX = 100
+
+# Cash generation parameters
+CASH_DELTAS = [0.0, 0.1, 0.2, 0.0, 0.0]  # Possible cash deltas per wave
+CASH_RANDOM_MAX = 5
+
+# Stone generation parameters
+STONES_MIN = 0.0
+STONES_MAX = 2.0
+
+# Gem generation parameters
+GEM_BLOCK_TAP_CHANCE = 0.4  # 40% chance per wave
+GEM_BLOCK_TAPS_MIN = 1
+GEM_BLOCK_TAPS_MAX = 3
+GEM_BLOCK_VALUE = 2
+AD_GEM_CLAIM_CHANCE = 0.25  # 25% chance per wave
+AD_GEM_VALUE = 5
+GUARDIAN_GEM_VALUES = [0, 0, 1, 2]  # Possible guardian gem values
+GEMS_TOTAL_MULTIPLIER = 5.0
+GEMS_RANDOM_MAX = 10000
+
+# Speed change parameters
+SPEED_CHANGE_CHANCE = 0.15  # 15% chance per wave
+SPEED_OPTIONS = [0.75, 1.0, 1.25, 1.5, 2.0]
+
+# Pause/resume parameters
+PAUSE_CHANCE = 0.01  # 10% chance per wave
+PAUSE_DURATION_MS = 1000  # 1 second pause
+
+# Progress reporting
+PROGRESS_LOG_INTERVAL = 5  # Log every 5th run
+PROGRESS_BAR_WIDTH = 50
+
+
+def wipe_tables(db: DatabaseService) -> None:
+    conn = db.sqlite_conn
+    assert conn is not None
+    conn.execute("DELETE FROM metrics")
+    conn.execute("DELETE FROM events")
+    conn.execute("DELETE FROM runs")
+    conn.commit()
+
+
+def cleanup_sqlite_auxiliary_files(db_path: str, logger) -> None:
+    """
+    Clean up SQLite auxiliary files (SHM and WAL) that may be left behind.
+    These files are created when SQLite uses WAL mode and can accumulate over time.
+    """
+    db_path_obj = Path(db_path)
+    base_name = db_path_obj.stem
+    db_dir = db_path_obj.parent
+    
+    # List of auxiliary files to clean up
+    auxiliary_files = [
+        db_dir / f"{base_name}-shm",  # Shared memory file
+        db_dir / f"{base_name}-wal",  # Write-ahead log file
+        db_dir / f"{base_name}.sqlite-shm",  # Alternative naming
+        db_dir / f"{base_name}.sqlite-wal",  # Alternative naming
+    ]
+    
+    cleaned_files = []
+    for aux_file in auxiliary_files:
+        if aux_file.exists():
+            try:
+                aux_file.unlink()
+                cleaned_files.append(str(aux_file))
+                logger.info("Cleaned up SQLite auxiliary file", file=str(aux_file))
+            except OSError as e:
+                logger.warning("Failed to clean up SQLite auxiliary file", 
+                             file=str(aux_file), error=str(e))
+    
+    if cleaned_files:
+        logger.info("SQLite auxiliary file cleanup completed", 
+                   cleaned_files=cleaned_files)
+    else:
+        logger.debug("No SQLite auxiliary files found to clean up")
+
+
+def calculate_survival_probability(wave: int, min_wave: int, max_wave: int) -> float:
+    """
+    Calculate the probability of surviving to the next wave.
+    
+    Uses a gentler decay formula where:
+    - At min_wave, survival probability is high (configurable)
+    - As wave approaches max_wave, survival probability decreases more gradually
+    - At max_wave, survival probability is moderate (configurable)
+    
+    Formula: P(survive) = SURVIVAL_PROB_MIN_WAVE * exp(-k * (wave - min_wave))
+    where k is chosen so that P(max_wave) ≈ SURVIVAL_PROB_MAX_WAVE
+    """
+    if wave < min_wave:
+        return 1.0  # Always survive before min_wave
+    
+    # Calculate decay constant k for gentler decay
+    # SURVIVAL_PROB_MAX_WAVE = SURVIVAL_PROB_MIN_WAVE * exp(-k * (max_wave - min_wave))
+    # k = -ln(SURVIVAL_PROB_MAX_WAVE/SURVIVAL_PROB_MIN_WAVE) / (max_wave - min_wave)
+    k = -math.log(SURVIVAL_PROB_MAX_WAVE / SURVIVAL_PROB_MIN_WAVE) / (max_wave - min_wave)
+    
+    # Calculate survival probability
+    survival_prob = SURVIVAL_PROB_MIN_WAVE * math.exp(-k * (wave - min_wave))
+    return max(SURVIVAL_PROB_MAX_WAVE, min(0.99, survival_prob))  # Clamp between max_wave_prob and 99%
+
+
+def generate_run_data_worker(args_tuple):
+    """
+    Worker function for multiprocessing. Generates run data in memory without
+    database operations to avoid SQLite locking issues.
+    """
+    try:
+        (tier, min_wave, max_wave, base_start, run_index, base_seed) = args_tuple
+        
+        # Use a unique seed for each run to ensure different random sequences
+        unique_seed = base_seed + run_index
+        random.seed(unique_seed)
+        
+        # Generate run data in memory
+        run_data = generate_run_data(tier, min_wave, max_wave, base_start, run_index)
+        return {"success": True, "run_index": run_index, "tier": tier, "data": run_data}
+    except Exception as e:
+        return {"success": False, "run_index": run_index, "error": str(e)}
+
+
+def generate_run_data(tier: int, min_wave: int, max_wave: int, base_start: datetime, run_index: int) -> dict:
+    """
+    Generate run data in memory without database operations.
+    Returns a dictionary containing all the data needed to insert into the database.
+    """
+    run_id = str(uuid.uuid4())
+    game_version = GAME_VERSION
+
+    # Stagger start times apart into the past
+    start_dt = base_start - timedelta(minutes=STAGGER_MINUTES * run_index)
+    start_time_ms = int(start_dt.timestamp() * 1000)
+
+    # Initialize simulated accumulators
+    coins_total = 0.0
+    cells_total = 0.0
+    cash_total = 0.0
+    stones_total = 0.0
+    gem_blocks_count = 0
+    ad_gems_count = 0
+    guardian_gems_value = 0
+
+    last_speed = 1.0
+    final_wave = 0
+
+    events = []
+    metrics = []
+
+    # Simulate wave progression with survival probability
+    for wave in range(1, max_wave + 1):
+        # Check if we survive this wave
+        survival_prob = calculate_survival_probability(wave, min_wave, max_wave)
+        if wave > min_wave and random.random() > survival_prob:
+            # Game over - we died on this wave
+            final_wave = wave - 1
+            break
+        
+        final_wave = wave
+        # Game time per wave
+        game_ts_sec = float(wave * SECONDS_PER_WAVE)
+        real_ts_ms = start_time_ms + int(game_ts_sec * 1000)
+
+        # Per-wave deltas with some variability
+        base_coins = random.uniform(BASE_COINS_MIN, BASE_COINS_MAX)
+
+        # Wave scaling (later waves give more coins)
+        wave_scale = 1.0 + (wave * WAVE_SCALE_FACTOR)
+
+        # Random multiplier for dramatic variation
+        multiplier = random.choice(COIN_MULTIPLIERS)
+
+        # Occasional bonus waves
+        if random.random() < BONUS_WAVE_CHANCE:
+            multiplier *= random.uniform(BONUS_MULTIPLIER_MIN, BONUS_MULTIPLIER_MAX)
+
+        # Occasional penalty waves  
+        if random.random() < PENALTY_WAVE_CHANCE:
+            multiplier *= random.uniform(PENALTY_MULTIPLIER_MIN, PENALTY_MULTIPLIER_MAX)
+
+        wave_coins = base_coins * wave_scale * multiplier
+        coins_total += wave_coins
+
+        wave_cells = random.uniform(CELLS_MIN, CELLS_MAX)
+        cells_total += wave_cells
+
+        cash_delta = random.choice(CASH_DELTAS)
+        cash_total += cash_delta
+
+        stones_delta = random.uniform(STONES_MIN, STONES_MAX)
+        stones_total += stones_delta
+
+        # Gem sources
+        # Randomly decide block taps and ad claims near some checkpoints
+        if random.random() < GEM_BLOCK_TAP_CHANCE:
+            block_taps = random.randint(GEM_BLOCK_TAPS_MIN, GEM_BLOCK_TAPS_MAX)
+            gem_blocks_count += block_taps
+            events.append({
+                "run_id": run_id,
+                "timestamp": real_ts_ms,
+                "event_name": "gemBlockTapped",
+                "data": {"gemValue": GEM_BLOCK_VALUE}
+            })
+        if random.random() < AD_GEM_CLAIM_CHANCE:
+            ad_claims = 1
+            ad_gems_count += ad_claims
+            events.append({
+                "run_id": run_id,
+                "timestamp": real_ts_ms,
+                "event_name": "adGemClaimed",
+                "data": {"gemValue": AD_GEM_VALUE}
+            })
+
+        # Guardian gems sometimes contribute a few
+        guardian_gems_value += random.choice(GUARDIAN_GEM_VALUES)
+
+        # Occasional speed change event
+        if random.random() < SPEED_CHANGE_CHANCE:
+            new_speed = round(random.choice(SPEED_OPTIONS), 2)
+            if new_speed != last_speed:
+                last_speed = new_speed
+                events.append({
+                    "run_id": run_id,
+                    "timestamp": real_ts_ms,
+                    "event_name": "gameSpeedChanged",
+                    "data": {"value": new_speed}
+                })
+
+        # Build metrics bundle aligned with hook names
+        metrics_data = {
+            "round_coins": coins_total,
+            "wave_coins": wave_coins,
+            "coins": coins_total * GEMS_TOTAL_MULTIPLIER + random.uniform(0, GEMS_RANDOM_MAX),
+            "gems": (gem_blocks_count * GEM_BLOCK_VALUE) + (ad_gems_count * AD_GEM_VALUE) + guardian_gems_value,
+            "round_cells": cells_total,
+            "wave_cells": wave_cells,
+            "cells": cells_total * CELLS_TOTAL_MULTIPLIER + random.uniform(0, CELLS_RANDOM_MAX),
+            "round_cash": cash_total,
+            "cash": cash_total + random.uniform(0, CASH_RANDOM_MAX),
+            "stones": stones_total,
+            "round_gems_from_blocks_count": float(gem_blocks_count),
+            "round_gems_from_blocks_value": float(gem_blocks_count * GEM_BLOCK_VALUE),
+            "round_gems_from_ads_count": float(ad_gems_count),
+            "round_gems_from_ads_value": float(ad_gems_count * AD_GEM_VALUE),
+            "round_gems_from_guardian": float(guardian_gems_value),
+        }
+
+        metrics.append({
+            "run_id": run_id,
+            "real_timestamp": real_ts_ms,
+            "game_timestamp": game_ts_sec,
+            "current_wave": wave,
+            "metrics": metrics_data,
+        })
+
+        # Pause/resume occasionally
+        if random.random() < PAUSE_CHANCE:
+            events.append({
+                "run_id": run_id,
+                "timestamp": real_ts_ms,
+                "event_name": "gamePaused",
+                "data": {}
+            })
+            events.append({
+                "run_id": run_id,
+                "timestamp": real_ts_ms + PAUSE_DURATION_MS,
+                "event_name": "gameResumed",
+                "data": {}
+            })
+
+    # Finalize run
+    duration_gametime = final_wave * SECONDS_PER_WAVE
+    end_time_ms = start_time_ms + int(duration_gametime * 1000)
+    coins_earned = coins_total
+    
+    events.append({
+        "run_id": run_id,
+        "timestamp": end_time_ms,
+        "event_name": "gameOver",
+        "data": {"coinsEarned": coins_earned}
+    })
+
+    # Add start event
+    events.insert(0, {
+        "run_id": run_id,
+        "timestamp": start_time_ms,
+        "event_name": "startNewRound",
+        "data": {"tier": tier}
+    })
+
+    return {
+        "run_id": run_id,
+        "start_time": start_time_ms,
+        "end_time": end_time_ms,
+        "game_version": game_version,
+        "tier": tier,
+        "final_wave": final_wave,
+        "coins_earned": coins_earned,
+        "duration_realtime": int(duration_gametime),
+        "duration_gametime": float(duration_gametime),
+        "round_cells": float(cells_total),
+        "round_gems": float((gem_blocks_count * GEM_BLOCK_VALUE) + (ad_gems_count * AD_GEM_VALUE) + guardian_gems_value),
+        "round_cash": float(cash_total),
+        "events": events,
+        "metrics": metrics
+    }
+
+
+def generate_run(
+    db: DatabaseService,
+    logger,
+    tier: int,
+    min_wave: int,
+    max_wave: int,
+    base_start: datetime,
+    run_index: int,
+) -> None:
+    run_id = str(uuid.uuid4())
+    game_version = GAME_VERSION
+
+    # Stagger start times apart into the past
+    start_dt = base_start - timedelta(minutes=STAGGER_MINUTES * run_index)
+    start_time_ms = int(start_dt.timestamp() * 1000)
+
+    db.insert_run_start(run_id=run_id, start_time=start_time_ms, game_version=game_version, tier=tier)
+    db.write_event(run_id, start_time_ms, "startNewRound", {"tier": tier})
+
+    # Initialize simulated accumulators
+    coins_total = 0.0
+    cells_total = 0.0
+    cash_total = 0.0
+    stones_total = 0.0
+    gem_blocks_count = 0
+    ad_gems_count = 0
+    guardian_gems_value = 0
+
+    last_speed = 1.0
+    final_wave = 0
+
+    # Simulate wave progression with survival probability
+    for wave in range(1, max_wave + 1):
+        # Check if we survive this wave
+        survival_prob = calculate_survival_probability(wave, min_wave, max_wave)
+        if wave > min_wave and random.random() > survival_prob:
+            # Game over - we died on this wave
+            final_wave = wave - 1
+            break
+        
+        final_wave = wave
+        # Game time per wave
+        game_ts_sec = float(wave * SECONDS_PER_WAVE)
+        real_ts_ms = start_time_ms + int(game_ts_sec * 1000)
+
+        # Per-wave deltas with some variability
+        # Per-wave deltas with multiple variation factors
+        base_coins = random.uniform(BASE_COINS_MIN, BASE_COINS_MAX)
+
+        # Wave scaling (later waves give more coins)
+        wave_scale = 1.0 + (wave * WAVE_SCALE_FACTOR)
+
+        # Random multiplier for dramatic variation
+        multiplier = random.choice(COIN_MULTIPLIERS)
+
+        # Occasional bonus waves
+        if random.random() < BONUS_WAVE_CHANCE:
+            multiplier *= random.uniform(BONUS_MULTIPLIER_MIN, BONUS_MULTIPLIER_MAX)
+
+        # Occasional penalty waves  
+        if random.random() < PENALTY_WAVE_CHANCE:
+            multiplier *= random.uniform(PENALTY_MULTIPLIER_MIN, PENALTY_MULTIPLIER_MAX)
+
+        wave_coins = base_coins * wave_scale * multiplier
+        coins_total += wave_coins
+
+        wave_cells = random.uniform(CELLS_MIN, CELLS_MAX)
+        cells_total += wave_cells
+
+        cash_delta = random.choice(CASH_DELTAS)
+        cash_total += cash_delta
+
+        stones_delta = random.uniform(STONES_MIN, STONES_MAX)
+        stones_total += stones_delta
+
+        # Gem sources
+        # Randomly decide block taps and ad claims near some checkpoints
+        if random.random() < GEM_BLOCK_TAP_CHANCE:
+            block_taps = random.randint(GEM_BLOCK_TAPS_MIN, GEM_BLOCK_TAPS_MAX)
+            gem_blocks_count += block_taps
+            db.write_event(run_id, real_ts_ms, "gemBlockTapped", {"gemValue": GEM_BLOCK_VALUE})
+        if random.random() < AD_GEM_CLAIM_CHANCE:
+            ad_claims = 1
+            ad_gems_count += ad_claims
+            db.write_event(run_id, real_ts_ms, "adGemClaimed", {"gemValue": AD_GEM_VALUE})
+
+        # Guardian gems sometimes contribute a few
+        guardian_gems_value += random.choice(GUARDIAN_GEM_VALUES)
+
+        # Occasional speed change event
+        if random.random() < SPEED_CHANGE_CHANCE:
+            new_speed = round(random.choice(SPEED_OPTIONS), 2)
+            if new_speed != last_speed:
+                last_speed = new_speed
+                db.write_event(run_id, real_ts_ms, "gameSpeedChanged", {"value": new_speed})
+
+        # Build metrics bundle aligned with hook names
+        metrics = {
+            "round_coins": coins_total,
+            "wave_coins": wave_coins,
+            "coins": coins_total * GEMS_TOTAL_MULTIPLIER + random.uniform(0, GEMS_RANDOM_MAX),
+            "gems": (gem_blocks_count * GEM_BLOCK_VALUE) + (ad_gems_count * AD_GEM_VALUE) + guardian_gems_value,
+            "round_cells": cells_total,
+            "wave_cells": wave_cells,
+            "cells": cells_total * CELLS_TOTAL_MULTIPLIER + random.uniform(0, CELLS_RANDOM_MAX),
+            "round_cash": cash_total,
+            "cash": cash_total + random.uniform(0, CASH_RANDOM_MAX),
+            "stones": stones_total,
+            "round_gems_from_blocks_count": float(gem_blocks_count),
+            "round_gems_from_blocks_value": float(gem_blocks_count * GEM_BLOCK_VALUE),
+            "round_gems_from_ads_count": float(ad_gems_count),
+            "round_gems_from_ads_value": float(ad_gems_count * AD_GEM_VALUE),
+            "round_gems_from_guardian": float(guardian_gems_value),
+        }
+
+        db.write_metric(
+            run_id=run_id,
+            real_timestamp=real_ts_ms,
+            game_timestamp=game_ts_sec,
+            current_wave=wave,
+            metrics=metrics,
+        )
+
+        # Pause/resume occasionally
+        if random.random() < PAUSE_CHANCE:
+            db.write_event(run_id, real_ts_ms, "gamePaused", {})
+            db.write_event(run_id, real_ts_ms + PAUSE_DURATION_MS, "gameResumed", {})
+
+    # Finalize run
+    duration_gametime = final_wave * SECONDS_PER_WAVE
+    end_time_ms = start_time_ms + int(duration_gametime * 1000)
+    coins_earned = coins_total
+    db.write_event(run_id, end_time_ms, "gameOver", {"coinsEarned": coins_earned})
+
+    # Persist aggregates into runs
+    db.update_run_end(
+        run_id=run_id,
+        end_time=end_time_ms,
+        final_wave=final_wave,
+        coins_earned=coins_earned,
+        duration_realtime=int(duration_gametime),
+        duration_gametime=float(duration_gametime),
+        round_cells=float(cells_total),
+        round_gems=float((gem_blocks_count * GEM_BLOCK_VALUE) + (ad_gems_count * AD_GEM_VALUE) + guardian_gems_value),
+        round_cash=float(cash_total),
+    )
+
+    logger.info("Seeded run", run_id=run_id, tier=tier, final_wave=final_wave)
+
+
+def write_run_data_to_db(db: DatabaseService, run_data: dict) -> None:
+    """
+    Write pre-generated run data to the database using bulk operations.
+    This is much faster than individual inserts.
+    """
+    # Temporarily replace the debug method with a no-op to suppress debug messages
+    original_debug = db.logger.debug
+    db.logger.debug = lambda *args, **kwargs: None
+    
+    try:
+        # Use the new bulk method for maximum efficiency
+        db.bulk_write_run_data(run_data)
+    finally:
+        # Restore original debug method
+        db.logger.debug = original_debug
+
+
+def bulk_write_all_runs_to_db(db: DatabaseService, run_data_list: list) -> None:
+    """
+    Write all run data to the database using the most efficient bulk operations.
+    This groups operations by type and uses transactions for maximum performance.
+    """
+    if not run_data_list:
+        return
+    
+    # Temporarily replace the debug method with a no-op to suppress debug messages
+    original_debug = db.logger.debug
+    db.logger.debug = lambda *args, **kwargs: None
+    
+    try:
+        # Start a single large transaction for maximum performance
+        if not db.sqlite_conn:
+            raise Exception("Database connection not available")
+        db.sqlite_conn.execute("BEGIN TRANSACTION")
+        
+        # Group data by type for bulk operations
+        runs_start_data = []
+        events_data = []
+        metrics_data = []
+        runs_end_data = []
+        
+        for run_data in run_data_list:
+            # Collect run start data
+            runs_start_data.append({
+                'run_id': run_data['run_id'],
+                'start_time': run_data['start_time'],
+                'game_version': run_data['game_version'],
+                'tier': run_data['tier']
+            })
+            
+            # Collect events data
+            if run_data.get('events'):
+                events_data.extend(run_data['events'])
+            
+            # Collect metrics data
+            if run_data.get('metrics'):
+                metrics_data.extend(run_data['metrics'])
+            
+            # Collect run end data
+            runs_end_data.append({
+                'run_id': run_data['run_id'],
+                'end_time': run_data['end_time'],
+                'final_wave': run_data['final_wave'],
+                'coins_earned': run_data['coins_earned'],
+                'duration_realtime': run_data['duration_realtime'],
+                'duration_gametime': run_data['duration_gametime'],
+                'round_cells': run_data['round_cells'],
+                'round_gems': run_data['round_gems'],
+                'round_cash': run_data['round_cash']
+            })
+        
+        # Execute bulk operations in order (all within the same transaction)
+        print("📊 Bulk inserting run starts...")
+        db.bulk_insert_runs(runs_start_data)
+        
+        print("📊 Bulk inserting events...")
+        db.bulk_insert_events(events_data)
+        
+        print("📊 Bulk inserting metrics...")
+        db.bulk_insert_metrics(metrics_data)
+        
+        print("📊 Bulk updating run ends...")
+        db.bulk_update_runs_end(runs_end_data)
+        
+        # Commit the entire transaction
+        if db.sqlite_conn:
+            db.sqlite_conn.commit()
+        print("✅ All data committed to database!")
+        
+    except Exception as e:
+        # Rollback on error
+        if db.sqlite_conn:
+            db.sqlite_conn.rollback()
+        print(f"❌ Transaction rolled back due to error: {e}")
+        raise
+    finally:
+        # Restore original debug method
+        db.logger.debug = original_debug
+
+
+def main():
+    import argparse
+    import time
+
+    parser = argparse.ArgumentParser(description="Seed TowerIQ SQLite DB with synthetic runs/metrics/events")
+    parser.add_argument("--runs", type=int, default=DEFAULT_RUNS, help="Number of runs to generate")
+    parser.add_argument("--tiers", type=str, default=DEFAULT_TIERS, help="Tier range, e.g. 5-8")
+    parser.add_argument("--min-wave", type=int, default=DEFAULT_MIN_WAVE, help="Minimum wave where survival becomes probabilistic")
+    parser.add_argument("--max-wave", type=int, default=DEFAULT_MAX_WAVE, help="Maximum possible wave (very low survival probability)")
+    parser.add_argument("--seed", type=int, default=DEFAULT_SEED, help="Random seed for reproducibility")
+    parser.add_argument("--workers", type=int, default=DEFAULT_WORKERS, help="Number of worker processes (default: CPU count)")
+    args = parser.parse_args()
+
+    random.seed(args.seed)
+
+    # Parse tier range
+    if "-" in args.tiers:
+        tmin, tmax = args.tiers.split("-", 1)
+        tier_values = list(range(int(tmin), int(tmax) + 1))
+    else:
+        tier_values = [int(args.tiers)]
+
+    config = ConfigurationManager('config/main_config.yaml')
+    # Preliminary logger; db-aware logging configured after db connection
+    logger = structlog.get_logger().bind(source="SeedDB")
+
+    db_path = config.get('database.sqlite_path', 'data/toweriq.sqlite')
+    
+    # Clean up any existing SQLite auxiliary files before starting
+    cleanup_sqlite_auxiliary_files(db_path, logger)
+
+    db = DatabaseService(config=config, logger=logger, db_path=db_path)
+    # Minimal logging wiring
+    setup_logging(config, db_service=db)
+    db.connect()
+    
+    # Temporarily reduce database logging verbosity during seeding
+    import logging
+    
+    # Get the root logger and set it to INFO level to suppress DEBUG messages
+    root_logger = logging.getLogger()
+    original_root_level = root_logger.level
+    root_logger.setLevel(logging.INFO)
+    
+    # Also try to get the specific structlog logger
+    structlog_logger = logging.getLogger('structlog')
+    original_structlog_level = structlog_logger.level
+    structlog_logger.setLevel(logging.INFO)
+
+    wipe_tables(db)
+
+    base_start = datetime.now()
+    
+    # Determine number of workers
+    num_workers = args.workers or mp.cpu_count()
+    logger.info("Starting multiprocessing", runs=args.runs, workers=num_workers)
+    
+    # Prepare arguments for each worker
+    worker_args = []
+    for i in range(args.runs):
+        tier = random.choice(tier_values)
+        worker_args.append((tier, args.min_wave, args.max_wave, base_start, i, args.seed))
+    
+    start_time = time.time()
+    
+    # Use ProcessPoolExecutor for better error handling and progress tracking
+    with ProcessPoolExecutor(max_workers=num_workers) as executor:
+        # Submit all jobs
+        future_to_run = {executor.submit(generate_run_data_worker, args): args[4] for args in worker_args}
+        
+        completed_runs = 0
+        failed_runs = 0
+        run_data_list = []
+        
+        # Process completed jobs as they finish
+        for future in as_completed(future_to_run):
+            run_index = future_to_run[future]
+            try:
+                result = future.result()
+                if result["success"]:
+                    completed_runs += 1
+                    run_data_list.append(result["data"])
+                    # Only log every N runs to reduce verbosity
+                    if completed_runs % PROGRESS_LOG_INTERVAL == 0 or completed_runs == 1:
+                        logger.info("Runs generated", completed=completed_runs, total=args.runs)
+                else:
+                    failed_runs += 1
+                    logger.error("Run failed", run_index=run_index, error=result["error"])
+            except Exception as e:
+                failed_runs += 1
+                logger.error("Run exception", run_index=run_index, error=str(e))
+    
+    # Write all generated data to database using bulk operations for maximum performance
+    print(f"\n💾 Writing {len(run_data_list)} runs to database using bulk operations...")
+    
+    try:
+        bulk_write_all_runs_to_db(db, run_data_list)
+        print("✅ Bulk write completed successfully!")
+    except Exception as e:
+        logger.error("Failed to bulk write runs to database", error=str(e))
+        # Fallback to individual writes if bulk fails
+        print("⚠️  Bulk write failed, falling back to individual writes...")
+        bar_width = PROGRESS_BAR_WIDTH
+        total_runs = len(run_data_list)
+        
+        for i, run_data in enumerate(run_data_list):
+            try:
+                write_run_data_to_db(db, run_data)
+                
+                # Update progress bar
+                progress = (i + 1) / total_runs
+                filled_width = int(bar_width * progress)
+                bar = "█" * filled_width + "░" * (bar_width - filled_width)
+                print(f"\r📊 [{bar}] {progress*100:.1f}% ({i+1}/{total_runs})", end="", flush=True)
+                
+            except Exception as e:
+                logger.error("Failed to write run to database", run_index=i, error=str(e))
+                failed_runs += 1
+                completed_runs -= 1
+        
+        print()  # New line after progress bar
+    
+    end_time = time.time()
+    duration = end_time - start_time
+    
+    stats = db.get_database_statistics()
+    logger.info("Seeding complete", 
+                completed_runs=completed_runs, 
+                failed_runs=failed_runs,
+                duration_seconds=round(duration, 2),
+                table_rows=json.dumps(stats.get('table_rows', {})))
+    
+    # Properly close database connection
+    try:
+        db.close()
+        logger.info("Database connection closed")
+    except Exception as e:
+        logger.warning("Error closing database connection", error=str(e))
+    
+    # Restore original logging levels
+    if 'original_root_level' in locals():
+        root_logger.setLevel(original_root_level)
+    if 'original_structlog_level' in locals():
+        structlog_logger.setLevel(original_structlog_level)
+    logger.info("Restored original logging levels")
+    
+    # Clean up any SQLite auxiliary files that may have been created
+    cleanup_sqlite_auxiliary_files(db_path, logger)
+    
+    # Print comprehensive summary
+    print("\n" + "="*80)
+    print("🎯 TOWERIQ DATABASE SEEDING SUMMARY")
+    print("="*80)
+    print(f"📊 Total Runs Generated: {completed_runs}")
+    print(f"❌ Failed Runs: {failed_runs}")
+    print(f"⏱️  Total Duration: {duration:.2f} seconds ({duration/60:.1f} minutes)")
+    print(f"🏃 Runs per Second: {completed_runs/duration:.2f}")
+    print(f"⚙️  Workers Used: {num_workers}")
+    print(f"🎲 Random Seed: {args.seed}")
+    print(f"🌊 Wave Range: {args.min_wave}-{args.max_wave}")
+    print(f"🏆 Tier Range: {args.tiers}")
+    
+    if stats.get('table_rows'):
+        print(f"\n📋 Database Statistics:")
+        for table, count in stats['table_rows'].items():
+            print(f"   • {table}: {count:,} rows")
+    
+    print(f"\n💾 Database Path: {db_path}")
+    print(f"🗂️  Generated Files: {len(run_data_list)} run data packages")
+    
+    # Calculate some derived stats from the generated data
+    if run_data_list:
+        total_events = sum(len(run['events']) for run in run_data_list)
+        total_metrics = sum(len(run['metrics']) for run in run_data_list)
+        avg_wave = sum(run['final_wave'] for run in run_data_list) / len(run_data_list)
+        max_wave = max(run['final_wave'] for run in run_data_list)
+        min_wave = min(run['final_wave'] for run in run_data_list)
+        
+        print(f"\n🎮 Game Data Generated:")
+        print(f"   • Total Events: {total_events:,}")
+        print(f"   • Total Metrics: {total_metrics:,}")
+        print(f"   • Average Final Wave: {avg_wave:.1f}")
+        print(f"   • Highest Wave Reached: {max_wave}")
+        print(f"   • Lowest Final Wave: {min_wave}")
+        
+        # Tier breakdown
+        tier_counts = {}
+        for run in run_data_list:
+            tier = run['tier']
+            tier_counts[tier] = tier_counts.get(tier, 0) + 1
+        
+        print(f"\n🏆 Tier Distribution:")
+        for tier in sorted(tier_counts.keys()):
+            count = tier_counts[tier]
+            percentage = (count / len(run_data_list)) * 100
+            print(f"   • Tier {tier}: {count} runs ({percentage:.1f}%)")
+    
+    print("="*80)
+    print("✅ Seeding process completed successfully!")
+    print("="*80 + "\n")
+
+
+if __name__ == "__main__":
+    # Required for multiprocessing on Windows
+    mp.freeze_support()
+    main()
+
+

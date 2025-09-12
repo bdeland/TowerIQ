@@ -19,7 +19,9 @@ import {
   MoreVert as MoreVertIcon,
   Visibility as ViewIcon,
   Edit as EditIcon,
-  Delete as DeleteIcon
+  Delete as DeleteIcon,
+  Fullscreen as FullscreenIcon,
+  FullscreenExit as FullscreenExitIcon
 } from '@mui/icons-material';
 import ReactECharts from 'echarts-for-react';
 import { DashboardPanel } from '../contexts/DashboardContext';
@@ -31,9 +33,12 @@ interface DashboardPanelViewProps {
   panel: DashboardPanel;
   onClick?: () => void;
   isEditMode?: boolean;
+  showMenu?: boolean;
+  showFullscreen?: boolean;
   onDelete?: (panelId: string) => void;
   onEdit?: (panelId: string) => void;
   onDataFetched?: (data: any[]) => void;
+  onFullscreenToggle?: (panelId: string) => void;
 }
 
 interface QueryResult {
@@ -45,9 +50,12 @@ const DashboardPanelView: React.FC<DashboardPanelViewProps> = ({
   panel, 
   onClick, 
   isEditMode = false,
+  showMenu = true,
+  showFullscreen = false,
   onDelete,
   onEdit,
-  onDataFetched
+  onDataFetched,
+  onFullscreenToggle
 }) => {
   const navigate = useNavigate();
   const [queryResult, setQueryResult] = useState<QueryResult>({ data: [] });
@@ -58,6 +66,7 @@ const DashboardPanelView: React.FC<DashboardPanelViewProps> = ({
   // Menu state
   const [menuOpen, setMenuOpen] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [isFullscreen, setIsFullscreen] = useState(false);
 
   // Fetch data from backend based on panel query
   const fetchPanelData = async () => {
@@ -395,15 +404,22 @@ const DashboardPanelView: React.FC<DashboardPanelViewProps> = ({
     setDeleteDialogOpen(false);
   };
 
+  const handleFullscreenToggle = () => {
+    setIsFullscreen(!isFullscreen);
+    if (onFullscreenToggle) {
+      onFullscreenToggle(panel.id);
+    }
+  };
+
   // Panel Header Component
   const PanelHeader = () => (
     <Box 
       sx={{ 
         display: 'flex', 
         alignItems: 'center', 
-        justifyContent: 'space-between',
+        justifyContent: (showMenu || showFullscreen) ? 'space-between' : 'flex-start',
         paddingLeft: '8px',
-        paddingRight: '0px',
+        paddingRight: (showMenu || showFullscreen) ? '0px' : '8px',
         paddingTop: '4px',
         paddingBottom: '4px',
         borderBottom: '1px solid',
@@ -426,33 +442,54 @@ const DashboardPanelView: React.FC<DashboardPanelViewProps> = ({
       >
         {panel.title}
       </Typography>
-      <IconButton
-        id={`panel-menu-button-${panel.id}`}
-        size="small"
-        onClick={handleMenuClick}
-        aria-controls={menuOpen ? `panel-menu-${panel.id}` : undefined}
-        aria-haspopup="true"
-        aria-expanded={menuOpen ? 'true' : undefined}
-        sx={{ 
-          padding: '4px',
-          color: 'text.secondary',
-          borderRadius: 0.25, // Rectangle shape instead of circle
-          position: 'relative', // Ensure proper positioning context
-          '&:hover': {
-            backgroundColor: 'action.hover',
-            color: 'text.primary'
-          }
-        }}
-      >
-        <MoreVertIcon fontSize="small" />
-      </IconButton>
+      {showFullscreen ? (
+        <IconButton
+          id={`panel-fullscreen-button-${panel.id}`}
+          size="small"
+          onClick={handleFullscreenToggle}
+          aria-label={isFullscreen ? "Exit fullscreen" : "Enter fullscreen"}
+          sx={{ 
+            padding: '4px',
+            color: 'text.secondary',
+            borderRadius: 0.25, // Rectangle shape instead of circle
+            position: 'relative', // Ensure proper positioning context
+            '&:hover': {
+              backgroundColor: 'action.hover',
+              color: 'text.primary'
+            }
+          }}
+        >
+          {isFullscreen ? <FullscreenExitIcon fontSize="small" /> : <FullscreenIcon fontSize="small" />}
+        </IconButton>
+      ) : showMenu && (
+        <IconButton
+          id={`panel-menu-button-${panel.id}`}
+          size="small"
+          onClick={handleMenuClick}
+          aria-controls={menuOpen ? `panel-menu-${panel.id}` : undefined}
+          aria-haspopup="true"
+          aria-expanded={menuOpen ? 'true' : undefined}
+          sx={{ 
+            padding: '4px',
+            color: 'text.secondary',
+            borderRadius: 0.25, // Rectangle shape instead of circle
+            position: 'relative', // Ensure proper positioning context
+            '&:hover': {
+              backgroundColor: 'action.hover',
+              color: 'text.primary'
+            }
+          }}
+        >
+          <MoreVertIcon fontSize="small" />
+        </IconButton>
+      )}
     </Box>
   );
 
   // Context Menu
   const ContextMenu = () => (
     <>
-             {menuOpen && (
+             {showMenu && menuOpen && (
          <Box
            id={`panel-menu-${panel.id}`}
            onClick={(e) => e.stopPropagation()} // Prevent closing when clicking inside menu
@@ -631,8 +668,8 @@ const DashboardPanelView: React.FC<DashboardPanelViewProps> = ({
   return (
     <Box
       sx={{
-        width: '100%',
-        height: '100%',
+        width: isFullscreen ? '100vw' : '100%',
+        height: isFullscreen ? 'calc(100vh - 81px)' : '100%', // Account for app bar height (40*2+1)
         border: isEditMode ? '1px solid' : '1px solid',
         borderColor: isEditMode ? 'divider' : 'divider',
         borderRadius: 0.25,
@@ -647,7 +684,12 @@ const DashboardPanelView: React.FC<DashboardPanelViewProps> = ({
         display: 'flex',
         flexDirection: 'column',
         overflow: 'visible', // Allow rounded corners to be visible
-        position: 'relative' // Add relative positioning for resize handle
+        position: isFullscreen ? 'fixed' : 'relative', // Fixed positioning for fullscreen
+        top: isFullscreen ? 0 : 'auto',
+        left: isFullscreen ? 0 : 'auto',
+        right: isFullscreen ? 0 : 'auto',
+        bottom: isFullscreen ? 0 : 'auto',
+        zIndex: isFullscreen ? 9999 : 'auto' // High z-index for fullscreen
       }}
       onClick={handlePanelClick}
     >

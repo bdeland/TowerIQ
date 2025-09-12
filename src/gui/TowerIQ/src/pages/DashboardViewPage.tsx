@@ -27,6 +27,7 @@ export function DashboardViewPage() {
   const [originalPanels, setOriginalPanels] = useState<DashboardPanel[]>([]);
   const [selectedPanelId, setSelectedPanelId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [fullscreenPanelId, setFullscreenPanelId] = useState<string | null>(null);
 
   // Handler functions for dashboard edit context
   const handleEditModeToggle = useCallback(() => {
@@ -282,6 +283,10 @@ export function DashboardViewPage() {
     return selectedPanelId ? panels.find(p => p.id === selectedPanelId) || null : null;
   };
 
+  const handleFullscreenToggle = (panelId: string) => {
+    setFullscreenPanelId(fullscreenPanelId === panelId ? null : panelId);
+  };
+
 
 
   if (loading) {
@@ -336,8 +341,11 @@ export function DashboardViewPage() {
               <DashboardPanelView 
                 panel={panel} 
                 isEditMode={isEditMode}
+                showMenu={!currentDashboard?.is_default}
+                showFullscreen={currentDashboard?.is_default || false}
                 onClick={() => handlePanelClick(panel.id)}
                 onDelete={handleDeletePanel}
+                onFullscreenToggle={handleFullscreenToggle}
               />
             </div>
           ))}

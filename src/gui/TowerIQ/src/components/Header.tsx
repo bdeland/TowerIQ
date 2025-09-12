@@ -14,6 +14,7 @@ import {
 import { Breadcrumbs } from './Breadcrumbs';
 import { SearchBar } from './SearchBar';
 import { useDashboardEdit } from '../contexts/DashboardEditContext';
+import { useDashboard } from '../contexts/DashboardContext';
 
 interface HeaderProps {
   sidebarDocked: boolean;
@@ -60,6 +61,17 @@ export function Header({
       onSavePanelChanges: undefined
     };
   }
+
+  // Safely get dashboard context with error handling
+  let dashboardContext;
+  try {
+    dashboardContext = useDashboard();
+  } catch (error) {
+    console.error('Error accessing dashboard context:', error);
+    dashboardContext = {
+      currentDashboard: null
+    };
+  }
   
   const {
     isDashboardPage,
@@ -77,6 +89,8 @@ export function Header({
     onDiscardChanges,
     onSavePanelChanges
   } = dashboardEditContext;
+
+  const { currentDashboard } = dashboardContext;
   
   const [addMenuAnchor, setAddMenuAnchor] = React.useState<null | HTMLElement>(null);
   const [saveMenuAnchor, setSaveMenuAnchor] = React.useState<null | HTMLElement>(null);
@@ -326,7 +340,7 @@ export function Header({
                 </Button>
               </>
             )}
-            {isDashboardPage && !isEditMode && !isPanelEditPage && (
+            {isDashboardPage && !isEditMode && !isPanelEditPage && !currentDashboard?.is_default && (
               <Button
                 variant="contained"
                 onClick={onEditToggle}
