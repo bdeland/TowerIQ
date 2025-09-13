@@ -1,15 +1,13 @@
 import { Box, Typography, Alert, CircularProgress } from '@mui/material';
-import { Responsive, WidthProvider, Layout } from 'react-grid-layout';
-import 'react-grid-layout/css/styles.css';
+import { Layout } from 'react-grid-layout';
 import { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useDashboard, DashboardPanel } from '../contexts/DashboardContext';
 import { useDashboardEdit } from '../contexts/DashboardEditContext';
-import DashboardPanelView from '../components/DashboardPanelView';
 import PanelEditorDrawer from '../components/PanelEditorDrawer';
+import { DashboardGrid } from '../components/DashboardGrid';
 import { generateUUID } from '../utils/uuid';
-
-const ResponsiveGridLayout = WidthProvider(Responsive);
+import { featureFlags } from '../config/featureFlags';
 
 export function DashboardViewPage() {
   const { id } = useParams<{ id: string }>();
@@ -27,10 +25,10 @@ export function DashboardViewPage() {
   const [originalPanels, setOriginalPanels] = useState<DashboardPanel[]>([]);
   const [selectedPanelId, setSelectedPanelId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
-  const [fullscreenPanelId, setFullscreenPanelId] = useState<string | null>(null);
 
   // Handler functions for dashboard edit context
   const handleEditModeToggle = useCallback(() => {
+    if (!featureFlags.enableAdHocDashboards) return; // Prevent entering edit mode
     if (isEditMode) {
       setIsEditMode(false);
       setSelectedPanelId(null);
@@ -283,9 +281,6 @@ export function DashboardViewPage() {
     return selectedPanelId ? panels.find(p => p.id === selectedPanelId) || null : null;
   };
 
-  const handleFullscreenToggle = (panelId: string) => {
-    setFullscreenPanelId(fullscreenPanelId === panelId ? null : panelId);
-  };
 
 
 
@@ -316,40 +311,19 @@ export function DashboardViewPage() {
   }
 
   return (
-    <Box sx={{ padding: '8px 8px 8px 8px' }}>
+    <Box sx={{ padding: '8px 8px 8px 8px', border: '2px solid red' }} data-content-container="true">
       <Box sx={{ mt: 0 }}>
-        <ResponsiveGridLayout
-          className="layout"
-          layouts={{ lg: panels.map(panel => ({
-            i: panel.id,
-            x: panel.gridPos.x,
-            y: panel.gridPos.y,
-            w: panel.gridPos.w,
-            h: panel.gridPos.h
-          })) }}
-          breakpoints={{ lg: 1200, md: 996, sm: 768, xs: 480, xxs: 0 }}
-          cols={{ lg: 12, md: 10, sm: 6, xs: 4, xxs: 2 }}
-          rowHeight={100}
-          margin={[8, 8]}
-          containerPadding={[0, 0]}
+        <DashboardGrid
+          panels={panels}
+          isEditMode={isEditMode}
+          isEditable={featureFlags.enableAdHocDashboards}
+          showMenu={featureFlags.enableAdHocDashboards && !currentDashboard?.is_default}
+          showFullscreen={currentDashboard?.is_default || false}
+          dashboardId={currentDashboard?.id}
           onLayoutChange={onLayoutChange}
-          isDraggable={isEditMode}
-          isResizable={isEditMode}
-        >
-          {panels.map((panel) => (
-            <div key={panel.id} style={{ height: '100%' }}>
-              <DashboardPanelView 
-                panel={panel} 
-                isEditMode={isEditMode}
-                showMenu={!currentDashboard?.is_default}
-                showFullscreen={currentDashboard?.is_default || false}
-                onClick={() => handlePanelClick(panel.id)}
-                onDelete={handleDeletePanel}
-                onFullscreenToggle={handleFullscreenToggle}
-              />
-            </div>
-          ))}
-        </ResponsiveGridLayout>
+          onPanelClick={handlePanelClick}
+          onPanelDelete={handleDeletePanel}
+        />
       </Box>
 
       {/* Panel Editor Drawer */}

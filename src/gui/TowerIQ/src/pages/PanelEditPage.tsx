@@ -61,6 +61,7 @@ import DashboardPanelView from '../components/DashboardPanelView';
 import PanelEditorDrawer from '../components/PanelEditorDrawer';
 import TransformationsEditor from '../components/TransformationsEditor';
 import { generateUUID } from '../utils/uuid';
+import { API_CONFIG } from '../config/environment';
 
 // Sortable Query Accordion Component
 interface SortableQueryAccordionProps {
@@ -649,7 +650,7 @@ export function PanelEditPage() {
 
     setQueryError(null);
     try {
-      const response = await fetch('http://localhost:8000/api/query/preview', {
+      const response = await fetch(API_CONFIG.QUERY_PREVIEW_URL, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

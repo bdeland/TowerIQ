@@ -3,6 +3,7 @@ import { Box, Typography, Card, CardContent, Switch, FormControlLabel, TextField
 import Grid from '@mui/material/Grid';
 import { Settings as SettingsIcon, Notifications, Security, DisplaySettings, FolderOpen, Save, PlayArrow } from '@mui/icons-material';
 import { open } from '@tauri-apps/plugin-dialog';
+import { API_CONFIG } from '../config/environment';
 
 export function SettingsPage() {
   // Local state for database path and backup settings
@@ -25,8 +26,8 @@ export function SettingsPage() {
       setLoading(true);
       setError(null);
       const [pathRes, backupRes] = await Promise.all([
-        fetch('http://localhost:8000/api/settings/database/path'),
-        fetch('http://localhost:8000/api/settings/database/backup'),
+        fetch(`${API_CONFIG.BASE_URL}/settings/database/path`),
+        fetch(`${API_CONFIG.BASE_URL}/settings/database/backup`),
       ]);
       const pathData = await pathRes.json();
       const backupData = await backupRes.json();
@@ -68,13 +69,13 @@ export function SettingsPage() {
       setError(null);
       setSuccess(null);
       // Save DB path
-      await fetch('http://localhost:8000/api/settings/database/path', {
+      await fetch(`${API_CONFIG.BASE_URL}/settings/database/path`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ sqlite_path: sqlitePath }),
       });
       // Save backup settings
-      await fetch('http://localhost:8000/api/settings/database/backup', {
+      await fetch(`${API_CONFIG.BASE_URL}/settings/database/backup`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -101,7 +102,7 @@ export function SettingsPage() {
       setRunningBackup(true);
       setError(null);
       setSuccess(null);
-      const res = await fetch('http://localhost:8000/api/database/backup', { method: 'POST' });
+      const res = await fetch(`${API_CONFIG.BASE_URL}/database/backup`, { method: 'POST' });
       const data = await res.json();
       if (!data?.success) throw new Error(data?.message || 'Backup failed');
       setSuccess('Backup completed');
@@ -243,7 +244,7 @@ export function SettingsPage() {
                     const picked = await open({ directory: false, multiple: false, filters: [ { name: 'SQLite or Zip', extensions: ['sqlite', 'zip'] } ] });
                     const pickedPath = typeof picked === 'string' ? picked : Array.isArray(picked) ? String(picked[0]) : '';
                     if (!pickedPath) return;
-                    const res = await fetch('http://localhost:8000/api/database/restore', {
+                    const res = await fetch(`${API_CONFIG.BASE_URL}/database/restore`, {
                       method: 'POST',
                       headers: { 'Content-Type': 'application/json' },
                       body: JSON.stringify({ backup_path: pickedPath }),

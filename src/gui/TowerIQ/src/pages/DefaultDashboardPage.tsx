@@ -1,17 +1,12 @@
 import { Box, Typography, Alert, CircularProgress } from '@mui/material';
-import { Responsive, WidthProvider } from 'react-grid-layout';
-import 'react-grid-layout/css/styles.css';
 import { useEffect, useState } from 'react';
-import DashboardPanelView from '../components/DashboardPanelView';
+import { DashboardGrid } from '../components/DashboardGrid';
 import { useDashboard, DashboardPanel, Dashboard } from '../contexts/DashboardContext';
-
-const ResponsiveGridLayout = WidthProvider(Responsive);
 
 export function DefaultDashboardPage() {
   const { getDefaultDashboard, createDashboard, setDefaultDashboard, loading, error, clearError, setCurrentDashboard } = useDashboard();
   const [dashboard, setDashboard] = useState<Dashboard | null>(null);
   const [panels, setPanels] = useState<DashboardPanel[]>([]);
-  const [fullscreenPanelId, setFullscreenPanelId] = useState<string | null>(null);
 
   useEffect(() => {
     const loadDefault = async () => {
@@ -60,9 +55,6 @@ export function DefaultDashboardPage() {
     loadDefault();
   }, [getDefaultDashboard, createDashboard, setDefaultDashboard, setCurrentDashboard]);
 
-  const handleFullscreenToggle = (panelId: string) => {
-    setFullscreenPanelId(fullscreenPanelId === panelId ? null : panelId);
-  };
 
   if (loading) {
     return (
@@ -91,37 +83,16 @@ export function DefaultDashboardPage() {
   }
 
   return (
-    <Box sx={{ padding: '8px 8px 8px 8px' }}>
+    <Box sx={{ padding: '8px 8px 8px 8px', border: '2px solid red' }} data-content-container="true">
       <Box sx={{ mt: 0 }}>
-        <ResponsiveGridLayout
-          className="layout"
-          layouts={{ lg: panels.map(panel => ({
-            i: panel.id,
-            x: panel.gridPos.x,
-            y: panel.gridPos.y,
-            w: panel.gridPos.w,
-            h: panel.gridPos.h
-          })) }}
-          breakpoints={{ lg: 1200, md: 996, sm: 768, xs: 480, xxs: 0 }}
-          cols={{ lg: 12, md: 10, sm: 6, xs: 4, xxs: 2 }}
-          rowHeight={100}
-          margin={[8, 8]}
-          containerPadding={[0, 0]}
-          isDraggable={false}
-          isResizable={false}
-        >
-          {panels.map((panel) => (
-            <div key={panel.id} style={{ height: '100%' }}>
-              <DashboardPanelView 
-                panel={panel}
-                isEditMode={false}
-                showMenu={false}
-                showFullscreen={true}
-                onFullscreenToggle={handleFullscreenToggle}
-              />
-            </div>
-          ))}
-        </ResponsiveGridLayout>
+        <DashboardGrid
+          panels={panels}
+          isEditMode={false}
+          isEditable={false} // Default dashboard is always read-only
+          showMenu={false} // Explicitly disable panel menus for read-only experience
+          showFullscreen={true}
+          dashboardId={dashboard?.id}
+        />
       </Box>
     </Box>
   );

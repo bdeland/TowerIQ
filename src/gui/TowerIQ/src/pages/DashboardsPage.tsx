@@ -42,6 +42,8 @@ import {
 import { useNavigate } from 'react-router-dom';
 import { useDashboard, Dashboard, DashboardCreateRequest } from '../contexts/DashboardContext';
 import { generateUUID } from '../utils/uuid';
+import { featureFlags } from '../config/featureFlags';
+import { ConfirmationDialog } from '../components/ConfirmationDialog';
 
 export function DashboardsPage() {
   const navigate = useNavigate();
@@ -236,14 +238,16 @@ export function DashboardsPage() {
             Dashboards
           </Typography>
         </Box>
-        <Button
-          variant="contained"
-          startIcon={<AddIcon />}
-          onClick={() => setOpenCreateDialog(true)}
-          sx={{ minWidth: 140 }}
-        >
-          New Dashboard
-        </Button>
+        {featureFlags.enableAdHocDashboards && (
+          <Button
+            variant="contained"
+            startIcon={<AddIcon />}
+            onClick={() => setOpenCreateDialog(true)}
+            sx={{ minWidth: 140 }}
+          >
+            New Dashboard
+          </Button>
+        )}
       </Box>
 
       <Typography variant="body1" color="text.secondary" paragraph>
@@ -289,7 +293,7 @@ export function DashboardsPage() {
         </Box>
 
         {/* Bulk Actions - Overlay on top */}
-        {selectedDashboards.length > 0 && (
+        {featureFlags.enableAdHocDashboards && selectedDashboards.length > 0 && (
           <Box sx={{ 
             position: 'absolute',
             top: 0,
@@ -348,13 +352,15 @@ export function DashboardsPage() {
         <Table>
           <TableHead>
             <TableRow>
-              <TableCell padding="checkbox">
-                <Checkbox
-                  indeterminate={isIndeterminate}
-                  checked={isAllSelected}
-                  onChange={handleSelectAll}
-                />
-              </TableCell>
+              {featureFlags.enableAdHocDashboards && (
+                <TableCell padding="checkbox">
+                  <Checkbox
+                    indeterminate={isIndeterminate}
+                    checked={isAllSelected}
+                    onChange={handleSelectAll}
+                  />
+                </TableCell>
+              )}
               <TableCell>Name</TableCell>
               <TableCell>Description</TableCell>
               <TableCell>Tags</TableCell>
@@ -372,15 +378,17 @@ export function DashboardsPage() {
                   }
                 }}
               >
-                <TableCell padding="checkbox">
-                  <Checkbox
-                    checked={selectedDashboards.includes(dashboard.id)}
-                    onChange={(e) => {
-                      e.stopPropagation();
-                      handleSelectDashboard(dashboard.id);
-                    }}
-                  />
-                </TableCell>
+                {featureFlags.enableAdHocDashboards && (
+                  <TableCell padding="checkbox">
+                    <Checkbox
+                      checked={selectedDashboards.includes(dashboard.id)}
+                      onChange={(e) => {
+                        e.stopPropagation();
+                        handleSelectDashboard(dashboard.id);
+                      }}
+                    />
+                  </TableCell>
+                )}
                 <TableCell>
                   <Box sx={{ display: 'flex', alignItems: 'center' }}>
                     <DashboardIcon sx={{ mr: 1, color: 'primary.main', fontSize: 20 }} />
@@ -430,6 +438,7 @@ export function DashboardsPage() {
                 </TableCell>
                 <TableCell align="center">
                   <Box sx={{ display: 'flex', gap: 1, justifyContent: 'center' }}>
+                    {/* This action should always be available */}
                     <Tooltip title={dashboard.is_default ? "Default Dashboard" : "Set as Default"}>
                       <IconButton
                         size="small"
@@ -441,33 +450,38 @@ export function DashboardsPage() {
                         {dashboard.is_default ? <StarIcon fontSize="small" /> : <StarBorderIcon fontSize="small" />}
                       </IconButton>
                     </Tooltip>
-                    <Tooltip title="Edit Tags">
-                      <IconButton
-                        size="small"
-                        onClick={() => handleEditTags(dashboard)}
-                        sx={{ color: 'primary.main' }}
-                      >
-                        <EditIcon fontSize="small" />
-                      </IconButton>
-                    </Tooltip>
-                    <Tooltip title="Duplicate">
-                      <IconButton
-                        size="small"
-                        onClick={() => handleDuplicateDashboard(dashboard)}
-                        sx={{ color: 'primary.main' }}
-                      >
-                        <DuplicateIcon fontSize="small" />
-                      </IconButton>
-                    </Tooltip>
-                    <Tooltip title="Delete">
-                      <IconButton
-                        size="small"
-                        onClick={() => handleDeleteDashboard(dashboard)}
-                        sx={{ color: 'error.main' }}
-                      >
-                        <DeleteIcon fontSize="small" />
-                      </IconButton>
-                    </Tooltip>
+
+                    {featureFlags.enableAdHocDashboards && (
+                      <>
+                        <Tooltip title="Edit Tags">
+                          <IconButton
+                            size="small"
+                            onClick={() => handleEditTags(dashboard)}
+                            sx={{ color: 'primary.main' }}
+                          >
+                            <EditIcon fontSize="small" />
+                          </IconButton>
+                        </Tooltip>
+                        <Tooltip title="Duplicate">
+                          <IconButton
+                            size="small"
+                            onClick={() => handleDuplicateDashboard(dashboard)}
+                            sx={{ color: 'primary.main' }}
+                          >
+                            <DuplicateIcon fontSize="small" />
+                          </IconButton>
+                        </Tooltip>
+                        <Tooltip title="Delete">
+                          <IconButton
+                            size="small"
+                            onClick={() => handleDeleteDashboard(dashboard)}
+                            sx={{ color: 'error.main' }}
+                          >
+                            <DeleteIcon fontSize="small" />
+                          </IconButton>
+                        </Tooltip>
+                      </>
+                    )}
                   </Box>
                 </TableCell>
               </TableRow>
@@ -588,20 +602,16 @@ export function DashboardsPage() {
       </Dialog>
 
       {/* Delete Confirmation Dialog */}
-      <Dialog open={openDeleteDialog} onClose={() => setOpenDeleteDialog(false)}>
-        <DialogTitle>Delete Dashboard</DialogTitle>
-        <DialogContent>
-          <Typography>
-            Are you sure you want to delete "{dashboardToDelete?.title}"? This action cannot be undone.
-          </Typography>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setOpenDeleteDialog(false)}>Cancel</Button>
-          <Button onClick={confirmDeleteDashboard} color="error" variant="contained">
-            Delete
-          </Button>
-        </DialogActions>
-      </Dialog>
+      <ConfirmationDialog
+        open={openDeleteDialog}
+        title="Delete Dashboard"
+        message={`Are you sure you want to delete "${dashboardToDelete?.title}"? This action cannot be undone.`}
+        confirmText="Delete"
+        cancelText="Cancel"
+        confirmColor="error"
+        onConfirm={confirmDeleteDashboard}
+        onCancel={() => setOpenDeleteDialog(false)}
+      />
     </Box>
   );
 }

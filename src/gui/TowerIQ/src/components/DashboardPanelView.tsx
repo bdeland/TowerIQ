@@ -46,7 +46,7 @@ interface QueryResult {
   error?: string;
 }
 
-const DashboardPanelView: React.FC<DashboardPanelViewProps> = ({ 
+const DashboardPanelViewComponent: React.FC<DashboardPanelViewProps> = ({ 
   panel, 
   onClick, 
   isEditMode = false,
@@ -62,11 +62,13 @@ const DashboardPanelView: React.FC<DashboardPanelViewProps> = ({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const chartRef = useRef<ReactECharts>(null);
+  const dataFetchedRef = useRef<boolean>(false);
   
   // Menu state
   const [menuOpen, setMenuOpen] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
-  const [isFullscreen, setIsFullscreen] = useState(false);
+  
+
 
   // Fetch data from backend based on panel query
   const fetchPanelData = async () => {
@@ -293,9 +295,12 @@ const DashboardPanelView: React.FC<DashboardPanelViewProps> = ({
     }
   };
 
-  // Fetch data when panel changes
+  // Fetch data when panel changes, but only if not already fetched
   useEffect(() => {
-    fetchPanelData();
+    if (!dataFetchedRef.current) {
+      fetchPanelData();
+      dataFetchedRef.current = true;
+    }
   }, [panel.query]);
 
   // Re-render chart when data or echartsOption changes
@@ -405,9 +410,26 @@ const DashboardPanelView: React.FC<DashboardPanelViewProps> = ({
   };
 
   const handleFullscreenToggle = () => {
-    setIsFullscreen(!isFullscreen);
-    if (onFullscreenToggle) {
-      onFullscreenToggle(panel.id);
+    // Check if we're already in fullscreen mode (PanelViewPage)
+    const isInFullscreen = window.location.pathname.includes('/panels/') && window.location.pathname.includes('/view');
+    
+    if (isInFullscreen) {
+      // We're in fullscreen mode, exit by going back to dashboard
+      if (onFullscreenToggle) {
+        onFullscreenToggle(panel.id);
+      }
+    } else {
+      // We're in dashboard mode, enter fullscreen by navigating to PanelViewPage
+      const pathSegments = window.location.pathname.split('/').filter(Boolean);
+      const dashboardIndex = pathSegments.findIndex(segment => segment === 'dashboard' || segment === 'dashboards');
+      const dashboardId = dashboardIndex !== -1 && pathSegments[dashboardIndex + 1] ? pathSegments[dashboardIndex + 1] : null;
+      
+      if (dashboardId) {
+        navigate(`/dashboard/${dashboardId}/panels/${panel.id}/view`);
+      } else {
+        // Fallback to old URL structure if dashboard ID not found
+        navigate(`/panels/${panel.id}/view`);
+      }
     }
   };
 
@@ -447,7 +469,7 @@ const DashboardPanelView: React.FC<DashboardPanelViewProps> = ({
           id={`panel-fullscreen-button-${panel.id}`}
           size="small"
           onClick={handleFullscreenToggle}
-          aria-label={isFullscreen ? "Exit fullscreen" : "Enter fullscreen"}
+          aria-label={window.location.pathname.includes('/panels/') && window.location.pathname.includes('/view') ? "Exit fullscreen" : "Enter fullscreen"}
           sx={{ 
             padding: '4px',
             color: 'text.secondary',
@@ -459,7 +481,10 @@ const DashboardPanelView: React.FC<DashboardPanelViewProps> = ({
             }
           }}
         >
-          {isFullscreen ? <FullscreenExitIcon fontSize="small" /> : <FullscreenIcon fontSize="small" />}
+          {window.location.pathname.includes('/panels/') && window.location.pathname.includes('/view') ? 
+            <FullscreenExitIcon fontSize="small" /> : 
+            <FullscreenIcon fontSize="small" />
+          }
         </IconButton>
       ) : showMenu && (
         <IconButton
@@ -668,8 +693,8 @@ const DashboardPanelView: React.FC<DashboardPanelViewProps> = ({
   return (
     <Box
       sx={{
-        width: isFullscreen ? '100vw' : '100%',
-        height: isFullscreen ? 'calc(100vh - 81px)' : '100%', // Account for app bar height (40*2+1)
+        width: '100%',
+        height: '100%',
         border: isEditMode ? '1px solid' : '1px solid',
         borderColor: isEditMode ? 'divider' : 'divider',
         borderRadius: 0.25,
@@ -684,12 +709,7 @@ const DashboardPanelView: React.FC<DashboardPanelViewProps> = ({
         display: 'flex',
         flexDirection: 'column',
         overflow: 'visible', // Allow rounded corners to be visible
-        position: isFullscreen ? 'fixed' : 'relative', // Fixed positioning for fullscreen
-        top: isFullscreen ? 0 : 'auto',
-        left: isFullscreen ? 0 : 'auto',
-        right: isFullscreen ? 0 : 'auto',
-        bottom: isFullscreen ? 0 : 'auto',
-        zIndex: isFullscreen ? 9999 : 'auto' // High z-index for fullscreen
+        position: 'relative'
       }}
       onClick={handlePanelClick}
     >
@@ -713,5 +733,7 @@ const DashboardPanelView: React.FC<DashboardPanelViewProps> = ({
     </Box>
   );
 };
+
+const DashboardPanelView = React.memo(DashboardPanelViewComponent);
 
 export default DashboardPanelView;

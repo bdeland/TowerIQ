@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode, useCallback } from 'react';
 import { TransformationConfig } from '../services/transformationService';
+import { API_CONFIG } from '../config/environment';
 
 // Dashboard interfaces based on the backend schema
 export interface DashboardPanel {
@@ -126,7 +127,7 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children }
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const API_BASE = 'http://localhost:8000/api';
+  const API_BASE = API_CONFIG.BASE_URL;
 
   const clearError = useCallback(() => setError(null), []);
 
