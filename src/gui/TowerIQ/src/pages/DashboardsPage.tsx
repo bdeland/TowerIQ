@@ -44,6 +44,7 @@ import { useDashboard, Dashboard, DashboardCreateRequest } from '../contexts/Das
 import { generateUUID } from '../utils/uuid';
 import { featureFlags } from '../config/featureFlags';
 import { ConfirmationDialog } from '../components/ConfirmationDialog';
+import { defaultDashboard } from '../config/defaultDashboard';
 
 export function DashboardsPage() {
   const navigate = useNavigate();
@@ -69,13 +70,16 @@ export function DashboardsPage() {
   const [selectedDashboards, setSelectedDashboards] = useState<string[]>([]);
   const [tagFilter, setTagFilter] = useState<string>('all');
 
-  // Get all unique tags from dashboards
-  const allTags = Array.from(new Set(dashboards.flatMap(d => d.tags))).sort();
+  // Combine database dashboards with the hardcoded default dashboard
+  const allDashboards = [defaultDashboard, ...dashboards];
+
+  // Get all unique tags from all dashboards
+  const allTags = Array.from(new Set(allDashboards.flatMap(d => d.tags))).sort();
 
   // Filter dashboards based on tag filter
   const filteredDashboards = tagFilter === 'all' 
-    ? dashboards 
-    : dashboards.filter(d => d.tags.includes(tagFilter));
+    ? allDashboards 
+    : allDashboards.filter(d => d.tags.includes(tagFilter));
 
   const handleCreateDashboard = async () => {
     if (newDashboardName.trim()) {
@@ -121,6 +125,11 @@ export function DashboardsPage() {
   };
 
   const handleDeleteDashboard = (dashboard: Dashboard) => {
+    // Prevent deleting the default dashboard
+    if (dashboard.id === 'default-dashboard') {
+      console.log('Cannot delete the default dashboard');
+      return;
+    }
     setDashboardToDelete(dashboard);
     setOpenDeleteDialog(true);
   };
@@ -175,6 +184,11 @@ export function DashboardsPage() {
   };
 
   const handleSetDefault = async (dashboard: Dashboard) => {
+    // Prevent setting default for the hardcoded default dashboard
+    if (dashboard.id === 'default-dashboard') {
+      console.log('Default dashboard is already the default');
+      return;
+    }
     await setDefaultDashboard(dashboard.id);
   };
 
@@ -439,15 +453,15 @@ export function DashboardsPage() {
                 <TableCell align="center">
                   <Box sx={{ display: 'flex', gap: 1, justifyContent: 'center' }}>
                     {/* This action should always be available */}
-                    <Tooltip title={dashboard.is_default ? "Default Dashboard" : "Set as Default"}>
+                    <Tooltip title={(dashboard.is_default || dashboard.id === 'default-dashboard') ? "Default Dashboard" : "Set as Default"}>
                       <IconButton
                         size="small"
                         onClick={() => handleSetDefault(dashboard)}
                         sx={{ 
-                          color: dashboard.is_default ? 'warning.main' : 'primary.main' 
+                          color: (dashboard.is_default || dashboard.id === 'default-dashboard') ? 'warning.main' : 'primary.main' 
                         }}
                       >
-                        {dashboard.is_default ? <StarIcon fontSize="small" /> : <StarBorderIcon fontSize="small" />}
+                        {(dashboard.is_default || dashboard.id === 'default-dashboard') ? <StarIcon fontSize="small" /> : <StarBorderIcon fontSize="small" />}
                       </IconButton>
                     </Tooltip>
 

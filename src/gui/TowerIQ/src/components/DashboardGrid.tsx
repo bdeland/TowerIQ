@@ -4,7 +4,7 @@ import { Box, Typography } from '@mui/material';
 import { useMemo, memo, useCallback, useEffect, useState } from 'react';
 import DashboardPanelView from './DashboardPanelView';
 import { DashboardPanel } from '../contexts/DashboardContext';
-import { layoutCache, panelsToLayout, layoutsEqual } from '../utils/layoutCache';
+import { layoutCache, panelsToLayout } from '../utils/layoutCache';
 
 const ResponsiveGridLayout = WidthProvider(Responsive);
 
@@ -38,6 +38,13 @@ const DashboardGridComponent = ({
   // Load cached layout on mount or when dashboardId changes
   useEffect(() => {
     if (dashboardId) {
+      // Skip caching for default dashboard to allow gridPos changes to take effect
+      if (dashboardId === 'default-dashboard') {
+        const panelLayout = panelsToLayout(panels);
+        setCachedLayout(panelLayout);
+        return;
+      }
+      
       const cached = layoutCache.getLayout(dashboardId, 'lg');
       if (cached) {
         setCachedLayout(cached);
@@ -62,8 +69,11 @@ const DashboardGridComponent = ({
   // Handle layout changes and update cache
   const handleLayoutChange = useCallback((newLayout: Layout[]) => {
     if (dashboardId) {
-      // Update cache
-      layoutCache.setLayout(dashboardId, 'lg', newLayout);
+      // Skip caching for default dashboard
+      if (dashboardId !== 'default-dashboard') {
+        // Update cache
+        layoutCache.setLayout(dashboardId, 'lg', newLayout);
+      }
       setCachedLayout(newLayout);
     }
     
@@ -73,6 +83,34 @@ const DashboardGridComponent = ({
     }
   }, [dashboardId, onLayoutChange]);
 
+  // Calculate grid lines to show the underlying 12-column grid system
+  // Use actual rowHeight from react-grid-layout (100px) and margin (8px)
+  const gridSystemStyle = useMemo(() => {
+    const rowHeight = 100; // Match the rowHeight prop in ResponsiveGridLayout
+    const margin = 8; // Match the margin prop in ResponsiveGridLayout
+    
+    // Calculate how many rows we need based on the highest panel position
+    const maxRow = Math.max(0, ...panels.map(panel => panel.gridPos.y + panel.gridPos.h));
+    const numRows = Math.max(1, maxRow + 1); // At least 1 row, or max panel position + 1
+
+    // Generate vertical lines for all 12 columns (including edges)
+    const verticalLines = Array.from({ length: 13 }, (_, i) => 
+      `linear-gradient(to right, transparent ${(i / 12) * 100}%, #e0e0e0 ${(i / 12) * 100}%, #e0e0e0 ${(i / 12) * 100 + 0.1}%, transparent ${(i / 12) * 100 + 0.1}%)`
+    ).join(', ');
+
+    // Generate horizontal lines for all rows (including edges)
+    // Use actual rowHeight + margin spacing
+    const horizontalLines = Array.from({ length: numRows + 1 }, (_, i) => 
+      `linear-gradient(to bottom, transparent ${i * (rowHeight + margin)}px, #e0e0e0 ${i * (rowHeight + margin)}px, #e0e0e0 ${i * (rowHeight + margin) + 1}px, transparent ${i * (rowHeight + margin) + 1}px)`
+    ).join(', ');
+
+    return {
+      backgroundImage: `${verticalLines}, ${horizontalLines}`,
+      backgroundSize: '100% 100%',
+      backgroundRepeat: 'no-repeat'
+    };
+  }, [panels]);
+
   // Memoize the panel components to prevent unnecessary re-renders
   const panelComponents = useMemo(() => {
     return panels.map((panel) => (
@@ -80,10 +118,8 @@ const DashboardGridComponent = ({
         key={panel.id} 
         style={{ 
           height: '100%',
-          border: '2px solid #ff9800',
-          borderRadius: '4px',
-          backgroundColor: 'rgba(255, 152, 0, 0.1)',
-          padding: '2px'
+          margin: '0px', // Add consistent margin on all sides to center panels in grid cells
+          boxSizing: 'border-box'
         }}
       >
         <DashboardPanelView 
@@ -105,7 +141,7 @@ const DashboardGridComponent = ({
         padding: 4, 
         textAlign: 'center', 
         backgroundColor: 'rgba(255, 152, 0, 0.1)',
-        border: '2px solid #ff9800',
+        border: '0.5px solid #ff9800',
         borderRadius: '4px',
         minHeight: '200px',
         display: 'flex',
@@ -138,12 +174,8 @@ const DashboardGridComponent = ({
       // Use transform instead of position for better performance
       useCSSTransforms={true}
       style={{
-        backgroundImage: `
-          linear-gradient(to right, #e0e0e0 1px, transparent 1px),
-          linear-gradient(to bottom, #e0e0e0 1px, transparent 1px)
-        `,
-        backgroundSize: 'calc(100% / 12) 100px', // 12 columns, 100px row height
-        border: '2px solid #2196f3',
+        ...gridSystemStyle,
+        border: '1px solid #2196f3',
         borderRadius: '4px',
         minHeight: '200px'
       }}

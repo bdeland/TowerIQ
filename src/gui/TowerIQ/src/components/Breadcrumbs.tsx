@@ -3,6 +3,7 @@ import { NavigateNext as NavigateNextIcon } from '@mui/icons-material';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useDashboard } from '../contexts/DashboardContext';
 import { useEffect, useState, useMemo } from 'react';
+import { defaultDashboard } from '../config/defaultDashboard';
 
 interface BreadcrumbItem {
   label: string;
@@ -44,6 +45,12 @@ export function Breadcrumbs() {
   // Update data fetching effects
   useEffect(() => {
     if (dashboardId) {
+      // Check if this is the default dashboard first
+      if (dashboardId === 'default-dashboard') {
+        setDashboardTitle(defaultDashboard.title);
+        return;
+      }
+      
       const dashboard = dashboards.find(d => d.id === dashboardId);
       if (dashboard) {
         setDashboardTitle(dashboard.title);
@@ -63,15 +70,24 @@ export function Breadcrumbs() {
   }, [dashboardId, dashboards, fetchDashboard]);
 
   useEffect(() => {
-    if (panelId && dashboards.length > 0) {
+    if (panelId) {
       let foundPanel = null;
-      for (const dashboard of dashboards) {
-        const panel = dashboard.config?.panels?.find((p: any) => p.id === panelId);
-        if (panel) {
-          foundPanel = panel;
-          break;
+      
+      // Check default dashboard first
+      const defaultPanel = defaultDashboard.config?.panels?.find((p: any) => p.id === panelId);
+      if (defaultPanel) {
+        foundPanel = defaultPanel;
+      } else if (dashboards.length > 0) {
+        // Then check other dashboards
+        for (const dashboard of dashboards) {
+          const panel = dashboard.config?.panels?.find((p: any) => p.id === panelId);
+          if (panel) {
+            foundPanel = panel;
+            break;
+          }
         }
       }
+      
       setPanelTitle(foundPanel?.title || '');
     } else {
       setPanelTitle('');

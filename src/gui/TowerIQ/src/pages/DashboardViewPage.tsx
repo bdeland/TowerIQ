@@ -8,6 +8,7 @@ import PanelEditorDrawer from '../components/PanelEditorDrawer';
 import { DashboardGrid } from '../components/DashboardGrid';
 import { generateUUID } from '../utils/uuid';
 import { featureFlags } from '../config/featureFlags';
+import { defaultDashboard } from '../config/defaultDashboard';
 
 export function DashboardViewPage() {
   const { id } = useParams<{ id: string }>();
@@ -29,6 +30,7 @@ export function DashboardViewPage() {
   // Handler functions for dashboard edit context
   const handleEditModeToggle = useCallback(() => {
     if (!featureFlags.enableAdHocDashboards) return; // Prevent entering edit mode
+    if (id === 'default-dashboard') return; // Prevent editing default dashboard
     if (isEditMode) {
       setIsEditMode(false);
       setSelectedPanelId(null);
@@ -38,7 +40,7 @@ export function DashboardViewPage() {
       setIsEditMode(true);
       setOriginalPanels([...panels]);
     }
-  }, [isEditMode, originalPanels, panels]);
+  }, [isEditMode, originalPanels, panels, id]);
 
   const handleAddVisualization = useCallback(() => {
     // Call addPanel function (will be defined later)
@@ -85,6 +87,12 @@ export function DashboardViewPage() {
 
   const handleSave = useCallback(async () => {
     if (!currentDashboard || !id) return;
+    
+    // Prevent saving changes to the default dashboard
+    if (id === 'default-dashboard') {
+      console.log('DashboardViewPage - Cannot save changes to default dashboard');
+      return;
+    }
     
     setSaving(true);
     try {
@@ -209,6 +217,20 @@ export function DashboardViewPage() {
     const loadDashboard = async () => {
       if (id) {
         console.log('DashboardViewPage - Loading dashboard with ID:', id);
+        
+        // Check if this is the default dashboard
+        if (id === 'default-dashboard') {
+          console.log('DashboardViewPage - Loading hardcoded default dashboard');
+          const dashboard = defaultDashboard;
+          setCurrentDashboard(dashboard);
+          setPanels(dashboard.config.panels || []);
+          setIsEditMode(false);
+          setSelectedPanelId(null);
+          setOriginalPanels(dashboard.config.panels || []);
+          return;
+        }
+        
+        // For other dashboards, fetch from backend
         const dashboard = await fetchDashboard(id);
         if (dashboard) {
           console.log('DashboardViewPage - Setting current dashboard:', dashboard.title);

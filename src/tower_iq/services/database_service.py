@@ -210,7 +210,7 @@ class DatabaseService:
         self.logger.info("Database migration to version %s completed.", self.DB_VERSION)
         
         # Create default dashboards after schema is ready
-        self.create_default_dashboards()
+        # self.create_default_dashboards() # <--- THIS LINE IS NOW COMMENTED OUT
 
     def _migrate_settings_table_if_needed(self):
         """Migrate the settings table to include metadata if needed."""
