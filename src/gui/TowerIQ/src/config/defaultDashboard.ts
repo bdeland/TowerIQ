@@ -12,7 +12,7 @@ export const defaultDashboard: Dashboard = {
         id: generateUUID(),
         type: 'stat',
         title: 'Welcome to TowerIQ',
-        gridPos: { x: 0, y: 0, w: 2, h: 2 },
+        gridPos: { x: 0, y: 0, w: 3, h: 3 },
         query: "SELECT 'Ready to Monitor' AS value",
         echartsOption: {
           tooltip: { show: false },
@@ -36,7 +36,7 @@ export const defaultDashboard: Dashboard = {
         id: generateUUID(),
         type: 'timeseries',
         title: 'Coins Per Hour (Last 10 Runs)',
-        gridPos: { x: 0, y: 2, w: 4, h: 4 },
+        gridPos: { x: 0, y: 3, w: 4, h: 4 },
         query: "SELECT start_time, CPH FROM runs ORDER BY start_time DESC LIMIT 10",
         echartsOption: {
           xAxis: { type: 'time' },

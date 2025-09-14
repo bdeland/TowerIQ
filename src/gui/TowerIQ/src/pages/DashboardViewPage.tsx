@@ -1,5 +1,5 @@
 import { Box, Typography, Alert, CircularProgress } from '@mui/material';
-import { Layout } from 'react-grid-layout';
+// Removed react-grid-layout import as we're now using native CSS Grid
 import { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useDashboard, DashboardPanel } from '../contexts/DashboardContext';
@@ -253,25 +253,10 @@ export function DashboardViewPage() {
 
   // addPanel functionality moved to handleAddVisualization
 
-  const onLayoutChange = (layout: Layout[]) => {
-    console.log('Layout changed:', layout);
+  const onLayoutChange = (updatedPanels: DashboardPanel[]) => {
+    console.log('Layout changed:', updatedPanels);
     // Only update panel positions when in edit mode
     if (isEditMode) {
-      const updatedPanels = panels.map(panel => {
-        const layoutItem = layout.find(item => item.i === panel.id);
-        if (layoutItem) {
-          return {
-            ...panel,
-            gridPos: {
-              x: layoutItem.x,
-              y: layoutItem.y,
-              w: layoutItem.w,
-              h: layoutItem.h
-            }
-          };
-        }
-        return panel;
-      });
       setPanels(updatedPanels);
     }
   };
