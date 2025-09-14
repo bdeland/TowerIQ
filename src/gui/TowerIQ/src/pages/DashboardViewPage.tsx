@@ -9,6 +9,83 @@ import { DashboardGrid } from '../components/DashboardGrid';
 import { generateUUID } from '../utils/uuid';
 import { featureFlags } from '../config/featureFlags';
 import { defaultDashboard } from '../config/defaultDashboard';
+import { DashboardVariableProvider, useDashboardVariable } from '../contexts/DashboardVariableContext';
+import { composeQuery } from '../utils/queryComposer';
+import { API_CONFIG } from '../config/environment';
+
+// Component that handles default dashboard with dynamic data fetching
+function DefaultDashboardContent({ panels, currentDashboard, isEditMode, selectedPanelId, onLayoutChange, onPanelClick, onPanelDelete, onUpdatePanel, onDeletePanel, getSelectedPanel }: {
+  panels: DashboardPanel[];
+  currentDashboard: any;
+  isEditMode: boolean;
+  selectedPanelId: string | null;
+  onLayoutChange: (panels: DashboardPanel[]) => void;
+  onPanelClick: (panelId: string) => void;
+  onPanelDelete: (panelId: string) => void;
+  onUpdatePanel: (panel: DashboardPanel) => void;
+  onDeletePanel: (panelId: string) => void;
+  getSelectedPanel: () => DashboardPanel | null;
+}) {
+  const { selectedValues } = useDashboardVariable();
+  const [panelData, setPanelData] = useState<Record<string, any[]>>({});
+
+  useEffect(() => {
+    const fetchAllPanelData = async () => {
+      for (const panel of panels) {
+        if (panel.query) {
+          const finalQuery = composeQuery(panel.query, selectedValues);
+          try {
+            const response = await fetch(`${API_CONFIG.BASE_URL}/query`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ query: finalQuery }),
+            });
+            
+            if (!response.ok) {
+              throw new Error(`Query failed: ${response.statusText}`);
+            }
+            
+            const result = await response.json();
+            setPanelData(prev => ({ ...prev, [panel.id]: result.data }));
+          } catch (error) {
+            console.error(`Failed to fetch data for panel ${panel.title}:`, error);
+            setPanelData(prev => ({ ...prev, [panel.id]: [] }));
+          }
+        }
+      }
+    };
+
+    fetchAllPanelData();
+  }, [selectedValues, panels]);
+
+  return (
+    <Box sx={{ padding: '8px 8px 8px 8px', border: '2px solid red' }} data-content-container="true">
+      <Box sx={{ mt: 0 }}>
+        <DashboardGrid
+          panels={panels}
+          panelData={panelData}
+          isEditMode={isEditMode}
+          isEditable={featureFlags.enableAdHocDashboards}
+          showMenu={featureFlags.enableAdHocDashboards && !currentDashboard?.is_default}
+          showFullscreen={currentDashboard?.is_default || false}
+          dashboardId={currentDashboard?.id}
+          onLayoutChange={onLayoutChange}
+          onPanelClick={onPanelClick}
+          onPanelDelete={onPanelDelete}
+        />
+      </Box>
+
+      {/* Panel Editor Drawer */}
+      <PanelEditorDrawer
+        open={selectedPanelId !== null}
+        panel={getSelectedPanel()}
+        onClose={() => setSelectedPanelId(null)}
+        onUpdatePanel={onUpdatePanel}
+        onDeletePanel={onDeletePanel}
+      />
+    </Box>
+  );
+}
 
 export function DashboardViewPage() {
   const { id } = useParams<{ id: string }>();
@@ -317,7 +394,7 @@ export function DashboardViewPage() {
     );
   }
 
-  return (
+  const dashboardContent = (
     <Box sx={{ padding: '8px 8px 8px 8px', border: '2px solid red' }} data-content-container="true">
       <Box sx={{ mt: 0 }}>
         <DashboardGrid
@@ -343,4 +420,24 @@ export function DashboardViewPage() {
       />
     </Box>
   );
+
+  // Use DefaultDashboardContent for default dashboard (provider is now at app level)
+  if (currentDashboard?.is_default) {
+    return (
+      <DefaultDashboardContent
+        panels={panels}
+        currentDashboard={currentDashboard}
+        isEditMode={isEditMode}
+        selectedPanelId={selectedPanelId}
+        onLayoutChange={onLayoutChange}
+        onPanelClick={handlePanelClick}
+        onPanelDelete={handleDeletePanel}
+        onUpdatePanel={handleUpdatePanel}
+        onDeletePanel={handleDeletePanel}
+        getSelectedPanel={getSelectedPanel}
+      />
+    );
+  }
+
+  return dashboardContent;
 }

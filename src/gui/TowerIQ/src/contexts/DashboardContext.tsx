@@ -2,6 +2,20 @@ import React, { createContext, useContext, useState, useEffect, ReactNode, useCa
 import { TransformationConfig } from '../services/transformationService';
 import { API_CONFIG } from '../config/environment';
 
+// Dashboard Variable interfaces
+export interface DashboardVariableOption {
+  label: string;
+  value: any;
+}
+
+export interface DashboardVariable {
+  name: string;
+  label: string;
+  type: 'multiselect' | 'singleselect';
+  options: DashboardVariableOption[];
+  defaultValue: any;
+}
+
 // Dashboard interfaces based on the backend schema
 export interface DashboardPanel {
   id: string;
@@ -38,6 +52,7 @@ export interface Dashboard {
       to: string;
     };
   };
+  variables?: DashboardVariable[];
   tags: string[];
   created_at: string;
   updated_at: string;

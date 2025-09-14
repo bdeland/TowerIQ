@@ -28,9 +28,12 @@ import { DashboardPanel } from '../contexts/DashboardContext';
 import { useNavigate } from 'react-router-dom';
 import { applyTransformations } from '../services/transformationService';
 import { grafanaToECharts, mergeWithEChartsOption } from '../utils/grafanaToECharts';
+import { API_CONFIG } from '../config/environment';
+import { getCategoricalColor } from '../utils/colorPalette';
 
 interface DashboardPanelViewProps {
   panel: DashboardPanel;
+  data?: any[]; // Pre-fetched data to use instead of fetching
   onClick?: () => void;
   isEditMode?: boolean;
   showMenu?: boolean;
@@ -46,8 +49,19 @@ interface QueryResult {
   error?: string;
 }
 
+// Tier color mapping function using standardized color palette
+const getTierColor = (tier: number, availableTiers: number[]): string => {
+  // Find the index of this tier in the sorted available tiers array
+  const sortedTiers = [...availableTiers].sort((a, b) => a - b);
+  const tierIndex = sortedTiers.indexOf(tier);
+  
+  // Use categorical colors in order for maximum contrast
+  return getCategoricalColor(tierIndex >= 0 ? tierIndex : 0);
+};
+
 const DashboardPanelViewComponent: React.FC<DashboardPanelViewProps> = ({ 
   panel, 
+  data,
   onClick, 
   isEditMode = false,
   showMenu = true,
@@ -77,11 +91,18 @@ const DashboardPanelViewComponent: React.FC<DashboardPanelViewProps> = ({
       return;
     }
 
+    // Don't fetch if query contains placeholders - should use pre-fetched data
+    if (panel.query.includes('${')) {
+      console.log('DashboardPanelView: Skipping fetch for query with placeholders:', panel.query);
+      setError('Query contains placeholders - waiting for processed data');
+      return;
+    }
+
     setLoading(true);
     setError(null);
 
     try {
-      const response = await fetch('http://localhost:8000/api/query', {
+      const response = await fetch(`${API_CONFIG.BASE_URL}/query`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -253,7 +274,29 @@ const DashboardPanelViewComponent: React.FC<DashboardPanelViewProps> = ({
         // For bar charts
         const mapping = getColumnMapping(queryResult.data);
         const categories = queryResult.data.map(row => row[mapping.xAxis]);
-        const values = queryResult.data.map(row => row[mapping.yAxis]);
+        
+        // Check if we have tier data for color mapping
+        const hasTierData = queryResult.data.length > 0 && 'tier' in queryResult.data[0];
+        
+        let chartData;
+        if (hasTierData) {
+          // Get all unique tiers from the data for proper color mapping
+          const availableTiers = [...new Set(queryResult.data.map(row => row.tier))].filter(tier => tier != null);
+          
+          // Create data objects with tier information for color mapping
+          chartData = queryResult.data.map(row => ({
+            value: row[mapping.yAxis],
+            tier: row.tier,
+            itemStyle: {
+              color: getTierColor(row.tier, availableTiers),
+              borderColor: '#000000',
+              borderWidth: 1
+            }
+          }));
+        } else {
+          // Simple values array for regular bar charts
+          chartData = queryResult.data.map(row => row[mapping.yAxis]);
+        }
         
         return {
           ...baseOption,
@@ -261,7 +304,7 @@ const DashboardPanelViewComponent: React.FC<DashboardPanelViewProps> = ({
           series: [{
             ...baseOption.series?.[0],
             type: 'bar',
-            data: values
+            data: chartData
           }]
         };
       }
@@ -298,10 +341,30 @@ const DashboardPanelViewComponent: React.FC<DashboardPanelViewProps> = ({
   // Fetch data when panel changes, but only if not already fetched
   useEffect(() => {
     if (!dataFetchedRef.current) {
-      fetchPanelData();
+      // Use pre-fetched data if available, otherwise fetch from API
+      if (data) {
+        setQueryResult({ data });
+        if (onDataFetched) {
+          onDataFetched(data);
+        }
+      } else {
+        fetchPanelData();
+      }
       dataFetchedRef.current = true;
     }
-  }, [panel.query]);
+  }, [panel.query, data]);
+
+  // Reset dataFetchedRef when data prop changes
+  useEffect(() => {
+    if (data) {
+      setQueryResult({ data });
+      setError(null); // Clear any placeholder-related errors
+      setLoading(false); // Ensure loading state is cleared
+      if (onDataFetched) {
+        onDataFetched(data);
+      }
+    }
+  }, [data, onDataFetched]);
 
   // Re-render chart when data or echartsOption changes
   useEffect(() => {

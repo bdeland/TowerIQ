@@ -6,6 +6,7 @@ import { useResponsiveGrid, adjustPanelForBreakpoint } from '../hooks/useRespons
 
 interface DashboardGridProps {
   panels: DashboardPanel[];
+  panelData?: Record<string, any[]>; // Optional panel data for pre-fetched data
   isEditMode: boolean;
   isEditable: boolean; // New prop to control edit capabilities
   showMenu: boolean;
@@ -20,6 +21,7 @@ interface DashboardGridProps {
 
 const DashboardGridComponent = ({
   panels,
+  panelData,
   isEditMode,
   isEditable,
   showMenu,
@@ -171,6 +173,7 @@ const DashboardGridComponent = ({
         >
           <DashboardPanelView 
             panel={panel}
+            data={panelData?.[panel.id]}
             isEditMode={isEditMode}
             showMenu={showMenu}
             showFullscreen={showFullscreen}
@@ -181,7 +184,7 @@ const DashboardGridComponent = ({
         </div>
       );
     });
-  }, [panels, isEditMode, isEditable, showMenu, showFullscreen, draggedPanel, onPanelClick, onPanelDelete, onPanelFullscreenToggle, handleDragStart]);
+  }, [panels, panelData, isEditMode, isEditable, showMenu, showFullscreen, draggedPanel, onPanelClick, onPanelDelete, onPanelFullscreenToggle, handleDragStart]);
 
   // Handle responsive breakpoint changes and adjust panels
   useEffect(() => {
@@ -279,6 +282,8 @@ export const DashboardGrid = memo(DashboardGridComponent, (prevProps, nextProps)
     prevProps.showMenu === nextProps.showMenu &&
     prevProps.showFullscreen === nextProps.showFullscreen &&
     prevProps.enableResponsive === nextProps.enableResponsive &&
+    // Compare panelData
+    JSON.stringify(prevProps.panelData) === JSON.stringify(nextProps.panelData) &&
     // Deep compare panels array
     prevProps.panels.every((panel, index) => {
       const nextPanel = nextProps.panels[index];

@@ -30,6 +30,7 @@ import { Header } from './components/Header';
 import { Sidebar } from './components/Sidebar';
 import { DashboardProvider } from './contexts/DashboardContext';
 import { DashboardEditProvider } from './contexts/DashboardEditContext';
+import { DashboardVariableProvider } from './contexts/DashboardVariableContext';
 
 import './App.css';
 
@@ -264,6 +265,9 @@ function DashboardLayout() {
   const [sidebarDocked, setSidebarDocked] = useState(false); // Manages the docked state
   const location = useLocation();
   
+  // Check if we're viewing the default dashboard
+  const isDefaultDashboard = location.pathname === '/dashboard/default-dashboard';
+  
   // Check if we're on the PanelEditPage to remove bottom padding
   const isPanelEditPage = location.pathname.includes('/dashboard/') && location.pathname.includes('/panels/') && location.pathname.includes('/edit');
 
@@ -355,7 +359,7 @@ function DashboardLayout() {
 
 
 
-  return (
+  const layoutContent = (
     <ThemeProvider theme={theme}>
       <Box sx={{ display: 'flex' }}>
         <CssBaseline />
@@ -414,6 +418,17 @@ function DashboardLayout() {
       </Box>
     </ThemeProvider>
   );
+
+  // Wrap with DashboardVariableProvider if viewing the default dashboard
+  if (isDefaultDashboard) {
+    return (
+      <DashboardVariableProvider>
+        {layoutContent}
+      </DashboardVariableProvider>
+    );
+  }
+
+  return layoutContent;
 }
 
 function App() {
