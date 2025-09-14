@@ -1,7 +1,8 @@
 import { Box, Typography } from '@mui/material';
-import { useMemo, memo, useCallback, useState } from 'react';
+import { useMemo, memo, useCallback, useState, useEffect } from 'react';
 import DashboardPanelView from './DashboardPanelView';
 import { DashboardPanel } from '../contexts/DashboardContext';
+import { useResponsiveGrid, adjustPanelForBreakpoint } from '../hooks/useResponsiveGrid';
 
 interface DashboardGridProps {
   panels: DashboardPanel[];
@@ -14,6 +15,7 @@ interface DashboardGridProps {
   onPanelClick?: (panelId: string) => void;
   onPanelDelete?: (panelId: string) => void;
   onPanelFullscreenToggle?: (panelId: string) => void;
+  enableResponsive?: boolean; // New prop to enable/disable responsive behavior
 }
 
 const DashboardGridComponent = ({
@@ -25,36 +27,44 @@ const DashboardGridComponent = ({
   onLayoutChange,
   onPanelClick,
   onPanelDelete,
-  onPanelFullscreenToggle
+  onPanelFullscreenToggle,
+  enableResponsive = true
 }: DashboardGridProps) => {
   const [draggedPanel, setDraggedPanel] = useState<string | null>(null);
   const [dragPosition, setDragPosition] = useState<{ x: number; y: number } | null>(null);
+  const [previousColumns, setPreviousColumns] = useState<number>(12);
+  
+  // Get responsive grid configuration
+  const { columns: responsiveColumns, cellHeight, breakpoint } = useResponsiveGrid();
+  const gridColumns = enableResponsive ? responsiveColumns : 12;
 
-  // Calculate grid dimensions based on panels
+  // Calculate grid dimensions based on panels and responsive settings
   const gridDimensions = useMemo(() => {
-    if (panels.length === 0) return { rows: 6, cols: 12 };
+    if (panels.length === 0) return { rows: 6, cols: gridColumns };
     
     const maxX = Math.max(...panels.map(p => p.gridPos.x + p.gridPos.w));
     const maxY = Math.max(...panels.map(p => p.gridPos.y + p.gridPos.h));
     
     return {
       rows: Math.max(6, maxY), // Minimum 6 rows
-      cols: Math.max(12, maxX)  // Minimum 12 columns
+      cols: Math.max(gridColumns, maxX)  // Use responsive columns or panel requirement
     };
-  }, [panels]);
+  }, [panels, gridColumns]);
 
-  // Create CSS Grid styles
+  // Create CSS Grid styles with responsive cell height
   const gridContainerStyle = useMemo(() => ({
     display: 'grid',
     gridTemplateColumns: `repeat(${gridDimensions.cols}, 1fr)`,
-    gridTemplateRows: `repeat(${gridDimensions.rows}, 100px)`,
+    gridTemplateRows: `repeat(${gridDimensions.rows}, ${cellHeight}px)`,
     gap: '4px',
     padding: '0px',
     border: '1px solid #2196f3',
     borderRadius: '4px',
     minHeight: '200px',
     position: 'relative' as const,
-  }), [gridDimensions]);
+    // Add transition for smooth responsive changes
+    transition: 'grid-template-columns 0.3s ease, grid-template-rows 0.3s ease',
+  }), [gridDimensions, cellHeight]);
 
   // Memoize the visual grid cell components for debugging
   const gridCellComponents = useMemo(() => {
@@ -102,13 +112,13 @@ const DashboardGridComponent = ({
     const y = event.clientY - rect.top - 8;
     
     const cellWidth = (rect.width - 16) / gridDimensions.cols; // Account for padding and gaps
-    const cellHeight = 108; // 100px + 8px gap
+    const cellHeightWithGap = cellHeight + 8; // cellHeight + gap
     
     const gridX = Math.floor(x / cellWidth);
-    const gridY = Math.floor(y / cellHeight);
+    const gridY = Math.floor(y / cellHeightWithGap);
     
     setDragPosition({ x: Math.max(0, gridX), y: Math.max(0, gridY) });
-  }, [draggedPanel, gridDimensions]);
+  }, [draggedPanel, gridDimensions, cellHeight]);
 
   // Handle drop
   const handleDrop = useCallback((event: React.DragEvent) => {
@@ -173,6 +183,31 @@ const DashboardGridComponent = ({
     });
   }, [panels, isEditMode, isEditable, showMenu, showFullscreen, draggedPanel, onPanelClick, onPanelDelete, onPanelFullscreenToggle, handleDragStart]);
 
+  // Handle responsive breakpoint changes and adjust panels
+  useEffect(() => {
+    if (!enableResponsive || !onLayoutChange) return;
+    
+    // Check if columns changed
+    if (previousColumns !== gridColumns && previousColumns !== 12) {
+      const adjustedPanels = panels.map(panel => 
+        adjustPanelForBreakpoint(panel, previousColumns, gridColumns)
+      ) as DashboardPanel[];
+      
+      // Only trigger layout change if panels actually changed
+      const hasChanges = adjustedPanels.some((panel, index) => {
+        const original = panels[index];
+        return panel.gridPos.x !== original.gridPos.x || 
+               panel.gridPos.w !== original.gridPos.w;
+      });
+      
+      if (hasChanges) {
+        onLayoutChange(adjustedPanels);
+      }
+    }
+    
+    setPreviousColumns(gridColumns);
+  }, [gridColumns, previousColumns, panels, onLayoutChange, enableResponsive]);
+
   // Render drag preview
   const dragPreview = useMemo(() => {
     if (!draggedPanel || !dragPosition) return null;
@@ -207,9 +242,16 @@ const DashboardGridComponent = ({
         alignItems: 'center',
         justifyContent: 'center'
       }}>
-        <Typography variant="h6" color="text.primary">
-          No panels available
-        </Typography>
+        <Box>
+          <Typography variant="h6" color="text.primary">
+            No panels available
+          </Typography>
+          {enableResponsive && (
+            <Typography variant="caption" color="text.secondary" sx={{ mt: 1, display: 'block' }}>
+              Current breakpoint: {breakpoint} ({gridColumns} columns)
+            </Typography>
+          )}
+        </Box>
       </Box>
     );
   }
@@ -236,6 +278,7 @@ export const DashboardGrid = memo(DashboardGridComponent, (prevProps, nextProps)
     prevProps.isEditable === nextProps.isEditable &&
     prevProps.showMenu === nextProps.showMenu &&
     prevProps.showFullscreen === nextProps.showFullscreen &&
+    prevProps.enableResponsive === nextProps.enableResponsive &&
     // Deep compare panels array
     prevProps.panels.every((panel, index) => {
       const nextPanel = nextProps.panels[index];
