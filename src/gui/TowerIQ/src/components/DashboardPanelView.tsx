@@ -32,6 +32,7 @@ import { applyTransformations } from '../services/transformationService';
 import { grafanaToECharts, mergeWithEChartsOption } from '../utils/grafanaToECharts';
 import { API_CONFIG } from '../config/environment';
 import { getCategoricalColor } from '../utils/colorPalette';
+import { formatCurrency } from '../utils/currencyFormatter';
 
 interface DashboardPanelViewProps {
   panel: DashboardPanel;
@@ -88,6 +89,10 @@ const DashboardPanelViewComponent: React.FC<DashboardPanelViewProps> = ({
   const [isDrilldown, setIsDrilldown] = useState(false);
   const [originalOption, setOriginalOption] = useState<any>(null);
   const [drilldownData, setDrilldownData] = useState<any[]>([]);
+  
+  // Calendar drilldown specific state
+  const [calendarDrilldownLevel, setCalendarDrilldownLevel] = useState<number>(0);
+  const [calendarDrilldownStack, setCalendarDrilldownStack] = useState<any[]>([]);
   
   // Performance optimization refs
   const zoomUpdateTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -201,18 +206,147 @@ const DashboardPanelViewComponent: React.FC<DashboardPanelViewProps> = ({
       setLoading(false);
     }
   };
+
+  // Handle calendar hierarchical drilldown functionality
+  const handleCalendarDrilldown = async (params: any) => {
+    if (!panel.echartsOption.drilldown?.enabled || panel.echartsOption.drilldown.type !== 'calendar_hierarchical') return;
+    
+    const drilldownConfig = panel.echartsOption.drilldown;
+    const levels = drilldownConfig.levels;
+    
+    if (!levels || calendarDrilldownLevel >= levels.length - 1) return;
+    
+    setLoading(true);
+    try {
+      // Store original option for back navigation on first drill
+      if (!originalOption) {
+        setOriginalOption(getTransformedEChartsOption());
+      }
+      
+      // Determine what was clicked and extract date information
+      let drillParams: any = {};
+      const clickedDate = new Date(params.data[0]);
+      
+      // Determine next drill level and extract parameters
+      const nextLevel = levels[calendarDrilldownLevel + 1];
+      let drilldownQuery = nextLevel.query;
+      
+      // Extract date components for parameter replacement
+      const year = clickedDate.getFullYear();
+      const month = String(clickedDate.getMonth() + 1).padStart(2, '0');
+      const quarter = Math.ceil((clickedDate.getMonth() + 1) / 3);
+      const date = params.data[0]; // YYYY-MM-DD format
+      
+      // Calculate week boundaries
+      const weekStart = new Date(clickedDate);
+      weekStart.setDate(clickedDate.getDate() - clickedDate.getDay());
+      const weekEnd = new Date(weekStart);
+      weekEnd.setDate(weekStart.getDate() + 6);
+      
+      const monthNames = ['January', 'February', 'March', 'April', 'May', 'June',
+                         'July', 'August', 'September', 'October', 'November', 'December'];
+      
+      // Replace placeholders in query
+      drillParams = {
+        year: year.toString(),
+        quarter: quarter.toString(),
+        month: month,
+        month_name: monthNames[clickedDate.getMonth()],
+        date: date,
+        week_start: weekStart.toISOString().split('T')[0],
+        week_end: weekEnd.toISOString().split('T')[0]
+      };
+      
+      // Replace all placeholders
+      Object.keys(drillParams).forEach(key => {
+        const regex = new RegExp(`{${key}}`, 'g');
+        drilldownQuery = drilldownQuery.replace(regex, drillParams[key]);
+      });
+      
+      // Handle tier_filter replacement
+      drilldownQuery = drilldownQuery.replace(/\$\{tier_filter\}/g, '');
+      drilldownQuery = drilldownQuery.trim().replace(/;+$/, '');
+      
+      console.log('Calendar drilldown query being sent:', drilldownQuery);
+      console.log('Drill parameters:', drillParams);
+      
+      // Fetch drilldown data
+      const response = await fetch(`${API_CONFIG.BASE_URL}/query`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ query: drilldownQuery })
+      });
+      
+      if (!response.ok) {
+        let errorMessage = `HTTP error! status: ${response.status}`;
+        try {
+          const errorData = await response.json();
+          errorMessage += ` - ${errorData.detail || errorData.message || 'Unknown error'}`;
+        } catch (e) {
+          errorMessage += ` - ${response.statusText}`;
+        }
+        throw new Error(errorMessage);
+      }
+      
+      const result = await response.json();
+      console.log('Calendar drilldown data received:', result.data);
+      
+      // Store current state in the stack
+      setCalendarDrilldownStack(prev => [...prev, {
+        level: calendarDrilldownLevel,
+        data: drilldownData.length > 0 ? drilldownData : queryResult.data,
+        params: drillParams,
+        title: panel.title
+      }]);
+      
+      setDrilldownData(result.data || []);
+      setCalendarDrilldownLevel(prev => prev + 1);
+      setIsDrilldown(true);
+      
+    } catch (err) {
+      console.error('Calendar drilldown fetch error:', err);
+      setError(err instanceof Error ? err.message : 'Failed to fetch calendar drilldown data');
+    } finally {
+      setLoading(false);
+    }
+  };
   
   // Handle back to original chart
   const handleBackToOriginal = () => {
     setIsDrilldown(false);
     setDrilldownData([]);
+    setOriginalOption(null);
     setIsChartModified(false);
+    
+    // Reset calendar drilldown state
+    setCalendarDrilldownLevel(0);
+    setCalendarDrilldownStack([]);
+    
     // Clear any pending zoom updates
     if (zoomUpdateTimeoutRef.current) {
       clearTimeout(zoomUpdateTimeoutRef.current);
       zoomUpdateTimeoutRef.current = null;
     }
     lastZoomStateRef.current = null;
+  };
+
+  // Handle calendar drilldown back navigation
+  const handleCalendarDrilldownBack = () => {
+    if (calendarDrilldownStack.length === 0) {
+      handleBackToOriginal();
+      return;
+    }
+    
+    const previousState = calendarDrilldownStack[calendarDrilldownStack.length - 1];
+    setCalendarDrilldownStack(prev => prev.slice(0, -1));
+    setCalendarDrilldownLevel(previousState.level);
+    setDrilldownData(previousState.data);
+    
+    // If we're back to the original level, exit drilldown mode
+    if (previousState.level === 0) {
+      setIsDrilldown(false);
+      setOriginalOption(null);
+    }
   };
   
   // Handle chart reset (zoom/pan back to default)
@@ -245,9 +379,14 @@ const DashboardPanelViewComponent: React.FC<DashboardPanelViewProps> = ({
   const onChartEvents = {
     click: (params: any) => {
       if (panel.echartsOption.drilldown?.enabled && params.componentType === 'series') {
-        // Extract run number from the clicked data
-        const runNumber = params.dataIndex + 1; // Assuming 1-based indexing
-        handleDrilldown(runNumber);
+        // Check if this is a calendar hierarchical drilldown
+        if (panel.echartsOption.drilldown.type === 'calendar_hierarchical' && panel.type === 'calendar') {
+          handleCalendarDrilldown(params);
+        } else {
+          // Standard drilldown (for bar charts, etc.)
+          const runNumber = params.dataIndex + 1; // Assuming 1-based indexing
+          handleDrilldown(runNumber);
+        }
       }
     },
     datazoom: (_params: any) => {
@@ -271,7 +410,7 @@ const DashboardPanelViewComponent: React.FC<DashboardPanelViewProps> = ({
         let startPercent = 0;
         let endPercent = 100;
         
-        if (dataZoomOption && dataZoomOption.length > 0) {
+        if (dataZoomOption && Array.isArray(dataZoomOption) && dataZoomOption.length > 0) {
           const zoom = dataZoomOption[0];
           startPercent = Math.round((zoom.start || 0) * 10) / 10; // Round to 1 decimal
           endPercent = Math.round((zoom.end || 100) * 10) / 10;
@@ -664,7 +803,59 @@ const DashboardPanelViewComponent: React.FC<DashboardPanelViewProps> = ({
         // For calendar heatmaps, transform data to ECharts calendar format
         console.log('📅 Processing calendar data:', queryResult.data);
         
-        if (!queryResult.data || queryResult.data.length === 0) {
+        // Check if we're in calendar drilldown mode and if it's the final level (day -> hourly bar chart)
+        if (isDrilldown && panel.echartsOption.drilldown?.type === 'calendar_hierarchical') {
+          const drilldownConfig = panel.echartsOption.drilldown;
+          const currentLevel = drilldownConfig.levels[calendarDrilldownLevel];
+          
+          // If this level should be a bar chart (like hourly data), transform accordingly
+          if (currentLevel?.chartType === 'bar') {
+            const mapping = getColumnMapping(drilldownData);
+            const barData = drilldownData.map(row => ({
+              name: row[mapping.xAxis],
+              value: Number(row[mapping.yAxis]) || 0
+            }));
+            
+            return {
+              ...baseOption,
+              xAxis: {
+                type: 'category',
+                data: barData.map(item => item.name),
+                name: 'Hour',
+                nameLocation: 'middle',
+                nameGap: 30
+              },
+              yAxis: {
+                type: 'value',
+                name: 'Coins',
+                nameLocation: 'middle',
+                nameGap: 50,
+                axisLabel: {
+                  formatter: (value: number) => formatCurrency(value, 0)
+                }
+              },
+              series: [{
+                type: 'bar',
+                data: barData.map(item => item.value),
+                itemStyle: {
+                  color: '#8a3ffc'
+                }
+              }],
+              tooltip: {
+                trigger: 'axis',
+                formatter: (params: any) => {
+                  const data = params[0];
+                  const formattedValue = formatCurrency(data.value, 0);
+                  return `${data.axisValue}<br/>Coins: ${formattedValue}`;
+                }
+              }
+            };
+          }
+        }
+        
+        const dataToProcess = isDrilldown && drilldownData.length > 0 ? drilldownData : queryResult.data;
+        
+        if (!dataToProcess || dataToProcess.length === 0) {
           console.log('📅 No data available for calendar');
           return {
             ...baseOption,
@@ -686,12 +877,12 @@ const DashboardPanelViewComponent: React.FC<DashboardPanelViewProps> = ({
           };
         }
         
-        const mapping = getColumnMapping(queryResult.data);
+        const mapping = getColumnMapping(dataToProcess);
         console.log('📅 Column mapping:', mapping);
-        console.log('📅 Sample data row:', queryResult.data[0]);
+        console.log('📅 Sample data row:', dataToProcess[0]);
         
         // Calendar data should be in format [[date, value], [date, value], ...]
-        const calendarData = queryResult.data
+        const calendarData = dataToProcess
           .filter(row => row[mapping.xAxis] && row[mapping.yAxis] != null)
           .map(row => {
             // Ensure date is in YYYY-MM-DD format
@@ -759,19 +950,46 @@ const DashboardPanelViewComponent: React.FC<DashboardPanelViewProps> = ({
         const minValue = values.length > 0 ? Math.min(...values) : 0;
         const maxValue = values.length > 0 ? Math.max(...values) : 100;
         
+        // Determine calendar range based on drilldown level
+        let calendarRange;
+        if (isDrilldown && panel.echartsOption.drilldown?.type === 'calendar_hierarchical') {
+          const drilldownConfig = panel.echartsOption.drilldown;
+          const currentLevel = drilldownConfig.levels[calendarDrilldownLevel];
+          
+          switch (currentLevel?.range) {
+            case 'quarter':
+            case 'month':
+            case 'week':
+              // For focused ranges, show the specific time period
+              calendarRange = minDate.getFullYear() === maxDate.getFullYear() 
+                ? minDate.getFullYear() 
+                : [minDate.getFullYear(), maxDate.getFullYear()];
+              break;
+            case 'year':
+            default:
+              calendarRange = minDate.getFullYear() === maxDate.getFullYear() 
+                ? minDate.getFullYear() 
+                : [minDate.getFullYear(), maxDate.getFullYear()];
+              break;
+          }
+        } else {
+          calendarRange = minDate.getFullYear() === maxDate.getFullYear() 
+            ? minDate.getFullYear() 
+            : [minDate.getFullYear(), maxDate.getFullYear()];
+        }
+        
         console.log('📅 Final configuration:', {
-          dateRange: [minDate.getFullYear(), maxDate.getFullYear()],
+          dateRange: calendarRange,
           valueRange: [minValue, maxValue],
-          dataPoints: calendarData.length
+          dataPoints: calendarData.length,
+          drilldownLevel: calendarDrilldownLevel
         });
         
         return {
           ...baseOption,
           calendar: {
             ...baseOption.calendar,
-            range: minDate.getFullYear() === maxDate.getFullYear() 
-              ? minDate.getFullYear() 
-              : [minDate.getFullYear(), maxDate.getFullYear()]
+            range: calendarRange
           },
           visualMap: {
             ...baseOption.visualMap,
@@ -974,26 +1192,118 @@ const DashboardPanelViewComponent: React.FC<DashboardPanelViewProps> = ({
       {isDrilldown && (
         <IconButton 
           size="small" 
-          onClick={handleBackToOriginal}
+          onClick={panel.echartsOption.drilldown?.type === 'calendar_hierarchical' 
+            ? handleCalendarDrilldownBack 
+            : handleBackToOriginal}
           sx={{ mr: 1 }}
-          aria-label="Back to overview"
+          aria-label="Back"
         >
           <ArrowBackIcon fontSize="small" />
         </IconButton>
       )}
-      <Typography 
-        variant="subtitle2" 
-        sx={{ 
-          fontWeight: 500, 
-          color: 'text.primary',
-          fontSize: '0.875rem'
-        }}
-      >
-        {isDrilldown && panel.echartsOption.drilldown 
-          ? panel.echartsOption.drilldown.title.replace('{run_number}', 'Selected Run')
-          : panel.title
-        }
-      </Typography>
+      
+      {/* Breadcrumb navigation for calendar hierarchical drilldowns */}
+      {isDrilldown && panel.echartsOption.drilldown?.type === 'calendar_hierarchical' ? (
+        <Box sx={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 0.5 }}>
+          <Typography 
+            variant="subtitle2" 
+            sx={{ 
+              fontWeight: 500, 
+              color: 'text.primary',
+              fontSize: '0.875rem',
+              cursor: 'pointer',
+              '&:hover': { textDecoration: 'underline' }
+            }}
+            onClick={handleBackToOriginal}
+          >
+            {panel.title}
+          </Typography>
+          {calendarDrilldownStack.map((stackItem, index) => {
+            const drilldownConfig = panel.echartsOption.drilldown;
+            const level = drilldownConfig.levels[stackItem.level + 1];
+            let breadcrumbText = level?.title || 'Drill Level';
+            
+            // Replace placeholders with actual values
+            Object.keys(stackItem.params || {}).forEach(key => {
+              const regex = new RegExp(`{${key}}`, 'g');
+              breadcrumbText = breadcrumbText.replace(regex, stackItem.params[key]);
+            });
+            
+            return (
+              <React.Fragment key={index}>
+                <Typography variant="subtitle2" sx={{ color: 'text.secondary', fontSize: '0.875rem' }}>
+                  →
+                </Typography>
+                <Typography 
+                  variant="subtitle2" 
+                  sx={{ 
+                    fontWeight: index === calendarDrilldownStack.length - 1 ? 500 : 400,
+                    color: index === calendarDrilldownStack.length - 1 ? 'text.primary' : 'text.secondary',
+                    fontSize: '0.875rem',
+                    cursor: index === calendarDrilldownStack.length - 1 ? 'default' : 'pointer',
+                    '&:hover': index !== calendarDrilldownStack.length - 1 ? { textDecoration: 'underline' } : {}
+                  }}
+                  onClick={() => {
+                    if (index !== calendarDrilldownStack.length - 1) {
+                      // Navigate back to this level
+                      const targetLevel = index + 1;
+                      setCalendarDrilldownStack(prev => prev.slice(0, targetLevel));
+                      setCalendarDrilldownLevel(stackItem.level + 1);
+                      setDrilldownData(stackItem.data);
+                    }
+                  }}
+                >
+                  {breadcrumbText}
+                </Typography>
+              </React.Fragment>
+            );
+          })}
+          {calendarDrilldownLevel < (panel.echartsOption.drilldown.levels?.length || 0) && (
+            <>
+              <Typography variant="subtitle2" sx={{ color: 'text.secondary', fontSize: '0.875rem' }}>
+                →
+              </Typography>
+              <Typography 
+                variant="subtitle2" 
+                sx={{ 
+                  fontWeight: 500, 
+                  color: 'text.primary',
+                  fontSize: '0.875rem'
+                }}
+              >
+                {(() => {
+                  const currentLevel = panel.echartsOption.drilldown.levels[calendarDrilldownLevel];
+                  const lastStack = calendarDrilldownStack[calendarDrilldownStack.length - 1];
+                  let currentTitle = currentLevel?.title || 'Current Level';
+                  
+                  if (lastStack?.params) {
+                    Object.keys(lastStack.params).forEach(key => {
+                      const regex = new RegExp(`{${key}}`, 'g');
+                      currentTitle = currentTitle.replace(regex, lastStack.params[key]);
+                    });
+                  }
+                  
+                  return currentTitle;
+                })()}
+              </Typography>
+            </>
+          )}
+        </Box>
+      ) : (
+        <Typography 
+          variant="subtitle2" 
+          sx={{ 
+            fontWeight: 500, 
+            color: 'text.primary',
+            fontSize: '0.875rem'
+          }}
+        >
+          {isDrilldown && panel.echartsOption.drilldown 
+            ? panel.echartsOption.drilldown.title.replace('{run_number}', 'Selected Run')
+            : panel.title
+          }
+        </Typography>
+      )}
       
       {/* Reset button - only show when chart is modified and in drilldown mode */}
       {isDrilldown && isChartModified && (

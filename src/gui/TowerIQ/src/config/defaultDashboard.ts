@@ -284,8 +284,102 @@ export const defaultDashboard: Dashboard = {
               const date = params.data[0];
               const coins = params.data[1];
               const formattedCoins = coins ? formatCurrency(coins, 0) : 'No runs';
-              return `${date}<br/>Coins Earned: ${formattedCoins}`;
+              return `${date}<br/>Coins Earned: ${formattedCoins}<br/><em>Click to drill down</em>`;
             }
+          },
+          // Add hierarchical drilldown configuration
+          drilldown: {
+            enabled: true,
+            type: 'calendar_hierarchical',
+            levels: [
+              {
+                level: 'year',
+                title: 'Daily Coins - {year}',
+                query: `
+                  SELECT 
+                    DATE(start_time / 1000, 'unixepoch') as date,
+                    SUM(COALESCE(coins_earned, 0)) as total_coins
+                  FROM runs 
+                  WHERE start_time IS NOT NULL 
+                    AND strftime('%Y', DATE(start_time / 1000, 'unixepoch')) = '{year}'
+                    \${tier_filter}
+                  GROUP BY DATE(start_time / 1000, 'unixepoch')
+                  ORDER BY date
+                `,
+                range: 'year'
+              },
+              {
+                level: 'quarter',
+                title: 'Daily Coins - Q{quarter} {year}',
+                query: `
+                  SELECT 
+                    DATE(start_time / 1000, 'unixepoch') as date,
+                    SUM(COALESCE(coins_earned, 0)) as total_coins
+                  FROM runs 
+                  WHERE start_time IS NOT NULL 
+                    AND strftime('%Y', DATE(start_time / 1000, 'unixepoch')) = '{year}'
+                    AND (
+                      ('{quarter}' = '1' AND strftime('%m', DATE(start_time / 1000, 'unixepoch')) IN ('01','02','03')) OR
+                      ('{quarter}' = '2' AND strftime('%m', DATE(start_time / 1000, 'unixepoch')) IN ('04','05','06')) OR
+                      ('{quarter}' = '3' AND strftime('%m', DATE(start_time / 1000, 'unixepoch')) IN ('07','08','09')) OR
+                      ('{quarter}' = '4' AND strftime('%m', DATE(start_time / 1000, 'unixepoch')) IN ('10','11','12'))
+                    )
+                    \${tier_filter}
+                  GROUP BY DATE(start_time / 1000, 'unixepoch')
+                  ORDER BY date
+                `,
+                range: 'quarter'
+              },
+              {
+                level: 'month',
+                title: 'Daily Coins - {month_name} {year}',
+                query: `
+                  SELECT 
+                    DATE(start_time / 1000, 'unixepoch') as date,
+                    SUM(COALESCE(coins_earned, 0)) as total_coins
+                  FROM runs 
+                  WHERE start_time IS NOT NULL 
+                    AND strftime('%Y-%m', DATE(start_time / 1000, 'unixepoch')) = '{year}-{month}'
+                    \${tier_filter}
+                  GROUP BY DATE(start_time / 1000, 'unixepoch')
+                  ORDER BY date
+                `,
+                range: 'month'
+              },
+              {
+                level: 'week',
+                title: 'Daily Coins - Week of {week_start}',
+                query: `
+                  SELECT 
+                    DATE(start_time / 1000, 'unixepoch') as date,
+                    SUM(COALESCE(coins_earned, 0)) as total_coins
+                  FROM runs 
+                  WHERE start_time IS NOT NULL 
+                    AND DATE(start_time / 1000, 'unixepoch') BETWEEN '{week_start}' AND '{week_end}'
+                    \${tier_filter}
+                  GROUP BY DATE(start_time / 1000, 'unixepoch')
+                  ORDER BY date
+                `,
+                range: 'week'
+              },
+              {
+                level: 'day',
+                title: 'Hourly Coins - {date}',
+                query: `
+                  SELECT 
+                    strftime('%Y-%m-%d %H:00:00', datetime(start_time / 1000, 'unixepoch')) as hour,
+                    SUM(COALESCE(coins_earned, 0)) as total_coins
+                  FROM runs 
+                  WHERE start_time IS NOT NULL 
+                    AND DATE(start_time / 1000, 'unixepoch') = '{date}'
+                    \${tier_filter}
+                  GROUP BY strftime('%Y-%m-%d %H:00:00', datetime(start_time / 1000, 'unixepoch'))
+                  ORDER BY hour
+                `,
+                range: 'day',
+                chartType: 'bar'
+              }
+            ]
           }
         }
       }
