@@ -24,7 +24,7 @@ export const defaultDashboard: Dashboard = {
               const value = typeof data.data === 'object' ? data.data.value : data.data;
               const tier = typeof data.data === 'object' ? data.data.tier : 'N/A';
               const formattedValue = formatCurrencyForTooltip(value);
-              return `Run ${data.axisValue}<br/>CPH: ${formattedValue}<br/>Tier: ${tier}`;
+              return `Run ${data.axisValue}<br/>CPH: ${formattedValue}<br/>Tier: ${tier}<br/><em>Click to drill down</em>`;
             }
           },
           xAxis: { 
@@ -47,8 +47,90 @@ export const defaultDashboard: Dashboard = {
                 const value = typeof params.data === 'object' ? params.data.value : params.data;
                 return formatCurrencyForChart(value);
               }
-            }
-          }]
+            },
+            // Enable drilldown by making bars clickable
+            cursor: 'pointer'
+          }],
+          // Add drilldown configuration
+          drilldown: {
+            enabled: true,
+            type: 'timeseries',
+            title: 'Cumulative Coins vs Wave - Run {run_number}',
+            query: `
+              WITH run_data AS (
+                SELECT run_id, start_time, final_wave 
+                FROM (
+                  SELECT run_id, start_time, final_wave, 
+                         row_number() OVER (ORDER BY start_time ASC) as rn
+                  FROM runs 
+                  \${tier_filter}
+                ) ranked_runs
+                WHERE rn = {run_number}
+                LIMIT 1
+              ),
+              wave_metrics AS (
+                SELECT 
+                  m.current_wave as wave,
+                  m.metric_value as coins,
+                  ROW_NUMBER() OVER (PARTITION BY m.run_id, m.current_wave ORDER BY m.real_timestamp ASC) as rn
+                FROM metrics m
+                INNER JOIN run_data rd ON m.run_id = rd.run_id
+                WHERE m.metric_name = 'coins' AND m.current_wave IS NOT NULL
+              ),
+              cumulative_coins AS (
+                SELECT 
+                  wave,
+                  coins,
+                  SUM(coins - LAG(coins, 1, 0) OVER (ORDER BY wave)) OVER (ORDER BY wave) as cumulative_coins
+                FROM wave_metrics 
+                WHERE rn = 1
+                ORDER BY wave
+              )
+              SELECT 
+                wave as x_value,
+                cumulative_coins as y_value
+              FROM cumulative_coins
+              ORDER BY wave
+            `,
+            echartsOption: applyChartTheme({
+              tooltip: {
+                trigger: 'axis',
+                formatter: (params: any) => {
+                  const data = params[0];
+                  const wave = data.axisValue;
+                  const coins = formatCurrencyForTooltip(data.value);
+                  return `Wave ${wave}<br/>Cumulative Coins: ${coins}`;
+                }
+              },
+              xAxis: {
+                name: 'Wave',
+                nameLocation: 'middle',
+                nameGap: 30,
+                type: 'value'
+              },
+              yAxis: {
+                name: 'Cumulative Coins',
+                nameLocation: 'middle',
+                nameGap: 50,
+                axisLabel: {
+                  formatter: (value: number) => formatCurrencyForChart(value)
+                }
+              },
+              series: [{
+                type: 'line',
+                smooth: true,
+                symbol: 'circle',
+                symbolSize: 6,
+                lineStyle: { width: 3 },
+                areaStyle: { opacity: 0.1 },
+                markPoint: {
+                  data: [
+                    { type: 'max', name: 'Peak' }
+                  ]
+                }
+              }]
+            }, 'timeseries')
+          }
         }, 'bar')
       },
       {

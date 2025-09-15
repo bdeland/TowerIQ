@@ -21,7 +21,8 @@ import {
   Edit as EditIcon,
   Delete as DeleteIcon,
   Fullscreen as FullscreenIcon,
-  FullscreenExit as FullscreenExitIcon
+  FullscreenExit as FullscreenExitIcon,
+  ArrowBack as ArrowBackIcon
 } from '@mui/icons-material';
 import ReactECharts from 'echarts-for-react';
 import { DashboardPanel } from '../contexts/DashboardContext';
@@ -82,6 +83,11 @@ const DashboardPanelViewComponent: React.FC<DashboardPanelViewProps> = ({
   const [menuOpen, setMenuOpen] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   
+  // Drilldown state
+  const [isDrilldown, setIsDrilldown] = useState(false);
+  const [originalOption, setOriginalOption] = useState<any>(null);
+  const [drilldownData, setDrilldownData] = useState<any[]>([]);
+  
 
 
   // Fetch data from backend based on panel query
@@ -131,8 +137,86 @@ const DashboardPanelViewComponent: React.FC<DashboardPanelViewProps> = ({
     }
   };
 
+  // Handle drilldown functionality
+  const handleDrilldown = async (runNumber: number) => {
+    if (!panel.echartsOption.drilldown) return;
+    
+    setLoading(true);
+    try {
+      // Store original option for back navigation
+      if (!originalOption) {
+        setOriginalOption(getTransformedEChartsOption());
+      }
+      
+      // Replace placeholders in drilldown query
+      let drilldownQuery = panel.echartsOption.drilldown.query;
+      drilldownQuery = drilldownQuery.replace(/{run_number}/g, runNumber.toString());
+      
+      // Handle tier_filter replacement (similar to how it's done in the main query)
+      drilldownQuery = drilldownQuery.replace(/\$\{tier_filter\}/g, ''); // For now, we'll handle this simply
+      
+      // Fetch drilldown data
+      const response = await fetch(`${API_CONFIG.BASE_URL}/query`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ query: drilldownQuery })
+      });
+      
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+      
+      const result = await response.json();
+      setDrilldownData(result.data || []);
+      setIsDrilldown(true);
+      
+    } catch (err) {
+      console.error('Drilldown fetch error:', err);
+      setError(err instanceof Error ? err.message : 'Failed to fetch drilldown data');
+    } finally {
+      setLoading(false);
+    }
+  };
+  
+  // Handle back to original chart
+  const handleBackToOriginal = () => {
+    setIsDrilldown(false);
+    setDrilldownData([]);
+  };
+  
+  // Chart event handlers
+  const onChartEvents = {
+    click: (params: any) => {
+      if (panel.echartsOption.drilldown?.enabled && params.componentType === 'series') {
+        // Extract run number from the clicked data
+        const runNumber = params.dataIndex + 1; // Assuming 1-based indexing
+        handleDrilldown(runNumber);
+      }
+    }
+  };
+
   // Transform data based on panel type and update ECharts option
   const getTransformedEChartsOption = () => {
+    // If in drilldown mode, return drilldown chart option
+    if (isDrilldown && panel.echartsOption.drilldown) {
+      const drilldownOption = { ...panel.echartsOption.drilldown.echartsOption };
+      
+      // Update chart with drilldown data
+      if (drilldownData.length > 0) {
+        const xData = drilldownData.map(row => row.x_value);
+        const yData = drilldownData.map(row => row.y_value);
+        
+        if (drilldownOption.xAxis) {
+          drilldownOption.xAxis.data = xData;
+        }
+        if (drilldownOption.series && drilldownOption.series[0]) {
+          drilldownOption.series[0].data = yData;
+        }
+      }
+      
+      return drilldownOption;
+    }
+    
     const baseOption = { ...panel.echartsOption };
     
     // Remove title to prevent "Panel 1" from showing in chart
@@ -517,6 +601,16 @@ const DashboardPanelViewComponent: React.FC<DashboardPanelViewProps> = ({
         position: 'relative' // Ensure proper positioning context
       }}
     >
+      {isDrilldown && (
+        <IconButton 
+          size="small" 
+          onClick={handleBackToOriginal}
+          sx={{ mr: 1 }}
+          aria-label="Back to overview"
+        >
+          <ArrowBackIcon fontSize="small" />
+        </IconButton>
+      )}
       <Typography 
         variant="subtitle2" 
         sx={{ 
@@ -525,7 +619,10 @@ const DashboardPanelViewComponent: React.FC<DashboardPanelViewProps> = ({
           fontSize: '0.875rem'
         }}
       >
-        {panel.title}
+        {isDrilldown && panel.echartsOption.drilldown 
+          ? panel.echartsOption.drilldown.title.replace('{run_number}', 'Selected Run')
+          : panel.title
+        }
       </Typography>
       {showFullscreen ? (
         <IconButton
@@ -747,6 +844,7 @@ const DashboardPanelViewComponent: React.FC<DashboardPanelViewProps> = ({
           style={{ height: '100%', width: '100%' }}
           notMerge={true}
           lazyUpdate={true}
+          onEvents={onChartEvents}
         />
       </Box>
     );
