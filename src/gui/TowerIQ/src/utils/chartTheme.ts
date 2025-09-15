@@ -7,7 +7,9 @@ import {
   CATEGORICAL_COLORS, 
   SEMANTIC_COLORS, 
   DEFAULT_CHART_THEME,
-  getCategoricalColors
+  getCategoricalColors,
+  CONTINUOUS_PALETTES,
+  getContinuousPalette
 } from './colorPalette';
 
 /**
@@ -275,7 +277,7 @@ export function createStatChartTheme(options: {
  */
 export function applyChartTheme(
   option: any, 
-  themeType: 'bar' | 'timeseries' | 'pie' | 'stat' = 'bar'
+  themeType: 'bar' | 'timeseries' | 'pie' | 'stat' | 'calendar' = 'bar'
 ): any {
   let theme;
   
@@ -292,11 +294,14 @@ export function applyChartTheme(
     case 'stat':
       theme = createStatChartTheme();
       break;
+    case 'calendar':
+      theme = createCalendarHeatmapTheme();
+      break;
     default:
       theme = BASE_CHART_CONFIG;
   }
   
-  return {
+  const result: any = {
     ...theme,
     ...option,
     // Deep merge specific nested objects
@@ -312,15 +317,40 @@ export function applyChartTheme(
       ...theme.grid,
       ...option.grid,
     },
-    xAxis: {
-      ...theme.xAxis,
-      ...option.xAxis,
-    },
-    yAxis: {
-      ...theme.yAxis,
-      ...option.yAxis,
-    },
   };
+
+  // Conditionally merge axis properties for chart types that have them
+  if ((theme as any).xAxis) {
+    result.xAxis = {
+      ...(theme as any).xAxis,
+      ...option.xAxis,
+    };
+  }
+
+  if ((theme as any).yAxis) {
+    result.yAxis = {
+      ...(theme as any).yAxis,
+      ...option.yAxis,
+    };
+  }
+
+  // Conditionally merge calendar properties for calendar charts
+  if ((theme as any).calendar) {
+    result.calendar = {
+      ...(theme as any).calendar,
+      ...option.calendar,
+    };
+  }
+
+  // Conditionally merge visualMap properties for heatmaps
+  if ((theme as any).visualMap) {
+    result.visualMap = {
+      ...(theme as any).visualMap,
+      ...option.visualMap,
+    };
+  }
+
+  return result;
 }
 
 /**
@@ -332,6 +362,114 @@ export function applyChartTheme(
 export function getCategoryColor(category: string | number, categories: (string | number)[]): string {
   const index = categories.indexOf(category);
   return index >= 0 ? getCategoricalColors(categories.length)[index] : SEMANTIC_COLORS.text;
+}
+
+/**
+ * Creates a calendar heatmap theme configuration
+ */
+export function createCalendarHeatmapTheme(options: {
+  palette?: keyof typeof CONTINUOUS_PALETTES;
+  cellSize?: number | [number, number];
+  yearLabel?: boolean;
+  monthLabel?: boolean;
+  dayLabel?: boolean;
+} = {}) {
+  const { 
+    palette = 'toweriq', 
+    cellSize = 15,
+    yearLabel = true,
+    monthLabel = true,
+    dayLabel = true
+  } = options;
+  
+  const colors = getContinuousPalette(palette);
+  
+  return {
+    ...BASE_CHART_CONFIG,
+    calendar: {
+      top: 60,
+      left: 30,
+      right: 30,
+      cellSize,
+      range: [], // Will be set dynamically based on data
+      itemStyle: {
+        borderWidth: 1,
+        borderColor: SEMANTIC_COLORS.background,
+        borderType: 'solid'
+      },
+      yearLabel: {
+        show: yearLabel,
+        fontSize: 14,
+        color: SEMANTIC_COLORS.text,
+        fontWeight: 'bold'
+      },
+      monthLabel: {
+        show: monthLabel,
+        fontSize: 12,
+        color: SEMANTIC_COLORS.textSecondary,
+        nameMap: 'EN' // English month names
+      },
+      dayLabel: {
+        show: dayLabel,
+        fontSize: 10,
+        color: SEMANTIC_COLORS.textSecondary,
+        nameMap: ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+      },
+      splitLine: {
+        show: true,
+        lineStyle: {
+          color: SEMANTIC_COLORS.gridLines,
+          width: 1,
+          type: 'solid'
+        }
+      }
+    },
+    visualMap: {
+      min: 0,
+      max: 100, // Will be set dynamically based on data
+      type: 'continuous',
+      orient: 'horizontal',
+      left: 'center',
+      bottom: 20,
+      calculable: true,
+      inRange: {
+        color: colors
+      },
+      textStyle: {
+        color: SEMANTIC_COLORS.text,
+        fontSize: 12
+      },
+      controller: {
+        inRange: {
+          color: SEMANTIC_COLORS.primary
+        }
+      }
+    },
+    series: [{
+      type: 'heatmap',
+      coordinateSystem: 'calendar',
+      data: [], // Will be populated with [date, value] pairs
+      label: {
+        show: false, // Can be enabled to show values on cells
+        color: SEMANTIC_COLORS.text,
+        fontSize: 10
+      },
+      emphasis: {
+        itemStyle: {
+          shadowBlur: 5,
+          shadowColor: 'rgba(0, 0, 0, 0.3)'
+        }
+      }
+    }],
+    tooltip: {
+      ...BASE_CHART_CONFIG.tooltip,
+      formatter: (params: any) => {
+        const date = params.data[0];
+        const value = params.data[1];
+        return `${date}<br/>Coins: ${value?.toLocaleString() || 'No data'}`;
+      }
+    }
+  };
 }
 
 /**
@@ -356,4 +494,4 @@ export function createLegendConfig(position: 'top' | 'bottom' | 'left' | 'right'
   };
 }
 
-export { CATEGORICAL_COLORS, SEMANTIC_COLORS, DEFAULT_CHART_THEME };
+export { CATEGORICAL_COLORS, SEMANTIC_COLORS, DEFAULT_CHART_THEME, CONTINUOUS_PALETTES };

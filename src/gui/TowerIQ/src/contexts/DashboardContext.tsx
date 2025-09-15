@@ -19,7 +19,7 @@ export interface DashboardVariable {
 // Dashboard interfaces based on the backend schema
 export interface DashboardPanel {
   id: string;
-  type: 'timeseries' | 'bar' | 'pie' | 'stat' | 'table';
+  type: 'timeseries' | 'bar' | 'pie' | 'stat' | 'table' | 'calendar';
   title: string;
   gridPos: {
     x: number;

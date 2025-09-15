@@ -1,6 +1,6 @@
 import { Dashboard } from '../contexts/DashboardContext';
 import { generateUUID } from '../utils/uuid';
-import { formatCurrencyForChart, formatCurrencyForTooltip } from '../utils/currencyFormatter';
+import { formatCurrency, formatCurrencyForChart, formatCurrencyForTooltip } from '../utils/currencyFormatter';
 import { applyChartTheme } from '../utils/chartTheme';
 
 export const defaultDashboard: Dashboard = {
@@ -54,62 +54,49 @@ export const defaultDashboard: Dashboard = {
           // Add drilldown configuration
           drilldown: {
             enabled: true,
-            type: 'timeseries',
-            title: 'Cumulative Coins vs Wave - Run {run_number}',
+            type: 'line',
+            title: 'Coins vs Wave - Run {run_number}',
             query: `
-              WITH run_data AS (
-                SELECT run_id, start_time, final_wave 
+              SELECT 
+                CAST(m.current_wave AS INTEGER) as x_value,
+                m.metric_value as y_value
+              FROM metrics m
+              INNER JOIN (
+                SELECT run_id
                 FROM (
                   SELECT run_id, start_time, final_wave, 
                          row_number() OVER (ORDER BY start_time ASC) as rn
                   FROM runs 
-                  \${tier_filter}
                 ) ranked_runs
                 WHERE rn = {run_number}
                 LIMIT 1
-              ),
-              wave_metrics AS (
-                SELECT 
-                  m.current_wave as wave,
-                  m.metric_value as coins,
-                  ROW_NUMBER() OVER (PARTITION BY m.run_id, m.current_wave ORDER BY m.real_timestamp ASC) as rn
-                FROM metrics m
-                INNER JOIN run_data rd ON m.run_id = rd.run_id
-                WHERE m.metric_name = 'coins' AND m.current_wave IS NOT NULL
-              ),
-              cumulative_coins AS (
-                SELECT 
-                  wave,
-                  coins,
-                  SUM(coins - LAG(coins, 1, 0) OVER (ORDER BY wave)) OVER (ORDER BY wave) as cumulative_coins
-                FROM wave_metrics 
-                WHERE rn = 1
-                ORDER BY wave
-              )
-              SELECT 
-                wave as x_value,
-                cumulative_coins as y_value
-              FROM cumulative_coins
-              ORDER BY wave
+              ) rd ON m.run_id = rd.run_id
+              WHERE m.metric_name = 'coins' AND m.current_wave IS NOT NULL AND m.current_wave < 1000
+              ORDER BY m.current_wave
             `,
             echartsOption: applyChartTheme({
               tooltip: {
                 trigger: 'axis',
                 formatter: (params: any) => {
                   const data = params[0];
-                  const wave = data.axisValue;
-                  const coins = formatCurrencyForTooltip(data.value);
-                  return `Wave ${wave}<br/>Cumulative Coins: ${coins}`;
+                  // Handle coordinate pair format [wave, coins]
+                  const wave = Array.isArray(data.value) ? data.value[0] : data.axisValue;
+                  const coins = Array.isArray(data.value) ? data.value[1] : data.value;
+                  const formattedCoins = formatCurrency(coins, 2);
+                  return `Wave ${wave}<br/>Coins: ${formattedCoins}`;
                 }
               },
               xAxis: {
                 name: 'Wave',
                 nameLocation: 'middle',
                 nameGap: 30,
-                type: 'value'
+                type: 'value',
+                axisLabel: {
+                  formatter: (value: number) => Math.round(value).toString()
+                }
               },
               yAxis: {
-                name: 'Cumulative Coins',
+                name: 'Coins',
                 nameLocation: 'middle',
                 nameGap: 50,
                 axisLabel: {
@@ -128,7 +115,22 @@ export const defaultDashboard: Dashboard = {
                     { type: 'max', name: 'Peak' }
                   ]
                 }
-              }]
+              }],
+              // Enable zoom and pan functionality
+              dataZoom: [
+                {
+                  type: 'inside', // Mouse wheel zoom and drag to pan
+                  xAxisIndex: 0,
+                  filterMode: 'none' // Don't filter data, just zoom view
+                },
+                {
+                  type: 'slider', // Slider at bottom for zoom control
+                  xAxisIndex: 0,
+                  filterMode: 'none',
+                  bottom: 10,
+                  height: 20
+                }
+              ]
             }, 'timeseries')
           }
         }, 'bar')
@@ -166,6 +168,126 @@ export const defaultDashboard: Dashboard = {
         gridPos: { x: 4, y: 5, w: 8, h: 2 },
         query: "SELECT timestamp, level, event, source FROM logs ORDER BY timestamp DESC LIMIT 5",
         echartsOption: {}
+      },
+      {
+        id: generateUUID(),
+        type: 'calendar',
+        title: 'Daily Coins Earned - Calendar Heatmap',
+        gridPos: { x: 0, y: 15, w: 12, h: 6 },
+        query: `
+          SELECT 
+            DATE(start_time / 1000, 'unixepoch') as date,
+            SUM(COALESCE(coins_earned, 0)) as total_coins
+          FROM runs 
+          WHERE start_time IS NOT NULL 
+            AND DATE(start_time / 1000, 'unixepoch') >= (
+              SELECT DATE(MIN(start_time) / 1000, 'unixepoch') 
+              FROM runs 
+              WHERE start_time IS NOT NULL
+            )
+            AND DATE(start_time / 1000, 'unixepoch') <= (
+              SELECT DATE(MAX(start_time) / 1000, 'unixepoch') 
+              FROM runs 
+              WHERE start_time IS NOT NULL
+            )
+            \${tier_filter}
+          GROUP BY DATE(start_time / 1000, 'unixepoch')
+          ORDER BY date
+        `,
+        echartsOption: {
+          // Minimal calendar configuration to avoid undefined errors
+          calendar: {
+            top: 60,
+            left: 30,
+            right: 30,
+            cellSize: 15,
+            range: [2024], // Default to current year, will be overridden
+            itemStyle: {
+              borderWidth: 1,
+              borderColor: '#2d2d2d',
+              borderType: 'solid'
+            },
+            yearLabel: {
+              show: true,
+              fontSize: 14,
+              color: '#ffffff',
+              fontWeight: 'bold'
+            },
+            monthLabel: {
+              show: true,
+              fontSize: 12,
+              color: '#b3b3b3',
+              nameMap: 'EN'
+            },
+            dayLabel: {
+              show: true,
+              fontSize: 10,
+              color: '#b3b3b3',
+              nameMap: ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+            },
+            splitLine: {
+              show: true,
+              lineStyle: {
+                color: '#404040',
+                width: 1,
+                type: 'solid'
+              }
+            }
+          },
+          visualMap: {
+            min: 0,
+            max: 100,
+            type: 'continuous',
+            orient: 'horizontal',
+            left: 'center',
+            bottom: 20,
+            calculable: true,
+            inRange: {
+              color: ['#1a1a1a', '#2d2d2d', '#404040', '#595959', '#737373', '#8a3ffc', '#a366ff', '#bb8cff', '#d4bbff']
+            },
+            textStyle: {
+              color: '#ffffff',
+              fontSize: 12
+            },
+            controller: {
+              inRange: {
+                color: '#8a3ffc'
+              }
+            }
+          },
+          series: [{
+            type: 'heatmap',
+            coordinateSystem: 'calendar',
+            data: [],
+            label: {
+              show: false,
+              color: '#ffffff',
+              fontSize: 10
+            },
+            emphasis: {
+              itemStyle: {
+                shadowBlur: 5,
+                shadowColor: 'rgba(0, 0, 0, 0.3)'
+              }
+            }
+          }],
+          tooltip: {
+            backgroundColor: '#2d2d2d',
+            borderColor: '#404040',
+            borderWidth: 1,
+            textStyle: {
+              color: '#ffffff'
+            },
+            extraCssText: 'box-shadow: 0 4px 12px rgba(0,0,0,0.3); border-radius: 4px;',
+            confine: true,
+            formatter: (params: any) => {
+              const date = params.data[0];
+              const coins = params.data[1];
+              const formattedCoins = coins ? formatCurrency(coins, 0) : 'No runs';
+              return `${date}<br/>Coins Earned: ${formattedCoins}`;
+            }
+          }
+        }
       }
     ],
     time: { from: 'now-1h', to: 'now' },

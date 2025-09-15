@@ -1594,6 +1594,35 @@ async def preview_query(request: QueryPreviewRequest):
             message=f"Syntax error: {str(e)}"
         )
 
+@app.get("/api/v1/database/statistics")
+async def get_database_statistics():
+    """Get comprehensive database statistics including file metrics and table row counts."""
+    global db_service, logger
+    
+    if not db_service:
+        raise HTTPException(status_code=500, detail="Database service not available")
+    
+    try:
+        if logger:
+            logger.info("Database statistics request received")
+        
+        # Get database statistics using the existing service method
+        stats = db_service.get_database_statistics()
+        
+        if logger:
+            logger.info("Database statistics retrieved successfully", 
+                       total_rows=stats.get('total_rows', 0),
+                       file_size=stats.get('file_size', 0))
+        
+        return stats
+        
+    except Exception as e:
+        if logger:
+            logger.error("Failed to get database statistics", error=str(e))
+        
+        raise HTTPException(status_code=500, detail=f"Failed to get database statistics: {str(e)}")
+
+
 @app.post("/api/query", response_model=QueryResponse)
 async def execute_query(request: QueryRequest):
     """Execute a SQL query against the database and return the results."""

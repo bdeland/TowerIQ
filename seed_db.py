@@ -29,16 +29,19 @@ from tower_iq.services.database_service import DatabaseService
 # ============================================================================
 
 # Default command line arguments (can be overridden with --runs, --tiers, etc.)
-DEFAULT_RUNS = 50
-DEFAULT_TIERS = "5-8"  # Tier range, e.g. "5-8" or single tier like "7"
+DEFAULT_RUNS = 300
+DEFAULT_TIERS = "5-10"  # Tier range, e.g. "5-8" or single tier like "7"
 DEFAULT_MIN_WAVE = 800
 DEFAULT_MAX_WAVE = 1500
 DEFAULT_SEED = 42
 DEFAULT_WORKERS = None  # None = use CPU count
+DEFAULT_START_DATE = "90d"  # Start date: "30d" (30 days ago), "2024-01-01", or "2024-01-01 14:30"
+DEFAULT_END_DATE = "now"  # End date: "now", "2024-12-31", or "2024-12-31 18:00"
+DEFAULT_TIME_DISTRIBUTION = "evening_heavy"  # Time distribution: "uniform", "afternoon_heavy", "evening_heavy", or custom weights
 
 # Game simulation parameters
 GAME_VERSION = "27.0.4"
-SECONDS_PER_WAVE = 5.0  # Game time per wave
+SECONDS_PER_WAVE = 30.0  # Game time per wave
 STAGGER_MINUTES = 10  # Minutes between run start times
 
 # Survival probability parameters
@@ -46,16 +49,16 @@ SURVIVAL_PROB_MIN_WAVE = 0.95  # 95% survival at min_wave
 SURVIVAL_PROB_MAX_WAVE = 0.50  # 50% survival at max_wave
 
 # Coin generation parameters
-BASE_COINS_MIN = 1000
-BASE_COINS_MAX = 30000
-WAVE_SCALE_FACTOR = 0.05  # Each wave gives 5% more base coins
+BASE_COINS_MIN = 1297
+BASE_COINS_MAX = 387567
+WAVE_SCALE_FACTOR = 0.15  # Each wave gives 15% more base coins
 COIN_MULTIPLIERS = [0.1, 0.3, 0.8, 1.2, 2.0, 4.0, 8.0]
 BONUS_WAVE_CHANCE = 0.15  # 15% chance of bonus wave
 BONUS_MULTIPLIER_MIN = 15.0
-BONUS_MULTIPLIER_MAX = 40.0
-PENALTY_WAVE_CHANCE = 0.15  # 5% chance of penalty wave
+BONUS_MULTIPLIER_MAX = 90.0
+PENALTY_WAVE_CHANCE = 0.15  # 15% chance of penalty wave
 PENALTY_MULTIPLIER_MIN = 0.01
-PENALTY_MULTIPLIER_MAX = 0.3
+PENALTY_MULTIPLIER_MAX = 0.9
 
 # Cell generation parameters
 CELLS_MIN = 10
@@ -93,6 +96,134 @@ PAUSE_DURATION_MS = 1000  # 1 second pause
 # Progress reporting
 PROGRESS_LOG_INTERVAL = 5  # Log every 5th run
 PROGRESS_BAR_WIDTH = 50
+
+# Time distribution presets (weights for each hour 0-23)
+TIME_DISTRIBUTIONS = {
+    "uniform": [1.0] * 24,  # Equal probability for all hours
+    "afternoon_heavy": [
+        0.2, 0.1, 0.1, 0.1, 0.1, 0.2,  # 0-5: Very light
+        0.3, 0.5, 0.8, 1.0, 1.2, 1.5,  # 6-11: Morning ramp-up
+        2.0, 2.5, 3.0, 3.5, 4.0, 3.5,  # 12-17: Heavy afternoon
+        3.0, 2.5, 2.0, 1.5, 1.0, 0.5   # 18-23: Evening wind-down
+    ],
+    "evening_heavy": [
+        0.1, 0.1, 0.1, 0.1, 0.1, 0.1,  # 0-5: Very light
+        0.2, 0.4, 0.6, 0.8, 1.0, 1.2,  # 6-11: Morning build-up
+        1.5, 1.8, 2.0, 2.2, 2.5, 3.0,  # 12-17: Afternoon
+        3.5, 4.0, 4.5, 3.5, 2.5, 1.0   # 18-23: Heavy evening peak
+    ],
+    "morning_heavy": [
+        0.1, 0.1, 0.1, 0.1, 0.1, 0.2,  # 0-5: Very light
+        1.0, 2.0, 3.5, 4.0, 3.5, 3.0,  # 6-11: Heavy morning
+        2.5, 2.0, 1.8, 1.5, 1.2, 1.0,  # 12-17: Afternoon decline
+        0.8, 0.6, 0.4, 0.3, 0.2, 0.1   # 18-23: Light evening
+    ]
+}
+
+
+def parse_date_string(date_str: str) -> datetime:
+    """
+    Parse various date string formats:
+    - "30d" -> 30 days ago from now
+    - "7d" -> 7 days ago from now  
+    - "now" -> current datetime
+    - "2024-01-01" -> specific date at midnight
+    - "2024-01-01 14:30" -> specific date and time
+    - "2024-01-01 14:30:45" -> specific date, time, and seconds
+    """
+    date_str = date_str.strip().lower()
+    
+    if date_str == "now":
+        return datetime.now()
+    elif date_str.endswith("d") and date_str[:-1].isdigit():
+        # Handle relative days (e.g., "30d")
+        days_ago = int(date_str[:-1])
+        return datetime.now() - timedelta(days=days_ago)
+    else:
+        # Handle specific date/time formats
+        formats = [
+            "%Y-%m-%d %H:%M:%S",  # 2024-01-01 14:30:45
+            "%Y-%m-%d %H:%M",     # 2024-01-01 14:30
+            "%Y-%m-%d",           # 2024-01-01 (midnight)
+        ]
+        
+        for fmt in formats:
+            try:
+                return datetime.strptime(date_str, fmt)
+            except ValueError:
+                continue
+        
+        raise ValueError(f"Unable to parse date string: {date_str}")
+
+
+def parse_time_distribution(distribution_str: str) -> list:
+    """
+    Parse time distribution string:
+    - "uniform" -> predefined uniform distribution
+    - "afternoon_heavy" -> predefined afternoon-heavy distribution
+    - "evening_heavy" -> predefined evening-heavy distribution
+    - "morning_heavy" -> predefined morning-heavy distribution
+    - "1,1,1,2,3,4,..." -> custom 24-hour weights (comma-separated)
+    """
+    distribution_str = distribution_str.strip().lower()
+    
+    if distribution_str in TIME_DISTRIBUTIONS:
+        return TIME_DISTRIBUTIONS[distribution_str]
+    elif "," in distribution_str:
+        # Parse custom weights
+        try:
+            weights = [float(x.strip()) for x in distribution_str.split(",")]
+            if len(weights) != 24:
+                raise ValueError(f"Custom time distribution must have exactly 24 values (one for each hour), got {len(weights)}")
+            return weights
+        except ValueError as e:
+            raise ValueError(f"Invalid custom time distribution format: {e}")
+    else:
+        raise ValueError(f"Unknown time distribution: {distribution_str}")
+
+
+def generate_distributed_timestamp(start_date: datetime, end_date: datetime, time_weights: list, rng: random.Random) -> datetime:
+    """
+    Generate a random timestamp within the date range using the specified time-of-day distribution.
+    
+    Args:
+        start_date: Start of date range
+        end_date: End of date range  
+        time_weights: List of 24 weights for hours 0-23
+        rng: Random number generator instance
+    
+    Returns:
+        Random datetime within the range following the time distribution
+    """
+    # Calculate total days in range
+    date_range = end_date - start_date
+    total_days = date_range.total_seconds() / (24 * 3600)
+    
+    # Pick a random day within the range
+    random_day_offset = rng.uniform(0, total_days)
+    base_date = start_date + timedelta(days=random_day_offset)
+    
+    # Normalize weights to create probability distribution
+    total_weight = sum(time_weights)
+    probabilities = [w / total_weight for w in time_weights]
+    
+    # Use weighted random choice to pick an hour
+    hour = rng.choices(range(24), weights=probabilities)[0]
+    
+    # Add random minutes and seconds within that hour
+    minute = rng.randint(0, 59)
+    second = rng.randint(0, 59)
+    
+    # Combine date and time
+    result = base_date.replace(hour=0, minute=0, second=0, microsecond=0) + timedelta(hours=hour, minutes=minute, seconds=second)
+    
+    # Ensure result is within bounds (edge case handling)
+    if result < start_date:
+        result = start_date
+    elif result > end_date:
+        result = end_date
+        
+    return result
 
 
 def wipe_tables(db: DatabaseService) -> None:
@@ -170,20 +301,20 @@ def generate_run_data_worker(args_tuple):
     database operations to avoid SQLite locking issues.
     """
     try:
-        (tier, min_wave, max_wave, base_start, run_index, base_seed) = args_tuple
+        (tier, min_wave, max_wave, start_date, end_date, time_weights, run_index, base_seed) = args_tuple
         
         # Use a unique seed for each run to ensure different random sequences
         unique_seed = base_seed + run_index
         random.seed(unique_seed)
         
         # Generate run data in memory
-        run_data = generate_run_data(tier, min_wave, max_wave, base_start, run_index)
+        run_data = generate_run_data(tier, min_wave, max_wave, start_date, end_date, time_weights, run_index, unique_seed)
         return {"success": True, "run_index": run_index, "tier": tier, "data": run_data}
     except Exception as e:
         return {"success": False, "run_index": run_index, "error": str(e)}
 
 
-def generate_run_data(tier: int, min_wave: int, max_wave: int, base_start: datetime, run_index: int) -> dict:
+def generate_run_data(tier: int, min_wave: int, max_wave: int, start_date: datetime, end_date: datetime, time_weights: list, run_index: int, seed: int) -> dict:
     """
     Generate run data in memory without database operations.
     Returns a dictionary containing all the data needed to insert into the database.
@@ -191,8 +322,11 @@ def generate_run_data(tier: int, min_wave: int, max_wave: int, base_start: datet
     run_id = str(uuid.uuid4())
     game_version = GAME_VERSION
 
-    # Stagger start times apart into the past
-    start_dt = base_start - timedelta(minutes=STAGGER_MINUTES * run_index)
+    # Create a random instance for this specific run to ensure reproducibility
+    rng = random.Random(seed)
+    
+    # Generate a distributed timestamp within the date range using time-of-day weights
+    start_dt = generate_distributed_timestamp(start_date, end_date, time_weights, rng)
     start_time_ms = int(start_dt.timestamp() * 1000)
 
     # Initialize simulated accumulators
@@ -214,7 +348,7 @@ def generate_run_data(tier: int, min_wave: int, max_wave: int, base_start: datet
     for wave in range(1, max_wave + 1):
         # Check if we survive this wave
         survival_prob = calculate_survival_probability(wave, min_wave, max_wave)
-        if wave > min_wave and random.random() > survival_prob:
+        if wave > min_wave and rng.random() > survival_prob:
             # Game over - we died on this wave
             final_wave = wave - 1
             break
@@ -225,38 +359,38 @@ def generate_run_data(tier: int, min_wave: int, max_wave: int, base_start: datet
         real_ts_ms = start_time_ms + int(game_ts_sec * 1000)
 
         # Per-wave deltas with some variability
-        base_coins = random.uniform(BASE_COINS_MIN, BASE_COINS_MAX)
+        base_coins = rng.uniform(BASE_COINS_MIN, BASE_COINS_MAX)
 
         # Wave scaling (later waves give more coins)
         wave_scale = 1.0 + (wave * WAVE_SCALE_FACTOR)
 
         # Random multiplier for dramatic variation
-        multiplier = random.choice(COIN_MULTIPLIERS)
+        multiplier = rng.choice(COIN_MULTIPLIERS)
 
         # Occasional bonus waves
-        if random.random() < BONUS_WAVE_CHANCE:
-            multiplier *= random.uniform(BONUS_MULTIPLIER_MIN, BONUS_MULTIPLIER_MAX)
+        if rng.random() < BONUS_WAVE_CHANCE:
+            multiplier *= rng.uniform(BONUS_MULTIPLIER_MIN, BONUS_MULTIPLIER_MAX)
 
         # Occasional penalty waves  
-        if random.random() < PENALTY_WAVE_CHANCE:
-            multiplier *= random.uniform(PENALTY_MULTIPLIER_MIN, PENALTY_MULTIPLIER_MAX)
+        if rng.random() < PENALTY_WAVE_CHANCE:
+            multiplier *= rng.uniform(PENALTY_MULTIPLIER_MIN, PENALTY_MULTIPLIER_MAX)
 
         wave_coins = base_coins * wave_scale * multiplier
         coins_total += wave_coins
 
-        wave_cells = random.uniform(CELLS_MIN, CELLS_MAX)
+        wave_cells = rng.uniform(CELLS_MIN, CELLS_MAX)
         cells_total += wave_cells
 
-        cash_delta = random.choice(CASH_DELTAS)
+        cash_delta = rng.choice(CASH_DELTAS)
         cash_total += cash_delta
 
-        stones_delta = random.uniform(STONES_MIN, STONES_MAX)
+        stones_delta = rng.uniform(STONES_MIN, STONES_MAX)
         stones_total += stones_delta
 
         # Gem sources
         # Randomly decide block taps and ad claims near some checkpoints
-        if random.random() < GEM_BLOCK_TAP_CHANCE:
-            block_taps = random.randint(GEM_BLOCK_TAPS_MIN, GEM_BLOCK_TAPS_MAX)
+        if rng.random() < GEM_BLOCK_TAP_CHANCE:
+            block_taps = rng.randint(GEM_BLOCK_TAPS_MIN, GEM_BLOCK_TAPS_MAX)
             gem_blocks_count += block_taps
             events.append({
                 "run_id": run_id,
@@ -264,7 +398,7 @@ def generate_run_data(tier: int, min_wave: int, max_wave: int, base_start: datet
                 "event_name": "gemBlockTapped",
                 "data": {"gemValue": GEM_BLOCK_VALUE}
             })
-        if random.random() < AD_GEM_CLAIM_CHANCE:
+        if rng.random() < AD_GEM_CLAIM_CHANCE:
             ad_claims = 1
             ad_gems_count += ad_claims
             events.append({
@@ -275,11 +409,11 @@ def generate_run_data(tier: int, min_wave: int, max_wave: int, base_start: datet
             })
 
         # Guardian gems sometimes contribute a few
-        guardian_gems_value += random.choice(GUARDIAN_GEM_VALUES)
+        guardian_gems_value += rng.choice(GUARDIAN_GEM_VALUES)
 
         # Occasional speed change event
-        if random.random() < SPEED_CHANGE_CHANCE:
-            new_speed = round(random.choice(SPEED_OPTIONS), 2)
+        if rng.random() < SPEED_CHANGE_CHANCE:
+            new_speed = round(rng.choice(SPEED_OPTIONS), 2)
             if new_speed != last_speed:
                 last_speed = new_speed
                 events.append({
@@ -293,13 +427,13 @@ def generate_run_data(tier: int, min_wave: int, max_wave: int, base_start: datet
         metrics_data = {
             "round_coins": coins_total,
             "wave_coins": wave_coins,
-            "coins": coins_total * GEMS_TOTAL_MULTIPLIER + random.uniform(0, GEMS_RANDOM_MAX),
+            "coins": coins_total * GEMS_TOTAL_MULTIPLIER + rng.uniform(0, GEMS_RANDOM_MAX),
             "gems": (gem_blocks_count * GEM_BLOCK_VALUE) + (ad_gems_count * AD_GEM_VALUE) + guardian_gems_value,
             "round_cells": cells_total,
             "wave_cells": wave_cells,
-            "cells": cells_total * CELLS_TOTAL_MULTIPLIER + random.uniform(0, CELLS_RANDOM_MAX),
+            "cells": cells_total * CELLS_TOTAL_MULTIPLIER + rng.uniform(0, CELLS_RANDOM_MAX),
             "round_cash": cash_total,
-            "cash": cash_total + random.uniform(0, CASH_RANDOM_MAX),
+            "cash": cash_total + rng.uniform(0, CASH_RANDOM_MAX),
             "stones": stones_total,
             "round_gems_from_blocks_count": float(gem_blocks_count),
             "round_gems_from_blocks_value": float(gem_blocks_count * GEM_BLOCK_VALUE),
@@ -317,7 +451,7 @@ def generate_run_data(tier: int, min_wave: int, max_wave: int, base_start: datet
         })
 
         # Pause/resume occasionally
-        if random.random() < PAUSE_CHANCE:
+        if rng.random() < PAUSE_CHANCE:
             events.append({
                 "run_id": run_id,
                 "timestamp": real_ts_ms,
@@ -630,6 +764,9 @@ def main():
     parser.add_argument("--max-wave", type=int, default=DEFAULT_MAX_WAVE, help="Maximum possible wave (very low survival probability)")
     parser.add_argument("--seed", type=int, default=DEFAULT_SEED, help="Random seed for reproducibility")
     parser.add_argument("--workers", type=int, default=DEFAULT_WORKERS, help="Number of worker processes (default: CPU count)")
+    parser.add_argument("--start-date", type=str, default=DEFAULT_START_DATE, help="Start date: '30d' (30 days ago), '2024-01-01', or '2024-01-01 14:30'")
+    parser.add_argument("--end-date", type=str, default=DEFAULT_END_DATE, help="End date: 'now', '2024-12-31', or '2024-12-31 18:00'")
+    parser.add_argument("--time-distribution", type=str, default=DEFAULT_TIME_DISTRIBUTION, help="Time distribution: 'uniform', 'afternoon_heavy', 'evening_heavy', 'morning_heavy', or custom weights")
     args = parser.parse_args()
 
     random.seed(args.seed)
@@ -640,6 +777,25 @@ def main():
         tier_values = list(range(int(tmin), int(tmax) + 1))
     else:
         tier_values = [int(args.tiers)]
+    
+    # Parse date range
+    try:
+        start_date = parse_date_string(args.start_date)
+        end_date = parse_date_string(args.end_date)
+        
+        if start_date >= end_date:
+            raise ValueError("Start date must be before end date")
+            
+    except ValueError as e:
+        print(f"❌ Date parsing error: {e}")
+        return 1
+    
+    # Parse time distribution
+    try:
+        time_weights = parse_time_distribution(args.time_distribution)
+    except ValueError as e:
+        print(f"❌ Time distribution parsing error: {e}")
+        return 1
 
     config = ConfigurationManager('config/main_config.yaml')
     # Preliminary logger; db-aware logging configured after db connection
@@ -670,24 +826,27 @@ def main():
 
     wipe_tables(db)
 
-    base_start = datetime.now()
-    
     # Determine number of workers
     num_workers = args.workers or mp.cpu_count()
-    logger.info("Starting multiprocessing", runs=args.runs, workers=num_workers)
+    logger.info("Starting multiprocessing", 
+                runs=args.runs, 
+                workers=num_workers,
+                start_date=start_date.strftime("%Y-%m-%d %H:%M:%S"),
+                end_date=end_date.strftime("%Y-%m-%d %H:%M:%S"),
+                time_distribution=args.time_distribution)
     
     # Prepare arguments for each worker
     worker_args = []
     for i in range(args.runs):
         tier = random.choice(tier_values)
-        worker_args.append((tier, args.min_wave, args.max_wave, base_start, i, args.seed))
+        worker_args.append((tier, args.min_wave, args.max_wave, start_date, end_date, time_weights, i, args.seed))
     
     start_time = time.time()
     
     # Use ProcessPoolExecutor for better error handling and progress tracking
     with ProcessPoolExecutor(max_workers=num_workers) as executor:
         # Submit all jobs
-        future_to_run = {executor.submit(generate_run_data_worker, args): args[4] for args in worker_args}
+        future_to_run = {executor.submit(generate_run_data_worker, args): args[6] for args in worker_args}
         
         completed_runs = 0
         failed_runs = 0
@@ -780,6 +939,8 @@ def main():
     print(f"🎲 Random Seed: {args.seed}")
     print(f"🌊 Wave Range: {args.min_wave}-{args.max_wave}")
     print(f"🏆 Tier Range: {args.tiers}")
+    print(f"📅 Date Range: {start_date.strftime('%Y-%m-%d %H:%M')} to {end_date.strftime('%Y-%m-%d %H:%M')}")
+    print(f"⏰ Time Distribution: {args.time_distribution}")
     
     if stats.get('table_rows'):
         print(f"\n📋 Database Statistics:")

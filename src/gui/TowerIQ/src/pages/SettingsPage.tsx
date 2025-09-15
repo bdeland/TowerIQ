@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
-import { Box, Typography, Card, CardContent, Switch, FormControlLabel, TextField, Button, InputAdornment, CircularProgress, Alert } from '@mui/material';
+import { Box, Typography, Card, CardContent, Switch, FormControlLabel, TextField, Button, InputAdornment, CircularProgress, Alert, List, ListItem, ListItemText, IconButton, CardHeader } from '@mui/material';
 import Grid from '@mui/material/Grid';
-import { Settings as SettingsIcon, Notifications, Security, DisplaySettings, FolderOpen, Save, PlayArrow } from '@mui/icons-material';
+import { Settings as SettingsIcon, Notifications, Security, DisplaySettings, FolderOpen, Save, PlayArrow, Refresh as RefreshIcon } from '@mui/icons-material';
 import { open } from '@tauri-apps/plugin-dialog';
 import { API_CONFIG } from '../config/environment';
 
@@ -20,6 +20,11 @@ export function SettingsPage() {
   const [onShutdown, setOnShutdown] = useState(true);
   const [compressZip, setCompressZip] = useState(true);
   const [filenamePrefix, setFilenamePrefix] = useState('toweriq_backup_');
+  
+  // Database statistics state
+  const [dbStats, setDbStats] = useState<any>(null);
+  const [statsLoading, setStatsLoading] = useState(false);
+  const [statsError, setStatsError] = useState<string | null>(null);
 
   const loadSettings = async () => {
     try {
@@ -48,8 +53,45 @@ export function SettingsPage() {
     }
   };
 
+  const loadDatabaseStats = async () => {
+    try {
+      setStatsLoading(true);
+      setStatsError(null);
+      const response = await fetch(`${API_CONFIG.BASE_URL}/v1/database/statistics`);
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
+      const stats = await response.json();
+      setDbStats(stats);
+    } catch (e: any) {
+      setStatsError(e?.message || 'Failed to load database statistics');
+    } finally {
+      setStatsLoading(false);
+    }
+  };
+
+  // Utility function to format file sizes
+  const formatFileSize = (bytes: number): string => {
+    if (bytes === 0) return '0 B';
+    const k = 1024;
+    const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return `${parseFloat((bytes / Math.pow(k, i)).toFixed(2))} ${sizes[i]}`;
+  };
+
+  // Utility function to format dates
+  const formatDate = (dateString: string): string => {
+    if (!dateString) return 'Unknown';
+    try {
+      return new Date(dateString).toLocaleString();
+    } catch {
+      return dateString;
+    }
+  };
+
   useEffect(() => {
     loadSettings();
+    loadDatabaseStats();
   }, []);
 
   const browseForPath = async (setter: (v: string) => void, dir = false) => {
@@ -162,6 +204,78 @@ export function SettingsPage() {
                   />
                 </Grid>
               </Grid>
+            </CardContent>
+          </Card>
+        </Grid>
+
+        <Grid size={12}>
+          <Card>
+            <CardHeader 
+              title="Database Statistics"
+              action={
+                <IconButton 
+                  onClick={loadDatabaseStats} 
+                  disabled={statsLoading}
+                  title="Refresh statistics"
+                >
+                  {statsLoading ? <CircularProgress size={20} /> : <RefreshIcon />}
+                </IconButton>
+              }
+            />
+            <CardContent>
+              {statsLoading && !dbStats && (
+                <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
+                  <CircularProgress size={20} sx={{ mr: 1 }} />
+                  <Typography variant="body2">Loading database statistics…</Typography>
+                </Box>
+              )}
+              
+              {statsError && (
+                <Alert severity="error" sx={{ mb: 2 }}>
+                  {statsError}
+                </Alert>
+              )}
+              
+              {dbStats && (
+                <List dense>
+                  <ListItem>
+                    <ListItemText 
+                      primary="Database File Size" 
+                      secondary={formatFileSize(dbStats.file_size || 0)}
+                    />
+                  </ListItem>
+                  <ListItem>
+                    <ListItemText 
+                      primary="Total Runs" 
+                      secondary={dbStats.table_rows?.runs?.toLocaleString() || '0'}
+                    />
+                  </ListItem>
+                  <ListItem>
+                    <ListItemText 
+                      primary="Total Metrics" 
+                      secondary={dbStats.table_rows?.metrics?.toLocaleString() || '0'}
+                    />
+                  </ListItem>
+                  <ListItem>
+                    <ListItemText 
+                      primary="Total Events" 
+                      secondary={dbStats.table_rows?.events?.toLocaleString() || '0'}
+                    />
+                  </ListItem>
+                  <ListItem>
+                    <ListItemText 
+                      primary="Last Modified" 
+                      secondary={formatDate(dbStats.modified_date)}
+                    />
+                  </ListItem>
+                  <ListItem>
+                    <ListItemText 
+                      primary="SQLite Version" 
+                      secondary={dbStats.sqlite_version || 'Unknown'}
+                    />
+                  </ListItem>
+                </List>
+              )}
             </CardContent>
           </Card>
         </Grid>

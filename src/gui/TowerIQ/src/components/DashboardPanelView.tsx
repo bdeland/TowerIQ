@@ -22,7 +22,8 @@ import {
   Delete as DeleteIcon,
   Fullscreen as FullscreenIcon,
   FullscreenExit as FullscreenExitIcon,
-  ArrowBack as ArrowBackIcon
+  ArrowBack as ArrowBackIcon,
+  SettingsBackupRestore as SettingsBackupRestoreIcon
 } from '@mui/icons-material';
 import ReactECharts from 'echarts-for-react';
 import { DashboardPanel } from '../contexts/DashboardContext';
@@ -88,6 +89,13 @@ const DashboardPanelViewComponent: React.FC<DashboardPanelViewProps> = ({
   const [originalOption, setOriginalOption] = useState<any>(null);
   const [drilldownData, setDrilldownData] = useState<any[]>([]);
   
+  // Performance optimization refs
+  const zoomUpdateTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const lastZoomStateRef = useRef<{start: number, end: number} | null>(null);
+  
+  // Chart state tracking
+  const [isChartModified, setIsChartModified] = useState(false);
+  
 
 
   // Fetch data from backend based on panel query
@@ -152,8 +160,14 @@ const DashboardPanelViewComponent: React.FC<DashboardPanelViewProps> = ({
       let drilldownQuery = panel.echartsOption.drilldown.query;
       drilldownQuery = drilldownQuery.replace(/{run_number}/g, runNumber.toString());
       
-      // Handle tier_filter replacement (similar to how it's done in the main query)
-      drilldownQuery = drilldownQuery.replace(/\$\{tier_filter\}/g, ''); // For now, we'll handle this simply
+      // Handle tier_filter replacement - remove the placeholder and any trailing WHERE clause
+      drilldownQuery = drilldownQuery.replace(/\$\{tier_filter\}/g, '');
+      
+      // Remove trailing semicolon to prevent issues with backend LIMIT addition
+      drilldownQuery = drilldownQuery.trim().replace(/;+$/, '');
+      
+      // Debug: Log the processed query
+      console.log('Drilldown query being sent:', drilldownQuery);
       
       // Fetch drilldown data
       const response = await fetch(`${API_CONFIG.BASE_URL}/query`, {
@@ -163,10 +177,20 @@ const DashboardPanelViewComponent: React.FC<DashboardPanelViewProps> = ({
       });
       
       if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
+        // Try to get the error details from the response
+        let errorMessage = `HTTP error! status: ${response.status}`;
+        try {
+          const errorData = await response.json();
+          errorMessage += ` - ${errorData.detail || errorData.message || 'Unknown error'}`;
+        } catch (e) {
+          // If we can't parse the error response, use the status text
+          errorMessage += ` - ${response.statusText}`;
+        }
+        throw new Error(errorMessage);
       }
       
       const result = await response.json();
+      console.log('Drilldown data received:', result.data);
       setDrilldownData(result.data || []);
       setIsDrilldown(true);
       
@@ -182,7 +206,40 @@ const DashboardPanelViewComponent: React.FC<DashboardPanelViewProps> = ({
   const handleBackToOriginal = () => {
     setIsDrilldown(false);
     setDrilldownData([]);
+    setIsChartModified(false);
+    // Clear any pending zoom updates
+    if (zoomUpdateTimeoutRef.current) {
+      clearTimeout(zoomUpdateTimeoutRef.current);
+      zoomUpdateTimeoutRef.current = null;
+    }
+    lastZoomStateRef.current = null;
   };
+  
+  // Handle chart reset (zoom/pan back to default)
+  const handleChartReset = () => {
+    if (chartRef.current) {
+      const chartInstance = chartRef.current.getEchartsInstance();
+      
+      // Reset dataZoom to default state
+      chartInstance.dispatchAction({
+        type: 'dataZoom',
+        start: 0,
+        end: 100
+      });
+      
+      setIsChartModified(false);
+      lastZoomStateRef.current = { start: 0, end: 100 };
+    }
+  };
+  
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      if (zoomUpdateTimeoutRef.current) {
+        clearTimeout(zoomUpdateTimeoutRef.current);
+      }
+    };
+  }, []);
   
   // Chart event handlers
   const onChartEvents = {
@@ -192,6 +249,101 @@ const DashboardPanelViewComponent: React.FC<DashboardPanelViewProps> = ({
         const runNumber = params.dataIndex + 1; // Assuming 1-based indexing
         handleDrilldown(runNumber);
       }
+    },
+    datazoom: (_params: any) => {
+      // Handle zoom events for dynamic point visibility with performance optimizations
+      if (!isDrilldown || !chartRef.current || drilldownData.length === 0) {
+        return; // Early exit if not applicable
+      }
+      
+      // Clear any existing timeout
+      if (zoomUpdateTimeoutRef.current) {
+        clearTimeout(zoomUpdateTimeoutRef.current);
+      }
+      
+      // Debounce the zoom updates to avoid excessive calculations
+      zoomUpdateTimeoutRef.current = setTimeout(() => {
+        const chartInstance = chartRef.current?.getEchartsInstance();
+        if (!chartInstance) return;
+        
+        const option = chartInstance.getOption();
+        const dataZoomOption = option.dataZoom;
+        let startPercent = 0;
+        let endPercent = 100;
+        
+        if (dataZoomOption && dataZoomOption.length > 0) {
+          const zoom = dataZoomOption[0];
+          startPercent = Math.round((zoom.start || 0) * 10) / 10; // Round to 1 decimal
+          endPercent = Math.round((zoom.end || 100) * 10) / 10;
+        }
+        
+        // Check if zoom state actually changed (avoid redundant updates)
+        const lastZoom = lastZoomStateRef.current;
+        if (lastZoom && lastZoom.start === startPercent && lastZoom.end === endPercent) {
+          return; // No change, skip update
+        }
+        lastZoomStateRef.current = { start: startPercent, end: endPercent };
+        
+        // Update chart modified state
+        const isDefaultZoom = startPercent === 0 && endPercent === 100;
+        setIsChartModified(!isDefaultZoom);
+        
+        const visibleRatio = (endPercent - startPercent) / 100;
+        const totalPoints = drilldownData.length;
+        const visiblePointCount = Math.ceil(totalPoints * visibleRatio);
+        const maxPointsForSymbols = 50;
+        
+        // Only calculate Y-axis range if we're actually zoomed in
+        let yAxisMin = null;
+        let yAxisMax = null;
+        
+        if (startPercent !== 0 || endPercent !== 100) {
+          // Efficient Y-range calculation using pre-sorted data assumption
+          const startIndex = Math.floor((startPercent / 100) * totalPoints);
+          const endIndex = Math.min(Math.ceil((endPercent / 100) * totalPoints), totalPoints);
+          
+          // Use reduce for better performance than forEach
+          const yRange = drilldownData.slice(startIndex, endIndex).reduce(
+            (acc, point) => {
+              const y = point.y_value;
+              return {
+                min: Math.min(acc.min, y),
+                max: Math.max(acc.max, y)
+              };
+            },
+            { min: Number.MAX_VALUE, max: Number.MIN_VALUE }
+          );
+          
+          const padding = (yRange.max - yRange.min) * 0.1;
+          yAxisMin = Math.max(0, yRange.min - padding);
+          yAxisMax = yRange.max + padding;
+        }
+        
+        // Batch all option updates into a single setOption call
+        const updates: any = {};
+        
+        // Update series symbol
+        if (option.series && Array.isArray(option.series) && option.series.length > 0) {
+          updates.series = [{
+            ...option.series[0],
+            symbol: visiblePointCount <= maxPointsForSymbols ? 'circle' : 'none',
+            symbolSize: visiblePointCount <= maxPointsForSymbols ? 4 : 0
+          }];
+        }
+        
+        // Update Y-axis
+        if (option.yAxis && Array.isArray(option.yAxis) && option.yAxis.length > 0) {
+          updates.yAxis = [{
+            ...option.yAxis[0],
+            min: yAxisMin,
+            max: yAxisMax
+          }];
+        }
+        
+        // Single chart update for better performance
+        chartInstance.setOption(updates, false);
+        
+      }, 100); // 100ms debounce
     }
   };
 
@@ -201,17 +353,108 @@ const DashboardPanelViewComponent: React.FC<DashboardPanelViewProps> = ({
     if (isDrilldown && panel.echartsOption.drilldown) {
       const drilldownOption = { ...panel.echartsOption.drilldown.echartsOption };
       
+      // Apply consistent grid configuration with smart spacing
+      if (!drilldownOption.grid) {
+        drilldownOption.grid = {};
+      }
+      drilldownOption.grid = {
+        ...drilldownOption.grid,
+        left: '0%',     // Minimal space for y-axis labels
+        right: '2%',    // Minimal space for right side (no legend or right elements)
+        top: '2%',      // Minimal space for top (no title in drilldown)
+        bottom: '5%',   // Space for x-axis labels only (no slider needed)
+        containLabel: true // Ensure labels are contained within the grid
+      };
+      
+      // Ensure tooltips and other elements don't overflow
+      if (!drilldownOption.tooltip) {
+        drilldownOption.tooltip = {};
+      }
+      drilldownOption.tooltip = {
+        ...drilldownOption.tooltip,
+        confine: true, // Prevent tooltip from overflowing the chart container
+        position: 'inside' // Keep tooltips within chart bounds
+      };
+      
+      // Ensure axis labels don't overflow
+      if (drilldownOption.xAxis) {
+        drilldownOption.xAxis = {
+          ...drilldownOption.xAxis,
+          axisLabel: {
+            ...drilldownOption.xAxis.axisLabel,
+            overflow: 'truncate', // Truncate long labels
+            width: 60, // Limit label width
+            rotate: 0 // Keep labels horizontal
+          }
+        };
+      }
+      
+      if (drilldownOption.yAxis) {
+        drilldownOption.yAxis = {
+          ...drilldownOption.yAxis,
+          axisLabel: {
+            ...drilldownOption.yAxis.axisLabel,
+            overflow: 'truncate', // Truncate long currency labels
+            width: 80 // Limit Y-axis label width
+          }
+        };
+      }
+      
+      // Configure dataZoom to hide slider but keep inside zoom functionality
+      if (drilldownOption.dataZoom) {
+        drilldownOption.dataZoom = drilldownOption.dataZoom.map((zoom: any) => {
+          if (zoom.type === 'slider') {
+            // Hide the slider but keep inside zoom
+            return {
+              type: 'inside',
+              xAxisIndex: zoom.xAxisIndex || 0,
+              filterMode: zoom.filterMode || 'none'
+            };
+          }
+          return zoom; // Keep inside zoom as-is
+        });
+      }
+      
       // Update chart with drilldown data
       if (drilldownData.length > 0) {
-        const xData = drilldownData.map(row => row.x_value);
-        const yData = drilldownData.map(row => row.y_value);
+        // For value-type x-axis (like wave numbers), we need coordinate pairs [x, y]
+        const coordinateData = drilldownData.map(row => [row.x_value, row.y_value]);
         
-        if (drilldownOption.xAxis) {
-          drilldownOption.xAxis.data = xData;
-        }
         if (drilldownOption.series && drilldownOption.series[0]) {
-          drilldownOption.series[0].data = yData;
+          drilldownOption.series[0].data = coordinateData;
+          
+          // Dynamic point visibility based on data density
+          const dataPointCount = coordinateData.length;
+          const maxPointsForSymbols = 50; // Threshold for showing individual points - more restrictive
+          
+          // Initial symbol configuration - start hidden for large datasets
+          console.log(`📊 Initial chart setup: ${dataPointCount} points, threshold: ${maxPointsForSymbols}`);
+          
+          if (dataPointCount > maxPointsForSymbols) {
+            // Too many points - start with symbols hidden
+            console.log('📊 Initial: Hiding symbols (too many points)');
+            drilldownOption.series[0].symbol = 'none';
+            drilldownOption.series[0].symbolSize = 0;
+          } else {
+            // Few enough points - always show symbols
+            console.log('📊 Initial: Showing symbols (few enough points)');
+            drilldownOption.series[0].symbol = 'circle';
+            drilldownOption.series[0].symbolSize = 4;
+          }
+          
+          // Ensure smooth line and good performance
+          drilldownOption.series[0].smooth = true;
+          drilldownOption.series[0].lineStyle = { width: 1 };
+          
+          // Add emphasis for better interaction
+          drilldownOption.series[0].emphasis = {
+            focus: 'series',
+            scale: true,
+            lineStyle: { width: 1 }
+          };
         }
+        
+        // Don't set xAxis.data for value-type axes - it's only for category axes
       }
       
       return drilldownOption;
@@ -302,9 +545,9 @@ const DashboardPanelViewComponent: React.FC<DashboardPanelViewProps> = ({
       if (panel.columnMapping?.xAxis) {
         mapping.xAxis = panel.columnMapping.xAxis;
       } else {
-        // For x-axis (categories/labels)
+        // For x-axis (categories/labels/dates)
         mapping.xAxis = columns.find(col => 
-          ['category', 'name', 'label', 'title', 'id', 'type'].includes(col.toLowerCase())
+          ['category', 'name', 'label', 'title', 'id', 'type', 'date', 'time', 'timestamp'].includes(col.toLowerCase())
         ) || columns[0];
       }
       
@@ -313,7 +556,7 @@ const DashboardPanelViewComponent: React.FC<DashboardPanelViewProps> = ({
       } else {
         // For y-axis (values)
         mapping.yAxis = columns.find(col => 
-          ['value', 'count', 'amount', 'number', 'score', 'total'].includes(col.toLowerCase())
+          ['value', 'count', 'amount', 'number', 'score', 'total', 'coins', 'total_coins'].includes(col.toLowerCase())
         ) || columns[1] || columns[0];
       }
       
@@ -415,6 +658,133 @@ const DashboardPanelViewComponent: React.FC<DashboardPanelViewProps> = ({
         // For tables, we'll use a custom approach since ECharts doesn't have native table support
         // Return the base option and handle table rendering separately
         return baseOption;
+      }
+
+      case 'calendar': {
+        // For calendar heatmaps, transform data to ECharts calendar format
+        console.log('📅 Processing calendar data:', queryResult.data);
+        
+        if (!queryResult.data || queryResult.data.length === 0) {
+          console.log('📅 No data available for calendar');
+          return {
+            ...baseOption,
+            calendar: {
+              ...baseOption.calendar,
+              range: [new Date().getFullYear()]
+            },
+            visualMap: {
+              ...baseOption.visualMap,
+              min: 0,
+              max: 100
+            },
+            series: [{
+              ...baseOption.series?.[0],
+              type: 'heatmap',
+              coordinateSystem: 'calendar',
+              data: []
+            }]
+          };
+        }
+        
+        const mapping = getColumnMapping(queryResult.data);
+        console.log('📅 Column mapping:', mapping);
+        console.log('📅 Sample data row:', queryResult.data[0]);
+        
+        // Calendar data should be in format [[date, value], [date, value], ...]
+        const calendarData = queryResult.data
+          .filter(row => row[mapping.xAxis] && row[mapping.yAxis] != null)
+          .map(row => {
+            // Ensure date is in YYYY-MM-DD format
+            const dateStr = row[mapping.xAxis];
+            const value = Number(row[mapping.yAxis]) || 0;
+            console.log('📅 Processing row:', { date: dateStr, value });
+            return [dateStr, value];
+          });
+        
+        console.log('📅 Processed calendar data:', calendarData);
+        
+        if (calendarData.length === 0) {
+          console.log('📅 No valid data points after processing');
+          return {
+            ...baseOption,
+            calendar: {
+              ...baseOption.calendar,
+              range: [new Date().getFullYear()]
+            },
+            visualMap: {
+              ...baseOption.visualMap,
+              min: 0,
+              max: 100
+            },
+            series: [{
+              ...baseOption.series?.[0],
+              type: 'heatmap',
+              coordinateSystem: 'calendar',
+              data: []
+            }]
+          };
+        }
+        
+        // Get date range from data for calendar configuration
+        const dates = calendarData.map(([dateStr]) => new Date(dateStr));
+        const validDates = dates.filter(d => !isNaN(d.getTime()));
+        
+        if (validDates.length === 0) {
+          console.log('📅 No valid dates found');
+          return {
+            ...baseOption,
+            calendar: {
+              ...baseOption.calendar,
+              range: [new Date().getFullYear()]
+            },
+            visualMap: {
+              ...baseOption.visualMap,
+              min: 0,
+              max: 100
+            },
+            series: [{
+              ...baseOption.series?.[0],
+              type: 'heatmap',
+              coordinateSystem: 'calendar',
+              data: []
+            }]
+          };
+        }
+        
+        const minDate = new Date(Math.min(...validDates.map(d => d.getTime())));
+        const maxDate = new Date(Math.max(...validDates.map(d => d.getTime())));
+        
+        // Get min/max values for visualMap
+        const values = calendarData.map(([, value]) => value).filter(v => v != null && !isNaN(v));
+        const minValue = values.length > 0 ? Math.min(...values) : 0;
+        const maxValue = values.length > 0 ? Math.max(...values) : 100;
+        
+        console.log('📅 Final configuration:', {
+          dateRange: [minDate.getFullYear(), maxDate.getFullYear()],
+          valueRange: [minValue, maxValue],
+          dataPoints: calendarData.length
+        });
+        
+        return {
+          ...baseOption,
+          calendar: {
+            ...baseOption.calendar,
+            range: minDate.getFullYear() === maxDate.getFullYear() 
+              ? minDate.getFullYear() 
+              : [minDate.getFullYear(), maxDate.getFullYear()]
+          },
+          visualMap: {
+            ...baseOption.visualMap,
+            min: minValue,
+            max: maxValue
+          },
+          series: [{
+            ...baseOption.series?.[0],
+            type: 'heatmap',
+            coordinateSystem: 'calendar',
+            data: calendarData
+          }]
+        };
       }
 
       default:
@@ -624,6 +994,29 @@ const DashboardPanelViewComponent: React.FC<DashboardPanelViewProps> = ({
           : panel.title
         }
       </Typography>
+      
+      {/* Reset button - only show when chart is modified and in drilldown mode */}
+      {isDrilldown && isChartModified && (
+        <IconButton
+          size="small"
+          onClick={handleChartReset}
+          aria-label="Reset zoom and pan"
+          sx={{ 
+            padding: '4px',
+            color: 'text.secondary',
+            borderRadius: 0.25,
+            ml: 'auto', // Push to the right
+            mr: showFullscreen ? 0.5 : 0, // Small margin if fullscreen button follows
+            '&:hover': {
+              backgroundColor: 'action.hover',
+              color: 'text.primary'
+            }
+          }}
+        >
+          <SettingsBackupRestoreIcon fontSize="small" />
+        </IconButton>
+      )}
+      
       {showFullscreen ? (
         <IconButton
           id={`panel-fullscreen-button-${panel.id}`}

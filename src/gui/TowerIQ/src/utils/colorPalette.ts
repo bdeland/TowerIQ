@@ -181,6 +181,122 @@ export function createColorGradient(
 }
 
 /**
+ * Predefined continuous color palettes for heatmaps and data visualization
+ */
+export const CONTINUOUS_PALETTES = {
+  // Blue-based palette (cool tones)
+  blues: {
+    name: 'Blues',
+    colors: ['#f7fbff', '#deebf7', '#c6dbef', '#9ecae1', '#6baed6', '#4292c6', '#2171b5', '#08519c', '#08306b'],
+    description: 'Cool blue gradient from light to dark'
+  },
+  
+  // Green-based palette (natural tones)
+  greens: {
+    name: 'Greens', 
+    colors: ['#f7fcf5', '#e5f5e0', '#c7e9c0', '#a1d99b', '#74c476', '#41ab5d', '#238b45', '#006d2c', '#00441b'],
+    description: 'Natural green gradient from light to dark'
+  },
+  
+  // Purple-based palette (brand colors)
+  purples: {
+    name: 'Purples',
+    colors: ['#fcfbfd', '#efedf5', '#dadaeb', '#bcbddc', '#9e9ac8', '#807dba', '#6a51a3', '#54278f', '#3f007d'],
+    description: 'Purple gradient matching brand colors'
+  },
+  
+  // Orange-Red palette (warm tones)
+  oranges: {
+    name: 'Oranges',
+    colors: ['#fff5eb', '#fee6ce', '#fdd0a2', '#fdae6b', '#fd8d3c', '#f16913', '#d94801', '#a63603', '#7f2704'],
+    description: 'Warm orange-red gradient'
+  },
+  
+  // Viridis-inspired palette (perceptually uniform)
+  viridis: {
+    name: 'Viridis',
+    colors: ['#440154', '#482777', '#3f4a8a', '#31678e', '#26838f', '#1f9d8a', '#6cce5a', '#b6de2b', '#fee825'],
+    description: 'Perceptually uniform purple-green-yellow gradient'
+  },
+  
+  // TowerIQ brand palette (using primary colors)
+  toweriq: {
+    name: 'TowerIQ',
+    colors: ['#1a1a1a', '#2d2d2d', '#404040', '#595959', '#737373', '#8a3ffc', '#a366ff', '#bb8cff', '#d4bbff'],
+    description: 'TowerIQ brand colors from dark to purple'
+  }
+} as const;
+
+/**
+ * Gets a continuous color palette by name
+ * @param paletteName - Name of the palette to retrieve
+ * @returns Color array for the specified palette
+ */
+export function getContinuousPalette(paletteName: keyof typeof CONTINUOUS_PALETTES): string[] {
+  return [...CONTINUOUS_PALETTES[paletteName].colors];
+}
+
+/**
+ * Creates a continuous color scale function for mapping values to colors
+ * @param palette - Color palette to use
+ * @param minValue - Minimum value in the data range
+ * @param maxValue - Maximum value in the data range
+ * @returns Function that maps a value to a color
+ */
+export function createContinuousColorScale(
+  palette: string[], 
+  minValue: number, 
+  maxValue: number
+): (value: number) => string {
+  return (value: number) => {
+    if (value <= minValue) return palette[0];
+    if (value >= maxValue) return palette[palette.length - 1];
+    
+    const normalizedValue = (value - minValue) / (maxValue - minValue);
+    const index = normalizedValue * (palette.length - 1);
+    const lowerIndex = Math.floor(index);
+    const upperIndex = Math.ceil(index);
+    
+    if (lowerIndex === upperIndex) {
+      return palette[lowerIndex];
+    }
+    
+    // Interpolate between the two colors
+    const ratio = index - lowerIndex;
+    const lowerColor = palette[lowerIndex];
+    const upperColor = palette[upperIndex];
+    
+    return interpolateColors(lowerColor, upperColor, ratio);
+  };
+}
+
+/**
+ * Interpolates between two hex colors
+ * @param color1 - First hex color
+ * @param color2 - Second hex color
+ * @param ratio - Interpolation ratio (0-1)
+ * @returns Interpolated hex color
+ */
+function interpolateColors(color1: string, color2: string, ratio: number): string {
+  const c1 = color1.replace('#', '');
+  const c2 = color2.replace('#', '');
+  
+  const r1 = parseInt(c1.substring(0, 2), 16);
+  const g1 = parseInt(c1.substring(2, 4), 16);
+  const b1 = parseInt(c1.substring(4, 6), 16);
+  
+  const r2 = parseInt(c2.substring(0, 2), 16);
+  const g2 = parseInt(c2.substring(2, 4), 16);
+  const b2 = parseInt(c2.substring(4, 6), 16);
+  
+  const r = Math.round(r1 + (r2 - r1) * ratio);
+  const g = Math.round(g1 + (g2 - g1) * ratio);
+  const b = Math.round(b1 + (b2 - b1) * ratio);
+  
+  return `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`;
+}
+
+/**
  * Default chart theme configuration using the color palette (dark theme)
  */
 export const DEFAULT_CHART_THEME = {
