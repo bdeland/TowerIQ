@@ -1,11 +1,15 @@
 import { useEffect, useState } from 'react';
 import { Box, Typography, Card, CardContent, Switch, FormControlLabel, TextField, Button, InputAdornment, CircularProgress, Alert, List, ListItem, ListItemText, IconButton, CardHeader } from '@mui/material';
 import Grid from '@mui/material/Grid';
-import { Settings as SettingsIcon, Notifications, Security, DisplaySettings, FolderOpen, Save, PlayArrow, Refresh as RefreshIcon } from '@mui/icons-material';
+import { Settings as SettingsIcon, Notifications, Security, DisplaySettings, FolderOpen, Save, PlayArrow, Refresh as RefreshIcon, DeveloperMode } from '@mui/icons-material';
 import { open } from '@tauri-apps/plugin-dialog';
 import { API_CONFIG } from '../config/environment';
+import { useDeveloper } from '../contexts/DeveloperContext';
 
 export function SettingsPage() {
+  // Developer context
+  const { isDevMode, toggleDevMode } = useDeveloper();
+  
   // Local state for database path and backup settings
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -476,6 +480,34 @@ export function SettingsPage() {
               <Button variant="contained" sx={{ mt: 2 }} onClick={saveAll} disabled={saving}>
                 {saving ? 'Saving…' : 'Save Settings'}
               </Button>
+            </CardContent>
+          </Card>
+        </Grid>
+        
+        <Grid size={12}>
+          <Card>
+            <CardContent>
+              <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
+                <DeveloperMode sx={{ mr: 1, color: 'primary.main' }} />
+                <Typography variant="h6">
+                  Developer Tools
+                </Typography>
+              </Box>
+              <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                Enable visual debugging aids for development and troubleshooting.
+              </Typography>
+              <FormControlLabel
+                control={
+                  <Switch 
+                    checked={isDevMode} 
+                    onChange={toggleDevMode}
+                  />
+                }
+                label="Enable Development Mode"
+              />
+              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>
+                Shows debug borders on dashboard grids and adds developer utilities to breadcrumbs.
+              </Typography>
             </CardContent>
           </Card>
         </Grid>

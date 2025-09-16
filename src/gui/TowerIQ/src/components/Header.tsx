@@ -205,7 +205,7 @@ export function Header({
         boxSizing: 'border-box',
         minHeight: `${layout.appBarHeight}px !important`,
         maxHeight: `${layout.appBarHeight}px !important`,
-        padding: '0 16px',
+        padding: '0px 16px 0 16px',
         }}>
         {/* Dashboard Variables - Grafana Style */}
         <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>

@@ -12,6 +12,7 @@ import { defaultDashboard } from '../config/defaultDashboard';
 import { DashboardVariableProvider, useDashboardVariable } from '../contexts/DashboardVariableContext';
 import { composeQuery } from '../utils/queryComposer';
 import { API_CONFIG } from '../config/environment';
+import { useDeveloper } from '../contexts/DeveloperContext';
 
 // Component that handles default dashboard with dynamic data fetching
 function DefaultDashboardContent({ panels, currentDashboard, isEditMode, selectedPanelId, onLayoutChange, onPanelClick, onPanelDelete, onUpdatePanel, onDeletePanel, getSelectedPanel }: {
@@ -27,6 +28,7 @@ function DefaultDashboardContent({ panels, currentDashboard, isEditMode, selecte
   getSelectedPanel: () => DashboardPanel | null;
 }) {
   const { selectedValues } = useDashboardVariable();
+  const { isDevMode } = useDeveloper();
   const [panelData, setPanelData] = useState<Record<string, any[]>>({});
 
   useEffect(() => {
@@ -59,7 +61,7 @@ function DefaultDashboardContent({ panels, currentDashboard, isEditMode, selecte
   }, [selectedValues, panels]);
 
   return (
-    <Box sx={{ padding: '8px 8px 8px 8px', border: '2px solid red' }} data-content-container="true">
+    <Box sx={{ padding: '8px 8px 8px 8px', border: isDevMode ? '2px solid red' : 'none' }} data-content-container="true">
       <Box sx={{ mt: 0 }}>
         <DashboardGrid
           panels={panels}
@@ -91,6 +93,7 @@ export function DashboardViewPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { fetchDashboard, currentDashboard, setCurrentDashboard, updateDashboard, createDashboard, fetchDashboards, loading, error, clearError } = useDashboard();
+  const { isDevMode } = useDeveloper();
   const { 
     setIsDashboardPage, 
     setIsEditMode: setContextEditMode, 
@@ -395,7 +398,7 @@ export function DashboardViewPage() {
   }
 
   const dashboardContent = (
-    <Box sx={{ padding: '8px 8px 8px 8px', border: '2px solid red' }} data-content-container="true">
+    <Box sx={{ padding: '8px 8px 8px 8px', border: isDevMode ? '2px solid red' : 'none' }} data-content-container="true">
       <Box sx={{ mt: 0 }}>
         <DashboardGrid
           panels={panels}

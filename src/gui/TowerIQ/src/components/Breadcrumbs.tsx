@@ -1,7 +1,8 @@
-import { Breadcrumbs as MuiBreadcrumbs, Link, Typography, Box, useTheme, useMediaQuery } from '@mui/material';
-import { NavigateNext as NavigateNextIcon } from '@mui/icons-material';
+import { Breadcrumbs as MuiBreadcrumbs, Link, Typography, Box, useTheme, useMediaQuery, IconButton, Menu, MenuItem } from '@mui/material';
+import { NavigateNext as NavigateNextIcon, MoreVert as MoreVertIcon } from '@mui/icons-material';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useDashboard } from '../contexts/DashboardContext';
+import { useDeveloper } from '../contexts/DeveloperContext';
 import { useEffect, useState, useMemo } from 'react';
 import { defaultDashboard } from '../config/defaultDashboard';
 
@@ -18,9 +19,14 @@ export function Breadcrumbs() {
   const isSmallScreen = useMediaQuery(theme.breakpoints.down('sm'));
 
   const { fetchDashboard, dashboards } = useDashboard();
+  const { isDevMode } = useDeveloper();
   const [dashboardTitle, setDashboardTitle] = useState<string>('');
   const [isLoadingDashboard, setIsLoadingDashboard] = useState<boolean>(false);
   const [panelTitle, setPanelTitle] = useState<string>('');
+  
+  // Developer menu state
+  const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
+  const [isHovered, setIsHovered] = useState(false);
 
   // Memoize URL parsing
   const { dashboardId, panelId } = useMemo(() => {
@@ -146,6 +152,40 @@ export function Breadcrumbs() {
     return items;
   }, [location.pathname, dashboardId, panelId, dashboardTitle, panelTitle, isLoadingDashboard]);
 
+  // Developer menu handlers
+  const handleMenuOpen = (event: React.MouseEvent<HTMLElement>) => {
+    setAnchorEl(event.currentTarget);
+  };
+
+  const handleMenuClose = () => {
+    setAnchorEl(null);
+  };
+
+  const formatBreadcrumbString = () => {
+    return breadcrumbItems.map(item => item.label).join(' > ');
+  };
+
+  const handleCopyAll = async () => {
+    const breadcrumbString = formatBreadcrumbString();
+    const fullUrl = window.location.href;
+    const textToCopy = `${breadcrumbString}\n${fullUrl}`;
+    
+    try {
+      await navigator.clipboard.writeText(textToCopy);
+      console.log('Copied to clipboard:', textToCopy);
+    } catch (error) {
+      console.error('Failed to copy to clipboard:', error);
+      // Fallback for older browsers
+      const textArea = document.createElement('textarea');
+      textArea.value = textToCopy;
+      document.body.appendChild(textArea);
+      textArea.select();
+      document.execCommand('copy');
+      document.body.removeChild(textArea);
+    }
+    handleMenuClose();
+  };
+
   // Implement the render logic
   const handleClick = (path: string) => {
     navigate(path);
@@ -155,7 +195,18 @@ export function Breadcrumbs() {
   const itemMaxWidth = isSmallScreen ? '120px' : '200px';
 
   return (
-    <Box sx={{ flex: 1, minWidth: 0, overflow: 'hidden' }}>
+    <Box 
+      sx={{ 
+        flex: 1, 
+        minWidth: 0, 
+        overflow: 'hidden',
+        display: 'flex',
+        alignItems: 'center',
+        gap: 1
+      }}
+      onMouseEnter={() => setIsHovered(true)}
+      onMouseLeave={() => setIsHovered(false)}
+    >
       <MuiBreadcrumbs
         maxItems={maxItems}
         itemsBeforeCollapse={1}
@@ -199,6 +250,49 @@ export function Breadcrumbs() {
           );
         })}
       </MuiBreadcrumbs>
+      
+      {/* Developer Menu - only show in dev mode when hovered */}
+      {isDevMode && isHovered && (
+        <IconButton
+          size="small"
+          onClick={handleMenuOpen}
+          sx={{
+            opacity: 0.7,
+            '&:hover': {
+              opacity: 1,
+            },
+          }}
+        >
+          <MoreVertIcon fontSize="small" />
+        </IconButton>
+      )}
+      
+      <Menu
+        anchorEl={anchorEl}
+        open={Boolean(anchorEl)}
+        onClose={handleMenuClose}
+        PaperProps={{
+          sx: {
+            minWidth: 300,
+          },
+        }}
+      >
+        <MenuItem onClick={handleCopyAll}>
+          <Typography variant="body2" fontWeight="bold">
+            Copy All
+          </Typography>
+        </MenuItem>
+        <MenuItem disabled>
+          <Typography variant="body2" color="text.secondary" sx={{ whiteSpace: 'normal' }}>
+            {formatBreadcrumbString()}
+          </Typography>
+        </MenuItem>
+        <MenuItem disabled>
+          <Typography variant="body2" color="text.secondary" sx={{ whiteSpace: 'normal', wordBreak: 'break-all' }}>
+            {window.location.href}
+          </Typography>
+        </MenuItem>
+      </Menu>
     </Box>
   );
 }

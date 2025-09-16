@@ -31,6 +31,7 @@ import { Sidebar } from './components/Sidebar';
 import { DashboardProvider } from './contexts/DashboardContext';
 import { DashboardEditProvider } from './contexts/DashboardEditContext';
 import { DashboardVariableProvider } from './contexts/DashboardVariableContext';
+import { DeveloperProvider } from './contexts/DeveloperContext';
 
 import './App.css';
 
@@ -128,17 +129,33 @@ const theme = createTheme({
             },
             body: {
               '&::-webkit-scrollbar': {
-                width: '8px',
+                width: '0px',
+                background: 'transparent',
               },
               '&::-webkit-scrollbar-track': {
-                backgroundColor: theme.palette.background.paper,
+                background: 'transparent',
               },
               '&::-webkit-scrollbar-thumb': {
-                backgroundColor: theme.palette.divider,
-                borderRadius: '4px',
+                background: 'transparent',
               },
               '&::-webkit-scrollbar-thumb:hover': {
-                backgroundColor: '#404040', // A slightly lighter divider color on hover
+                background: 'transparent',
+              },
+            },
+            // Hide scrollbars for all elements
+            '*': {
+              '&::-webkit-scrollbar': {
+                width: '0px',
+                background: 'transparent',
+              },
+              '&::-webkit-scrollbar-track': {
+                background: 'transparent',
+              },
+              '&::-webkit-scrollbar-thumb': {
+                background: 'transparent',
+              },
+              '&::-webkit-scrollbar-thumb:hover': {
+                background: 'transparent',
               },
             },
             // Global override for all drawer papers
@@ -370,7 +387,6 @@ function DashboardLayout() {
           onSidebarToggle={handleSidebarToggle}
           layoutStyles={layoutStyles}
           layout={layout}
-          listItemIconStyles={listItemIconStyles}
         />
 
         <Sidebar
@@ -479,11 +495,13 @@ function App() {
   return (
     <>
       <Router>
-        <DashboardProvider>
-          <DashboardEditProvider>
-            <DashboardLayout />
-          </DashboardEditProvider>
-        </DashboardProvider>
+        <DeveloperProvider>
+          <DashboardProvider>
+            <DashboardEditProvider>
+              <DashboardLayout />
+            </DashboardEditProvider>
+          </DashboardProvider>
+        </DeveloperProvider>
       </Router>
       <Snackbar open={restorePrompt.open} anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}>
         <Alert

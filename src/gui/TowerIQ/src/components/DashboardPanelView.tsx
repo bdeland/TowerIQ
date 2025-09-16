@@ -1559,19 +1559,17 @@ const DashboardPanelViewComponent: React.FC<DashboardPanelViewProps> = ({
       sx={{
         width: '100%',
         height: '100%',
-        border: '1px solid #ff9800',
         borderRadius: 0.25,
         cursor: isEditMode ? 'pointer' : 'default',
         backgroundColor: 'rgba(255, 152, 0, 0.1)',
         '&:hover': isEditMode ? { 
-          borderColor: '#ff9800',
           boxShadow: '0 2px 8px rgba(247, 149, 32, 0.2)'
         } : {
           boxShadow: '0 1px 3px rgba(0, 0, 0, 0.12)'
         },
         display: 'flex',
         flexDirection: 'column',
-        overflow: 'visible', // Allow rounded corners to be visible
+        overflow: 'hidden', // Ensure clean rounded corners
         position: 'relative'
       }}
       onClick={handlePanelClick}
@@ -1586,7 +1584,8 @@ const DashboardPanelViewComponent: React.FC<DashboardPanelViewProps> = ({
         position: 'relative',
         minHeight: 0,
         overflow: 'hidden',
-        borderRadius: 'inherit',
+        borderBottomLeftRadius: 'inherit',
+        borderBottomRightRadius: 'inherit',
         padding: '10px' // Consistent margin between content and panel boundaries
       }}>
         {renderPanelContent()}

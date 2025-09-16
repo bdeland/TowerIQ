@@ -3,6 +3,7 @@ import { useMemo, memo, useCallback, useState, useEffect } from 'react';
 import DashboardPanelView from './DashboardPanelView';
 import { DashboardPanel } from '../contexts/DashboardContext';
 import { useResponsiveGrid, adjustPanelForBreakpoint } from '../hooks/useResponsiveGrid';
+import { useDeveloper } from '../contexts/DeveloperContext';
 
 interface DashboardGridProps {
   panels: DashboardPanel[];
@@ -36,6 +37,9 @@ const DashboardGridComponent = ({
   const [dragPosition, setDragPosition] = useState<{ x: number; y: number } | null>(null);
   const [previousColumns, setPreviousColumns] = useState<number>(12);
   
+  // Get developer mode state
+  const { isDevMode } = useDeveloper();
+  
   // Get responsive grid configuration
   const { columns: responsiveColumns, cellHeight, breakpoint } = useResponsiveGrid();
   const gridColumns = enableResponsive ? responsiveColumns : 12;
@@ -58,18 +62,20 @@ const DashboardGridComponent = ({
     display: 'grid',
     gridTemplateColumns: `repeat(${gridDimensions.cols}, 1fr)`,
     gridTemplateRows: `repeat(${gridDimensions.rows}, ${cellHeight}px)`,
-    gap: '4px',
+    gap: '6px',
     padding: '0px',
-    border: '1px solid #2196f3',
+    border: isDevMode ? '1px solid #2196f3' : 'none',
     borderRadius: '4px',
     minHeight: '200px',
     position: 'relative' as const,
     // Add transition for smooth responsive changes
     transition: 'grid-template-columns 0.3s ease, grid-template-rows 0.3s ease',
-  }), [gridDimensions, cellHeight]);
+  }), [gridDimensions, cellHeight, isDevMode]);
 
   // Memoize the visual grid cell components for debugging
   const gridCellComponents = useMemo(() => {
+    if (!isDevMode) return null; // Only show grid cells in dev mode
+    
     const cells = [];
     // Loop through each row and column to create a cell
     for (let r = 0; r < gridDimensions.rows; r++) {
@@ -80,7 +86,7 @@ const DashboardGridComponent = ({
             style={{
               gridRow: `${r + 1}`,
               gridColumn: `${c + 1}`,
-              border: '1px solid white',
+              border: '1px solid rgba(255, 255, 255, 0.5)',
               boxSizing: 'border-box',
               // This is crucial to ensure drag events go to the container
               pointerEvents: 'none', 
@@ -90,7 +96,7 @@ const DashboardGridComponent = ({
       }
     }
     return cells;
-  }, [gridDimensions]);
+  }, [gridDimensions, isDevMode]);
 
   // Handle drag start
   const handleDragStart = useCallback((panelId: string, event: React.DragEvent) => {
@@ -156,12 +162,12 @@ const DashboardGridComponent = ({
        const panelStyle = {
          gridColumn: `${panel.gridPos.x + 1} / span ${panel.gridPos.w}`,
          gridRow: `${panel.gridPos.y + 1} / span ${panel.gridPos.h}`,
-         backgroundColor: 'white',
          borderRadius: '4px',
          overflow: 'hidden',
          cursor: isEditMode && isEditable ? 'move' : 'default',
          opacity: draggedPanel === panel.id ? 0.5 : 1,
-         transition: 'opacity 0.2s ease'
+         transition: 'opacity 0.2s ease',
+         border: isDevMode ? '1px solid #ff9800' : '1px solid #2e3136', // Orange border in dev mode, default border otherwise
        };
 
       return (
@@ -184,7 +190,7 @@ const DashboardGridComponent = ({
         </div>
       );
     });
-  }, [panels, panelData, isEditMode, isEditable, showMenu, showFullscreen, draggedPanel, onPanelClick, onPanelDelete, onPanelFullscreenToggle, handleDragStart]);
+  }, [panels, panelData, isEditMode, isEditable, showMenu, showFullscreen, draggedPanel, isDevMode, onPanelClick, onPanelDelete, onPanelFullscreenToggle, handleDragStart]);
 
   // Handle responsive breakpoint changes and adjust panels
   useEffect(() => {
