@@ -4,12 +4,14 @@
 This document provides a comprehensive analysis of the TowerIQ database structure for external analysis.
 
 ## Database Statistics
-- **Total Runs**: 50
-- **Total Metrics**: 611,835
-- **Total Events**: 32,104
+- **Database File Size**: 746.2 MB (782,417,920 bytes)
+- **Total Runs**: 300
+- **Total Metrics**: 3,670,935
+- **Total Events**: 193,561
 - **Total Logs**: 0
 - **Total Settings**: 9
 - **Total Dashboards**: 0
+- **Total MOCK_DATA**: 1,000 (test data)
 
 ## Table Structure
 
@@ -157,6 +159,109 @@ runs (1) ←→ (many) events
 1. `database_schema.sql` - Complete SQL schema
 2. `database_full_dump.sql` - Complete database dump with data
 3. `database_structure_analysis.md` - This analysis document
+
+## Data Summary with Examples
+
+### Current Database Statistics (Updated)
+- **Total Runs**: 300
+- **Total Metrics**: 3,670,935
+- **Total Events**: 193,561
+- **Total Logs**: 0
+- **Total Settings**: 9
+- **Total Dashboards**: 0
+- **Total MOCK_DATA**: 1,000 (test data)
+
+### Sample Data Examples
+
+#### 1. `runs` Table (300 rows)
+**Sample Records:**
+```json
+{
+  "run_id": "b3bf970c-b840-466b-87ca-aa9c8d21ff0e",
+  "start_time": 1755170235000,
+  "end_time": 1755195225000,
+  "duration_realtime": 24,
+  "duration_gametime": 24990.0,
+  "final_wave": 833,
+  "coins_earned": 163769743246.21985,
+  "CPH": 24565461486932.977,
+  "round_cells": 2088997.1844397758,
+  "round_gems": 3077.0,
+  "round_cash": 47.50000000000023,
+  "game_version": "27.0.4",
+  "tier": 10
+}
+```
+
+#### 2. `metrics` Table (3,670,935 rows)
+**Metric Types Found:**
+- `cash`, `cells`, `coins`, `gems`
+- `round_cash`, `round_cells`, `round_coins`, `round_gems_from_ads_count`
+- `round_gems_from_ads_value`, `round_gems_from_blocks_count`
+
+**Sample Records:**
+```json
+{
+  "id": 5369266,
+  "run_id": "b3bf970c-b840-466b-87ca-aa9c8d21ff0e",
+  "real_timestamp": 1755170265000,
+  "game_timestamp": 30.0,
+  "current_wave": 1,
+  "metric_name": "round_coins",
+  "metric_value": 28401798.583818313
+}
+```
+
+#### 3. `events` Table (193,561 rows)
+**Event Types Found:**
+- `startNewRound`, `gemBlockTapped`, `adGemClaimed`
+- `gameSpeedChanged`, `gamePaused`, `gameResumed`, `gameOver`
+
+**Sample Records:**
+```json
+{
+  "id": 322344,
+  "run_id": "b3bf970c-b840-466b-87ca-aa9c8d21ff0e",
+  "timestamp": 1755170235000,
+  "event_name": "startNewRound",
+  "data": "{\"tier\": 10}"
+}
+```
+
+#### 4. `settings` Table (9 rows)
+**Sample Records:**
+```json
+{
+  "id": 1,
+  "key": "db_version",
+  "value": "3",
+  "value_type": "string",
+  "description": null,
+  "category": "general",
+  "is_sensitive": 0,
+  "created_at": "2025-07-23 11:50:35",
+  "updated_at": "2025-07-23 11:50:35",
+  "created_by": "system",
+  "version": 1
+}
+```
+
+#### 5. `MOCK_DATA` Table (1,000 rows - Test Data)
+**Sample Records:**
+```json
+{
+  "time": 1754991307000,
+  "value1": 867.103,
+  "value2": 50.5,
+  "value3": "1"
+}
+```
+
+#### 6. `dashboards` Table (0 rows)
+**Structure Ready:** Table exists but contains no data yet.
+
+#### 7. `logs` Table (0 rows)
+**Structure Ready:** Table exists but contains no data yet.
 
 ## Recommendations for Analysis
 

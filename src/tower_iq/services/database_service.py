@@ -53,7 +53,7 @@ class DatabaseService:
     Handles connections, writes, reads, migrations, and backups.
     """
     
-    DB_VERSION = "3" # Updated to include dashboards table
+    DB_VERSION = "4" # Updated with optimized schema using integer primary keys and lookup tables
     
     def __init__(self, config: ConfigurationManager, logger: Any, db_path: str = '') -> None:
         """
@@ -202,9 +202,9 @@ class DatabaseService:
             target_version=self.DB_VERSION
         )
         
-        # For this major change, we will create the new V2 schema.
+        # For this major change, we will create the new optimized schema.
         # A more advanced system would have sequential migration scripts (e.g., migrate_v1_to_v2).
-        self._create_schema_v2()
+        self._create_schema_v4()
 
         self.set_setting("db_version", self.DB_VERSION)
         self.logger.info("Database migration to version %s completed.", self.DB_VERSION)
@@ -469,32 +469,294 @@ class DatabaseService:
                 pass
             raise
 
+    def _create_schema_v4(self):
+        """Creates the version 4 optimized schema with integer primary keys and lookup tables."""
+        if self.sqlite_conn is None:
+            raise RuntimeError("Database connection is not established")
+        conn = cast(sqlite3.Connection, self.sqlite_conn)
+        try:
+            # Check which tables already exist
+            cursor = conn.execute("SELECT name FROM sqlite_master WHERE type='table'")
+            existing_tables = {row[0] for row in cursor.fetchall()}
+            
+            self.logger.info("Checking existing tables for V4 schema", existing_tables=list(existing_tables))
+            
+            # Create lookup tables first
+            if 'metric_names' not in existing_tables:
+                self.logger.info("Creating metric_names lookup table")
+                conn.execute("""
+                    CREATE TABLE metric_names (
+                        metric_name_pk INTEGER PRIMARY KEY AUTOINCREMENT,
+                        metric_name TEXT NOT NULL UNIQUE
+                    )
+                """)
+                conn.execute("CREATE INDEX idx_metric_names_name ON metric_names(metric_name)")
+
+            if 'event_names' not in existing_tables:
+                self.logger.info("Creating event_names lookup table")
+                conn.execute("""
+                    CREATE TABLE event_names (
+                        event_name_pk INTEGER PRIMARY KEY AUTOINCREMENT,
+                        event_name TEXT NOT NULL UNIQUE
+                    )
+                """)
+                conn.execute("CREATE INDEX idx_event_names_name ON event_names(event_name)")
+
+            # Create optimized runs table with integer primary key
+            if 'runs' not in existing_tables:
+                self.logger.info("Creating optimized runs table")
+                conn.execute("""
+                    CREATE TABLE runs (
+                        run_pk INTEGER PRIMARY KEY AUTOINCREMENT,
+                        run_id TEXT NOT NULL UNIQUE,
+                        start_time INTEGER NOT NULL,
+                        end_time INTEGER,
+                        duration_realtime INTEGER,
+                        duration_gametime INTEGER,
+                        final_wave INTEGER,
+                        coins_earned INTEGER,
+                        CPH INTEGER,
+                        round_cells INTEGER,
+                        round_gems INTEGER,
+                        round_cash INTEGER,
+                        game_version TEXT,
+                        tier INTEGER
+                    )
+                """)
+                conn.execute("CREATE INDEX idx_runs_run_id ON runs(run_id)")
+                conn.execute("CREATE INDEX idx_runs_start_time ON runs(start_time)")
+
+            # Create optimized metrics table with foreign keys
+            if 'metrics' not in existing_tables:
+                self.logger.info("Creating optimized metrics table")
+                conn.execute("""
+                    CREATE TABLE metrics (
+                        metric_pk INTEGER PRIMARY KEY AUTOINCREMENT,
+                        run_fk INTEGER NOT NULL,
+                        metric_name_fk INTEGER NOT NULL,
+                        real_timestamp INTEGER NOT NULL,
+                        game_timestamp INTEGER NOT NULL,
+                        current_wave INTEGER NOT NULL,
+                        metric_value INTEGER NOT NULL,
+                        FOREIGN KEY (run_fk) REFERENCES runs(run_pk),
+                        FOREIGN KEY (metric_name_fk) REFERENCES metric_names(metric_name_pk)
+                    )
+                """)
+                conn.execute("""
+                    CREATE INDEX idx_metrics_run_fk_time 
+                    ON metrics(run_fk, real_timestamp)
+                """)
+                conn.execute("""
+                    CREATE INDEX idx_metrics_name_fk_time 
+                    ON metrics(metric_name_fk, real_timestamp)
+                """)
+
+            # Create optimized events table with foreign keys
+            if 'events' not in existing_tables:
+                self.logger.info("Creating optimized events table")
+                conn.execute("""
+                    CREATE TABLE events (
+                        event_pk INTEGER PRIMARY KEY AUTOINCREMENT,
+                        run_fk INTEGER NOT NULL,
+                        event_name_fk INTEGER NOT NULL,
+                        timestamp INTEGER NOT NULL,
+                        data TEXT,
+                        FOREIGN KEY (run_fk) REFERENCES runs(run_pk),
+                        FOREIGN KEY (event_name_fk) REFERENCES event_names(event_name_pk)
+                    )
+                """)
+                conn.execute("CREATE INDEX idx_events_run_fk ON events(run_fk)")
+                conn.execute("CREATE INDEX idx_events_timestamp ON events(timestamp)")
+
+            # Create logs table (unchanged)
+            if 'logs' not in existing_tables:
+                self.logger.info("Creating logs table")
+                conn.execute("""
+                    CREATE TABLE logs (
+                        timestamp INTEGER, level TEXT, source TEXT, event TEXT, data TEXT
+                    )
+                """)
+            
+            # Create dashboards table (unchanged)
+            if 'dashboards' not in existing_tables:
+                self.logger.info("Creating dashboards table")
+                conn.execute("""
+                    CREATE TABLE dashboards (
+                        id TEXT PRIMARY KEY,
+                        uid TEXT UNIQUE NOT NULL,
+                        title TEXT NOT NULL,
+                        description TEXT,
+                        config TEXT NOT NULL,
+                        tags TEXT,
+                        created_at TEXT DEFAULT (datetime('now', 'localtime')),
+                        updated_at TEXT DEFAULT (datetime('now', 'localtime')),
+                        created_by TEXT DEFAULT 'system',
+                        is_default BOOLEAN DEFAULT 0,
+                        schema_version INTEGER DEFAULT 1
+                    )
+                """)
+                conn.execute("CREATE INDEX idx_dashboards_uid ON dashboards(uid)")
+                conn.execute("CREATE INDEX idx_dashboards_title ON dashboards(title)")
+                conn.execute("CREATE INDEX idx_dashboards_created_at ON dashboards(created_at)")
+            
+            # Create optimized settings table
+            if 'settings' not in existing_tables:
+                self.logger.info("Creating optimized settings table")
+                conn.execute("""
+                    CREATE TABLE settings (
+                        setting_pk INTEGER PRIMARY KEY AUTOINCREMENT,
+                        key TEXT NOT NULL UNIQUE,
+                        value TEXT NOT NULL,
+                        is_sensitive INTEGER DEFAULT 0,
+                        created_at INTEGER DEFAULT (strftime('%s', 'now')),
+                        updated_at INTEGER DEFAULT (strftime('%s', 'now'))
+                    )
+                """)
+                conn.execute("CREATE INDEX idx_settings_key ON settings(key)")
+            
+            # Create MOCK_DATA table for testing (unchanged)
+            if 'MOCK_DATA' not in existing_tables:
+                self.logger.info("Creating MOCK_DATA table for testing")
+                conn.execute("""
+                    CREATE TABLE MOCK_DATA (
+                        id INTEGER PRIMARY KEY,
+                        name TEXT NOT NULL,
+                        category TEXT NOT NULL,
+                        value REAL NOT NULL,
+                        count INTEGER NOT NULL,
+                        timestamp TEXT NOT NULL,
+                        status TEXT NOT NULL
+                    )
+                """)
+                
+                # Insert sample data
+                sample_data = [
+                    (1, 'Product A', 'Electronics', 150.50, 25, '2024-01-01 10:00:00', 'Active'),
+                    (2, 'Product B', 'Clothing', 75.25, 42, '2024-01-01 11:00:00', 'Active'),
+                    (3, 'Product C', 'Electronics', 200.00, 18, '2024-01-01 12:00:00', 'Inactive'),
+                    (4, 'Product D', 'Books', 25.99, 67, '2024-01-01 13:00:00', 'Active'),
+                    (5, 'Product E', 'Clothing', 89.99, 33, '2024-01-01 14:00:00', 'Active'),
+                    (6, 'Product F', 'Electronics', 120.75, 29, '2024-01-01 15:00:00', 'Active'),
+                    (7, 'Product G', 'Books', 15.50, 89, '2024-01-01 16:00:00', 'Inactive'),
+                    (8, 'Product H', 'Clothing', 45.00, 56, '2024-01-01 17:00:00', 'Active'),
+                ]
+                
+                conn.executemany("""
+                    INSERT INTO MOCK_DATA (id, name, category, value, count, timestamp, status)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                """, sample_data)
+                
+                self.logger.info("MOCK_DATA table created with sample data")
+            
+            conn.commit()
+            self.logger.info("Successfully created V4 optimized database schema.")
+        except Exception as e:
+            self.logger.error("Failed during V4 schema creation", error=str(e))
+            try:
+                conn.rollback()
+            except Exception:
+                pass
+            raise
+
+    @db_operation()
+    def _get_or_create_metric_name_id(self, metric_name: str) -> int:
+        """Get or create a metric name ID in the lookup table."""
+        if not self.sqlite_conn:
+            return 0
+        
+        # Try to get existing ID
+        cursor = self.sqlite_conn.execute(
+            "SELECT metric_name_pk FROM metric_names WHERE metric_name = ?", 
+            (metric_name,)
+        )
+        result = cursor.fetchone()
+        
+        if result:
+            return result[0]
+        
+        # Create new entry
+        cursor = self.sqlite_conn.execute(
+            "INSERT INTO metric_names (metric_name) VALUES (?)", 
+            (metric_name,)
+        )
+        return cursor.lastrowid or 0
+
+    @db_operation()
+    def _get_or_create_event_name_id(self, event_name: str) -> int:
+        """Get or create an event name ID in the lookup table."""
+        if not self.sqlite_conn:
+            return 0
+        
+        # Try to get existing ID
+        cursor = self.sqlite_conn.execute(
+            "SELECT event_name_pk FROM event_names WHERE event_name = ?", 
+            (event_name,)
+        )
+        result = cursor.fetchone()
+        
+        if result:
+            return result[0]
+        
+        # Create new entry
+        cursor = self.sqlite_conn.execute(
+            "INSERT INTO event_names (event_name) VALUES (?)", 
+            (event_name,)
+        )
+        return cursor.lastrowid or 0
+
+    @db_operation()
+    def _get_run_pk_by_run_id(self, run_id: str) -> Optional[int]:
+        """Get the run_pk for a given run_id."""
+        if not self.sqlite_conn:
+            return None
+        
+        cursor = self.sqlite_conn.execute(
+            "SELECT run_pk FROM runs WHERE run_id = ?", 
+            (run_id,)
+        )
+        result = cursor.fetchone()
+        return result[0] if result else None
+
     @db_operation()
     def write_metric(self, run_id: str, real_timestamp: int, game_timestamp: float, current_wave: int, metrics: Dict[str, float]) -> None:
         """
-        Insert new metric rows in 'long' format.
+        Insert new metric rows in optimized format using lookup tables and integer values.
         This method is now fully dynamic and requires no changes to add new metrics.
         """
         if not self.sqlite_conn:
             return
-        metric_data = [
-            (
-                str(run_id),
-                int(real_timestamp),
-                float(game_timestamp),
-                int(current_wave),
-                str(name),
-                float(value)
-            )
-            for name, value in metrics.items() if value is not None
-        ]
+        
+        # Get run_pk for the given run_id
+        run_pk = self._get_run_pk_by_run_id(run_id)
+        if run_pk is None:
+            self.logger.error("Run not found for metric insertion", run_id=run_id)
+            return
+        
+        metric_data = []
+        for name, value in metrics.items():
+            if value is not None:
+                # Get or create metric name ID
+                metric_name_id = self._get_or_create_metric_name_id(name)
+                
+                # Convert float values to integers (multiply by 1000 to preserve 3 decimal places)
+                # This is a scaling factor - adjust as needed for your data precision requirements
+                scaled_value = int(value * 1000) if isinstance(value, (int, float)) else int(value)
+                
+                metric_data.append((
+                    run_pk,
+                    metric_name_id,
+                    int(real_timestamp),
+                    int(game_timestamp * 1000),  # Convert to milliseconds
+                    int(current_wave),
+                    scaled_value
+                ))
 
         if not metric_data:
             return
 
         sql = """
             INSERT INTO metrics 
-            (run_id, real_timestamp, game_timestamp, current_wave, metric_name, metric_value) 
+            (run_fk, metric_name_fk, real_timestamp, game_timestamp, current_wave, metric_value) 
             VALUES (?, ?, ?, ?, ?, ?)
         """
         self.sqlite_conn.executemany(sql, metric_data)
@@ -509,25 +771,47 @@ class DatabaseService:
         """
         if not self.sqlite_conn:
             return pd.DataFrame()
+        
+        # Get the metric name ID
+        metric_name_id = self._get_or_create_metric_name_id(metric_name)
+        if metric_name_id == 0:
+            return pd.DataFrame()
+        
         query = """
-            SELECT real_timestamp, metric_value 
-            FROM metrics 
-            WHERE run_id = ? AND metric_name = ? 
-            ORDER BY real_timestamp
+            SELECT m.real_timestamp, m.metric_value 
+            FROM metrics m
+            JOIN runs r ON m.run_fk = r.run_pk
+            WHERE r.run_id = ? AND m.metric_name_fk = ? 
+            ORDER BY m.real_timestamp
         """
-        df = pd.read_sql_query(query, self.sqlite_conn, params=(run_id, metric_name))
-        df.rename(columns={'metric_value': metric_name}, inplace=True)
+        df = pd.read_sql_query(query, self.sqlite_conn, params=[run_id, metric_name_id])
+        
+        # Convert scaled integer values back to floats
+        if not df.empty:
+            df['metric_value'] = df['metric_value'] / 1000.0
+            df.rename(columns={'metric_value': metric_name}, inplace=True)
+        
         return df
 
     @db_operation()
     def write_event(self, run_id: str, timestamp: int, event_name: str, data: Optional[dict] = None) -> None:
-        """Insert a new event row."""
+        """Insert a new event row using optimized schema."""
         if not self.sqlite_conn:
             return
+        
+        # Get run_pk for the given run_id
+        run_pk = self._get_run_pk_by_run_id(run_id)
+        if run_pk is None:
+            self.logger.error("Run not found for event insertion", run_id=run_id)
+            return
+        
+        # Get or create event name ID
+        event_name_id = self._get_or_create_event_name_id(event_name)
+        
         data_json = json.dumps(data if data is not None else {})
         self.sqlite_conn.execute(
-            "INSERT INTO events (run_id, timestamp, event_name, data) VALUES (?, ?, ?, ?)",
-            (str(run_id), int(timestamp), str(event_name), data_json)
+            "INSERT INTO events (run_fk, event_name_fk, timestamp, data) VALUES (?, ?, ?, ?)",
+            (run_pk, event_name_id, int(timestamp), data_json)
         )
         self.sqlite_conn.commit()
         self.logger.debug("Event inserted", run_id=run_id, event_name=event_name)
@@ -683,7 +967,7 @@ class DatabaseService:
     @db_operation()
     def insert_run_start(self, run_id: str, start_time: int, game_version: Optional[str] = None, tier: Optional[int] = None) -> None:
         """
-        Insert a new run record at the start of a round.
+        Insert a new run record at the start of a round using optimized schema.
         New fields (CPH, round_cells, round_gems, round_cash) are initialized as NULL.
         """
         if not self.sqlite_conn:
@@ -721,12 +1005,13 @@ class DatabaseService:
         # Convert duration_realtime from ms to seconds if it's > 10,000 (assume ms if so)
         if duration_realtime is not None and duration_realtime > 10000:
             duration_realtime = int(duration_realtime // 1000)
-        # Calculate CPH (coins per hour)
+        # Calculate CPH (coins per hour) and convert to integer
         CPH = None
         if coins_earned is not None and duration_realtime and duration_realtime > 0:
             hours = duration_realtime / 3600.0
             if hours > 0:
-                CPH = float(coins_earned) / hours
+                CPH = int((float(coins_earned) / hours) * 1000)  # Scale to preserve 3 decimal places
+        
         self.sqlite_conn.execute(
             """
             UPDATE runs SET end_time = ?, final_wave = ?, coins_earned = ?, duration_realtime = ?, duration_gametime = ?, CPH = ?, round_cells = ?, round_gems = ?, round_cash = ?
@@ -735,13 +1020,13 @@ class DatabaseService:
             (
                 int(end_time) if end_time is not None else None,
                 int(final_wave) if final_wave is not None else None,
-                float(coins_earned) if coins_earned is not None else None,
+                int(coins_earned * 1000) if coins_earned is not None else None,  # Scale to preserve 3 decimal places
                 int(duration_realtime) if duration_realtime is not None else None,
-                float(duration_gametime) if duration_gametime is not None else None,
-                float(CPH) if CPH is not None else None,
-                float(round_cells) if round_cells is not None else None,
-                float(round_gems) if round_gems is not None else None,
-                float(round_cash) if round_cash is not None else None,
+                int(duration_gametime * 1000) if duration_gametime is not None else None,  # Scale to preserve 3 decimal places
+                CPH,  # Already converted to integer
+                int(round_cells * 1000) if round_cells is not None else None,  # Scale to preserve 3 decimal places
+                int(round_gems * 1000) if round_gems is not None else None,  # Scale to preserve 3 decimal places
+                int(round_cash * 1000) if round_cash is not None else None,  # Scale to preserve 3 decimal places
                 str(run_id)
             )
         )
@@ -805,7 +1090,7 @@ class DatabaseService:
             WHERE run_id = ? AND metric_name = 'wave_coins'
             ORDER BY current_wave
         '''
-        return pd.read_sql_query(query, self.sqlite_conn, params=(run_id,))
+        return pd.read_sql_query(query, self.sqlite_conn, params=[run_id])
 
     @db_operation(default_return_value=pd.DataFrame())
     def get_total_gems_over_time(self, run_id: str) -> pd.DataFrame:
@@ -823,9 +1108,9 @@ class DatabaseService:
             WHERE run_id = ? AND (metric_name = 'round_gems_from_blocks_value' OR metric_name = 'round_gems_from_ads_value')
             ORDER BY real_timestamp
         '''
-        df = pd.read_sql_query(query, self.sqlite_conn, params=(run_id,))
+        df = pd.read_sql_query(query, self.sqlite_conn, params=[run_id])
         if df.empty:
-            return pd.DataFrame(columns=["real_timestamp", "total_gems"])
+            return pd.DataFrame({"real_timestamp": [], "total_gems": []})
         # Pivot to wide format: columns for each metric, fill missing with 0
         df_wide = df.pivot_table(index="real_timestamp", columns="metric_name", values="metric_value", fill_value=0)
         # Ensure both columns exist
@@ -836,7 +1121,7 @@ class DatabaseService:
         df_wide["total_gems"] = df_wide["round_gems_from_blocks_value"] + df_wide["round_gems_from_ads_value"]
         # Reset index to get real_timestamp as a column
         result = df_wide.reset_index()[["real_timestamp", "total_gems"]]
-        return result
+        return pd.DataFrame(result)
 
     @db_operation(default_return_value={})
     def get_final_round_totals(self, run_id: str) -> Dict[str, Optional[float]]:
@@ -910,7 +1195,7 @@ class DatabaseService:
         conn = self.sqlite_conn
         query = "SELECT * FROM metrics WHERE run_id = ? ORDER BY game_timestamp ASC, real_timestamp ASC"
         import pandas as pd
-        df = pd.read_sql_query(query, conn, params=(run_id,))
+        df = pd.read_sql_query(query, conn, params=[run_id])
         return df
 
     @db_operation(default_return_value=[])
@@ -974,57 +1259,78 @@ class DatabaseService:
     @db_operation()
     def bulk_insert_events(self, events_data: List[Dict[str, Any]]) -> None:
         """
-        Bulk insert event records for better performance.
+        Bulk insert event records for better performance using optimized schema.
         Each event_data dict should contain: run_id, timestamp, event_name, data
         """
         if not self.sqlite_conn or not events_data:
             return
         
-        # Prepare data for bulk insert
+        # Prepare data for bulk insert using optimized schema
         event_records = []
         for event_data in events_data:
+            # Get run_pk for foreign key reference
+            run_pk = self._get_run_pk_by_run_id(event_data['run_id'])
+            if run_pk is None:
+                self.logger.error("Run not found for event insertion", run_id=event_data['run_id'])
+                continue
+            
+            # Get or create event name ID
+            event_name_id = self._get_or_create_event_name_id(event_data['event_name'])
+            
             data_json = json.dumps(event_data.get('data', {}))
             event_records.append((
-                str(event_data['run_id']),
+                run_pk,
+                event_name_id,
                 int(event_data['timestamp']),
-                str(event_data['event_name']),
                 data_json
             ))
         
-        sql = """
-            INSERT INTO events (run_id, timestamp, event_name, data) 
-            VALUES (?, ?, ?, ?)
-        """
-        self.sqlite_conn.executemany(sql, event_records)
-        self.logger.debug("Bulk inserted events", count=len(event_records))
+        if event_records:
+            sql = """
+                INSERT INTO events (run_fk, event_name_fk, timestamp, data) 
+                VALUES (?, ?, ?, ?)
+            """
+            self.sqlite_conn.executemany(sql, event_records)
+            self.logger.debug("Bulk inserted events", count=len(event_records))
     
     @db_operation()
     def bulk_insert_metrics(self, metrics_data: List[Dict[str, Any]]) -> None:
         """
-        Bulk insert metric records for better performance.
+        Bulk insert metric records for better performance using optimized schema.
         Each metric_data dict should contain: run_id, real_timestamp, game_timestamp, current_wave, metrics
         """
         if not self.sqlite_conn or not metrics_data:
             return
         
-        # Prepare data for bulk insert - flatten metrics into individual rows
+        # Prepare data for bulk insert - flatten metrics into individual rows using optimized schema
         metric_records = []
         for metric_data in metrics_data:
-            run_id = str(metric_data['run_id'])
+            # Get run_pk for foreign key reference
+            run_pk = self._get_run_pk_by_run_id(metric_data['run_id'])
+            if run_pk is None:
+                self.logger.error("Run not found for metric insertion", run_id=metric_data['run_id'])
+                continue
+            
             real_timestamp = int(metric_data['real_timestamp'])
-            game_timestamp = float(metric_data['game_timestamp'])
+            game_timestamp = int(metric_data['game_timestamp'] * 1000)  # Convert to milliseconds
             current_wave = int(metric_data['current_wave'])
             metrics = metric_data['metrics']
             
             for name, value in metrics.items():
                 if value is not None:
+                    # Get or create metric name ID
+                    metric_name_id = self._get_or_create_metric_name_id(name)
+                    
+                    # Convert float values to integers (scale by 1000 to preserve 3 decimal places)
+                    scaled_value = int(value * 1000) if isinstance(value, (int, float)) else int(value)
+                    
                     metric_records.append((
-                        run_id,
+                        run_pk,
+                        metric_name_id,
                         real_timestamp,
                         game_timestamp,
                         current_wave,
-                        str(name),
-                        float(value)
+                        scaled_value
                     ))
         
         if not metric_records:
@@ -1032,7 +1338,7 @@ class DatabaseService:
         
         sql = """
             INSERT INTO metrics 
-            (run_id, real_timestamp, game_timestamp, current_wave, metric_name, metric_value) 
+            (run_fk, metric_name_fk, real_timestamp, game_timestamp, current_wave, metric_value) 
             VALUES (?, ?, ?, ?, ?, ?)
         """
         self.sqlite_conn.executemany(sql, metric_records)
@@ -1062,18 +1368,18 @@ class DatabaseService:
                     duration_realtime = duration_realtime // 1000
                 hours = duration_realtime / 3600.0
                 if hours > 0:
-                    CPH = float(coins_earned) / hours
+                    CPH = int((float(coins_earned) / hours) * 1000)  # Scale to preserve 3 decimal places
             
             run_updates.append((
                 int(run_data.get('end_time', 0)) if run_data.get('end_time') is not None else None,
                 int(run_data.get('final_wave', 0)) if run_data.get('final_wave') is not None else None,
-                float(coins_earned) if coins_earned is not None else None,
+                int(coins_earned * 1000) if coins_earned is not None else None,  # Scale to preserve 3 decimal places
                 int(duration_realtime) if duration_realtime is not None else None,
-                float(run_data.get('duration_gametime', 0)) if run_data.get('duration_gametime') is not None else None,
-                float(CPH) if CPH is not None else None,
-                float(run_data.get('round_cells', 0)) if run_data.get('round_cells') is not None else None,
-                float(run_data.get('round_gems', 0)) if run_data.get('round_gems') is not None else None,
-                float(run_data.get('round_cash', 0)) if run_data.get('round_cash') is not None else None,
+                int(run_data.get('duration_gametime', 0) * 1000) if run_data.get('duration_gametime') is not None else None,  # Scale to preserve 3 decimal places
+                CPH,  # Already converted to integer
+                int(run_data.get('round_cells', 0) * 1000) if run_data.get('round_cells') is not None else None,  # Scale to preserve 3 decimal places
+                int(run_data.get('round_gems', 0) * 1000) if run_data.get('round_gems') is not None else None,  # Scale to preserve 3 decimal places
+                int(run_data.get('round_cash', 0) * 1000) if run_data.get('round_cash') is not None else None,  # Scale to preserve 3 decimal places
                 str(run_data['run_id'])
             ))
         
@@ -1089,7 +1395,7 @@ class DatabaseService:
     @db_operation()
     def bulk_write_run_data(self, run_data: Dict[str, Any]) -> None:
         """
-        Write a complete run's data (start, events, metrics, end) in a single transaction.
+        Write a complete run's data (start, events, metrics, end) in a single transaction using optimized schema.
         This is the most efficient way to write a single run's data.
         """
         if not self.sqlite_conn:
@@ -1111,48 +1417,54 @@ class DatabaseService:
                 )
             )
             
-            # Insert events
+            # Get run_pk for foreign key references
+            run_pk = self._get_run_pk_by_run_id(run_data['run_id'])
+            if run_pk is None:
+                raise Exception(f"Failed to get run_pk for run_id: {run_data['run_id']}")
+            
+            # Insert events using optimized schema
             if run_data.get('events'):
                 event_records = []
                 for event in run_data['events']:
                     data_json = json.dumps(event.get('data', {}))
+                    event_name_id = self._get_or_create_event_name_id(event['event_name'])
                     event_records.append((
-                        str(event['run_id']),
+                        run_pk,
+                        event_name_id,
                         int(event['timestamp']),
-                        str(event['event_name']),
                         data_json
                     ))
                 
                 if event_records:
                     self.sqlite_conn.executemany(
-                        "INSERT INTO events (run_id, timestamp, event_name, data) VALUES (?, ?, ?, ?)",
+                        "INSERT INTO events (run_fk, event_name_fk, timestamp, data) VALUES (?, ?, ?, ?)",
                         event_records
                     )
             
-            # Insert metrics
+            # Insert metrics using optimized schema
             if run_data.get('metrics'):
                 metric_records = []
                 for metric in run_data['metrics']:
-                    run_id = str(metric['run_id'])
                     real_timestamp = int(metric['real_timestamp'])
-                    game_timestamp = float(metric['game_timestamp'])
+                    game_timestamp = int(metric['game_timestamp'] * 1000)  # Convert to milliseconds
                     current_wave = int(metric['current_wave'])
                     metrics_dict = metric['metrics']
                     
                     for name, value in metrics_dict.items():
                         if value is not None:
+                            metric_name_id = self._get_or_create_metric_name_id(name)
+                            scaled_value = int(value * 1000) if isinstance(value, (int, float)) else int(value)
                             metric_records.append((
-                                run_id, real_timestamp, game_timestamp, current_wave,
-                                str(name), float(value)
+                                run_pk, metric_name_id, real_timestamp, game_timestamp, current_wave, scaled_value
                             ))
                 
                 if metric_records:
                     self.sqlite_conn.executemany(
-                        "INSERT INTO metrics (run_id, real_timestamp, game_timestamp, current_wave, metric_name, metric_value) VALUES (?, ?, ?, ?, ?, ?)",
+                        "INSERT INTO metrics (run_fk, metric_name_fk, real_timestamp, game_timestamp, current_wave, metric_value) VALUES (?, ?, ?, ?, ?, ?)",
                         metric_records
                     )
             
-            # Update run end
+            # Update run end with integer values
             CPH = None
             coins_earned = run_data.get('coins_earned')
             duration_realtime = run_data.get('duration_realtime')
@@ -1162,7 +1474,7 @@ class DatabaseService:
                     duration_realtime = duration_realtime // 1000
                 hours = duration_realtime / 3600.0
                 if hours > 0:
-                    CPH = float(coins_earned) / hours
+                    CPH = int((float(coins_earned) / hours) * 1000)  # Scale to preserve 3 decimal places
             
             self.sqlite_conn.execute(
                 """
@@ -1174,13 +1486,13 @@ class DatabaseService:
                 (
                     int(run_data.get('end_time', 0)) if run_data.get('end_time') is not None else None,
                     int(run_data.get('final_wave', 0)) if run_data.get('final_wave') is not None else None,
-                    float(coins_earned) if coins_earned is not None else None,
+                    int(coins_earned * 1000) if coins_earned is not None else None,  # Scale to preserve 3 decimal places
                     int(duration_realtime) if duration_realtime is not None else None,
-                    float(run_data.get('duration_gametime', 0)) if run_data.get('duration_gametime') is not None else None,
-                    float(CPH) if CPH is not None else None,
-                    float(run_data.get('round_cells', 0)) if run_data.get('round_cells') is not None else None,
-                    float(run_data.get('round_gems', 0)) if run_data.get('round_gems') is not None else None,
-                    float(run_data.get('round_cash', 0)) if run_data.get('round_cash') is not None else None,
+                    int(run_data.get('duration_gametime', 0) * 1000) if run_data.get('duration_gametime') is not None else None,  # Scale to preserve 3 decimal places
+                    CPH,  # Already converted to integer
+                    int(run_data.get('round_cells', 0) * 1000) if run_data.get('round_cells') is not None else None,  # Scale to preserve 3 decimal places
+                    int(run_data.get('round_gems', 0) * 1000) if run_data.get('round_gems') is not None else None,  # Scale to preserve 3 decimal places
+                    int(run_data.get('round_cash', 0) * 1000) if run_data.get('round_cash') is not None else None,  # Scale to preserve 3 decimal places
                     str(run_data['run_id'])
                 )
             )
