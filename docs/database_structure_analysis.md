@@ -4,39 +4,44 @@
 This document provides a comprehensive analysis of the TowerIQ database structure for external analysis.
 
 ## Database Statistics
-- **Database File Size**: 85.3 MB (89,497,600 bytes)
-- **Schema Version**: 24 (Database V5 with db_metrics table)
+- **Database File Size**: 106.8 MB (111,943,680 bytes)
+- **Schema Version**: 1.0 (Database V6 with enhanced monitoring and normalization)
+- **Total Tables**: 14
+- **Total Records**: 1,289,226
 - **Total Runs**: 100
 - **Total Metrics**: 1,222,005
 - **Total Events**: 64,417
 - **Total Logs**: 0
-- **Total Settings**: 0
+- **Total Settings**: 1
 - **Total Dashboards**: 0
-- **Total DB Metrics**: 2,275 (database health monitoring data)
+- **Total DB Metrics**: 2,639 (database health monitoring data)
 - **Total Event Names**: 7 (lookup table)
 - **Total Metric Names**: 15 (lookup table)
+- **Total DB Metric Names**: 7 (lookup table)
+- **Total DB Monitored Objects**: 12 (lookup table)
+- **Total Game Versions**: 1 (lookup table)
 
 ## Table Structure
 
 ### 1. `runs` Table
 **Purpose**: Stores game run sessions and their summary statistics
-**Primary Key**: `run_id` (TEXT)
+**Primary Key**: `run_id` (BLOB)
 
 | Column | Type | Description |
 |--------|------|-------------|
-| run_id | TEXT | Unique identifier for each run |
-| start_time | INTEGER | Start timestamp |
+| run_id | BLOB | Unique identifier for each run (UUID stored as binary) |
+| start_time | INTEGER | Start timestamp (milliseconds since epoch) |
 | end_time | INTEGER | End timestamp (nullable) |
-| duration_realtime | INTEGER | Real-time duration |
-| duration_gametime | REAL | In-game time duration |
+| duration_realtime | INTEGER | Real-time duration (milliseconds) |
+| duration_gametime | INTEGER | In-game time duration (scaled by 1000) |
 | final_wave | INTEGER | Last wave reached |
-| coins_earned | REAL | Total coins earned |
-| CPH | REAL | Coins per hour |
-| round_cells | REAL | Round cells value |
-| round_gems | REAL | Round gems value |
-| round_cash | REAL | Round cash value |
-| game_version | TEXT | Game version |
+| coins_earned | INTEGER | Total coins earned (scaled by 1000) |
+| CPH | INTEGER | Coins per hour (scaled by 1000) |
+| round_cells | INTEGER | Round cells value (scaled by 1000) |
+| round_gems | INTEGER | Round gems value (scaled by 1000) |
+| round_cash | INTEGER | Round cash value (scaled by 1000) |
 | tier | INTEGER | Game tier |
+| game_version_id | INTEGER | Foreign key to game_versions table |
 
 ### 2. `metrics` Table
 **Purpose**: Stores detailed metrics collected during runs
@@ -46,16 +51,15 @@ This document provides a comprehensive analysis of the TowerIQ database structur
 | Column | Type | Description |
 |--------|------|-------------|
 | id | INTEGER | Auto-incrementing primary key |
-| run_id | TEXT | References runs.run_id |
-| real_timestamp | INTEGER | Real-world timestamp |
-| game_timestamp | REAL | In-game timestamp |
+| run_id | BLOB | References runs.run_id |
+| real_timestamp | INTEGER | Real-world timestamp (milliseconds since epoch) |
+| game_timestamp | INTEGER | In-game timestamp (scaled by 1000) |
 | current_wave | INTEGER | Wave number when metric was recorded |
-| metric_name | TEXT | Name of the metric |
-| metric_value | REAL | Value of the metric |
+| metric_name_id | INTEGER | Foreign key to metric_names table |
+| metric_value | INTEGER | Scaled metric value (precision depends on metric type) |
 
 **Indexes**:
-- `idx_metrics_run_name_time` on (run_id, metric_name, real_timestamp)
-- `idx_metrics_run_id` on (run_id)
+- `idx_metrics_run_id_name_time` on (run_id, metric_name_id, real_timestamp)
 
 ### 3. `events` Table
 **Purpose**: Stores game events that occur during runs
@@ -65,10 +69,13 @@ This document provides a comprehensive analysis of the TowerIQ database structur
 | Column | Type | Description |
 |--------|------|-------------|
 | id | INTEGER | Auto-incrementing primary key |
-| run_id | TEXT | References runs.run_id |
-| timestamp | INTEGER | Event timestamp |
-| event_name | TEXT | Name of the event |
+| run_id | BLOB | References runs.run_id |
+| timestamp | INTEGER | Event timestamp (milliseconds since epoch) |
+| event_name_id | INTEGER | Foreign key to event_names table |
 | data | TEXT | Additional event data (JSON) |
+
+**Indexes**:
+- `idx_events_run_id_time` on (run_id, timestamp)
 
 ### 4. `logs` Table
 **Purpose**: Application logging data
@@ -161,6 +168,53 @@ This document provides a comprehensive analysis of the TowerIQ database structur
 |--------|------|-------------|
 | id | INTEGER | Auto-incrementing primary key |
 | name | TEXT | Metric name (unique) |
+| display_name | TEXT | Human-readable display name |
+| description | TEXT | Description of the metric |
+| unit | TEXT | Unit of measurement |
+
+### 10. `game_versions` Table
+**Purpose**: Lookup table for game version normalization
+**Primary Key**: `id` (INTEGER AUTOINCREMENT)
+
+| Column | Type | Description |
+|--------|------|-------------|
+| id | INTEGER | Auto-incrementing primary key |
+| version_text | TEXT | Game version string (unique) |
+
+### 11. `db_metric_names` Table
+**Purpose**: Lookup table for database metric names
+**Primary Key**: `id` (INTEGER AUTOINCREMENT)
+
+| Column | Type | Description |
+|--------|------|-------------|
+| id | INTEGER | Auto-incrementing primary key |
+| name | TEXT | Database metric name (unique) |
+| description | TEXT | Description of the database metric |
+
+### 12. `db_monitored_objects` Table
+**Purpose**: Lookup table for database objects being monitored
+**Primary Key**: `id` (INTEGER AUTOINCREMENT)
+
+| Column | Type | Description |
+|--------|------|-------------|
+| id | INTEGER | Auto-incrementing primary key |
+| name | TEXT | Object name (table or index) |
+| type | TEXT | Object type ('TABLE' or 'INDEX') |
+
+### 13. Enhanced `db_metrics` Table
+**Purpose**: Database health monitoring and performance metrics
+**Primary Key**: `id` (INTEGER AUTOINCREMENT)
+
+| Column | Type | Description |
+|--------|------|-------------|
+| id | INTEGER | Auto-incrementing primary key |
+| timestamp | INTEGER | Unix timestamp when metric was collected |
+| metric_id | INTEGER | Foreign key to db_metric_names table |
+| object_id | INTEGER | Foreign key to db_monitored_objects table (nullable) |
+| value | INTEGER | Numeric value of the metric |
+
+**Indexes**:
+- `idx_db_metrics_time_metric` on (timestamp, metric_id)
 
 
 ## Data Relationships
@@ -168,25 +222,36 @@ This document provides a comprehensive analysis of the TowerIQ database structur
 ```
 runs (1) ←→ (many) metrics
 runs (1) ←→ (many) events
+runs (1) ←→ (1) game_versions
+metrics (many) ←→ (1) metric_names
+events (many) ←→ (1) event_names
+db_metrics (many) ←→ (1) db_metric_names
+db_metrics (many) ←→ (1) db_monitored_objects (nullable)
 ```
 
 ## Key Observations
 
 1. **High Volume Data**: The metrics table contains over 1.2M records, indicating detailed data collection during gameplay.
 
-2. **Database Health Monitoring**: New `db_metrics` table (V5 schema) provides comprehensive database performance and health monitoring with 2,275+ metrics collected.
+2. **Enhanced Database Health Monitoring**: The `db_metrics` table (V6 schema) provides comprehensive database performance and health monitoring with 2,639+ metrics collected using normalized lookup tables.
 
-3. **Normalized Lookup Tables**: `event_names` and `metric_names` tables provide data normalization for better storage efficiency and consistency.
+3. **Full Data Normalization**: All string-based identifiers now use foreign keys to lookup tables (`metric_names`, `event_names`, `game_versions`, `db_metric_names`, `db_monitored_objects`) for optimal storage efficiency and data consistency.
 
-4. **Time-based Data**: Most tables use INTEGER timestamps in Unix timestamp format for efficient storage and querying.
+4. **Integer-based Precision Storage**: All numeric values use INTEGER storage with scaling factors (typically 1000x) to preserve decimal precision while maintaining storage efficiency.
 
-5. **Flexible Configuration**: The settings table supports various data types and categories for flexible configuration management.
+5. **UUID Binary Storage**: Run IDs are stored as BLOB (binary) format for UUIDs, providing efficient storage and indexing.
 
-6. **Dashboard System**: The dashboards table is set up for a dashboard management system but currently contains no data.
+6. **Time-based Data**: All tables use INTEGER timestamps in Unix millisecond format for efficient storage and querying.
 
-7. **Event Tracking**: The events table captures game events with flexible JSON data storage.
+7. **Flexible Configuration**: The settings table supports various data types and categories for flexible configuration management.
 
-8. **Schema Evolution**: Database has evolved to V5 with significant improvements in monitoring and data normalization.
+8. **Dashboard System**: The dashboards table is set up for a dashboard management system but currently contains no data.
+
+9. **Event Tracking**: The events table captures game events with flexible JSON data storage and normalized event names.
+
+10. **Schema Evolution**: Database has evolved to V6 with significant improvements in monitoring, data normalization, and storage efficiency.
+
+11. **Comprehensive Metadata**: All lookup tables now include rich metadata (display names, descriptions, units) for better data understanding and presentation.
 
 ## Files Generated for Analysis
 
@@ -201,11 +266,14 @@ runs (1) ←→ (many) events
 - **Total Metrics**: 1,222,005
 - **Total Events**: 64,417
 - **Total Logs**: 0
-- **Total Settings**: 0
+- **Total Settings**: 1
 - **Total Dashboards**: 0
-- **Total DB Metrics**: 2,275
+- **Total DB Metrics**: 2,639
 - **Total Event Names**: 7
 - **Total Metric Names**: 15
+- **Total DB Metric Names**: 7
+- **Total DB Monitored Objects**: 12
+- **Total Game Versions**: 1
 
 ### Sample Data Examples
 
@@ -216,18 +284,19 @@ runs (1) ←→ (many) events
   "run_id": "b3bf970c-b840-466b-87ca-aa9c8d21ff0e",
   "start_time": 1755170235000,
   "end_time": 1755195225000,
-  "duration_realtime": 24,
-  "duration_gametime": 24990.0,
+  "duration_realtime": 24990000,
+  "duration_gametime": 24990000,
   "final_wave": 833,
-  "coins_earned": 163769743246.21985,
-  "CPH": 24565461486932.977,
-  "round_cells": 2088997.1844397758,
-  "round_gems": 3077.0,
-  "round_cash": 47.50000000000023,
-  "game_version": "27.0.4",
-  "tier": 10
+  "coins_earned": 163769743246,
+  "CPH": 24565461486932,
+  "round_cells": 2088997184,
+  "round_gems": 3077000,
+  "round_cash": 47500,
+  "tier": 10,
+  "game_version_id": 1
 }
 ```
+**Note**: All numeric values are stored as integers with scaling factors applied (typically 1000x for decimal precision).
 
 #### 2. `metrics` Table (1,222,005 rows)
 **Metric Types Found:**
@@ -241,12 +310,13 @@ runs (1) ←→ (many) events
   "id": 5369266,
   "run_id": "b3bf970c-b840-466b-87ca-aa9c8d21ff0e",
   "real_timestamp": 1755170265000,
-  "game_timestamp": 30.0,
+  "game_timestamp": 30000,
   "current_wave": 1,
-  "metric_name": "round_coins",
-  "metric_value": 28401798.583818313
+  "metric_name_id": 3,
+  "metric_value": 28401798583
 }
 ```
+**Note**: `metric_name_id` references the `metric_names` table, and `metric_value` is scaled by 1000x for precision.
 
 #### 3. `events` Table (64,417 rows)
 **Event Types Found:**
@@ -259,22 +329,35 @@ runs (1) ←→ (many) events
   "id": 322344,
   "run_id": "b3bf970c-b840-466b-87ca-aa9c8d21ff0e",
   "timestamp": 1755170235000,
-  "event_name": "startNewRound",
+  "event_name_id": 1,
   "data": "{\"tier\": 10}"
 }
 ```
+**Note**: `event_name_id` references the `event_names` table for normalized event names.
 
-#### 4. `settings` Table (0 rows)
-**Structure Ready:** Table exists but contains no data currently.
+#### 4. `settings` Table (1 row)
+**Structure Ready:** Table contains application configuration settings.
 
-#### 5. `db_metrics` Table (2,275 rows)
-**Purpose:** Database health monitoring metrics collected automatically
+#### 5. Enhanced `db_metrics` Table (2,639 rows)
+**Purpose:** Database health monitoring metrics collected automatically using normalized structure
 **Sample Metric Types:**
 - `table_size_bytes` - Size of each table in bytes
 - `record_count` - Number of records per table
 - `database_size` - Total database size
 - `total_pages` - Database page count
 - `free_pages` - Free page count
+
+**Sample Records:**
+```json
+{
+  "id": 1234,
+  "timestamp": 1755170235000,
+  "metric_id": 1,
+  "object_id": 5,
+  "value": 111943680
+}
+```
+**Note**: Uses foreign keys to `db_metric_names` and `db_monitored_objects` for normalized storage.
 
 #### 6. `event_names` Table (7 rows)
 **Purpose:** Lookup table for event name normalization
@@ -295,14 +378,51 @@ runs (1) ←→ (many) events
 #### 9. `logs` Table (0 rows)
 **Structure Ready:** Table exists but contains no data yet.
 
+#### 10. `game_versions` Table (1 row)
+**Purpose:** Lookup table for game version normalization
+**Sample Data:**
+```json
+{
+  "id": 1,
+  "version_text": "27.0.4"
+}
+```
+
+#### 11. `db_metric_names` Table (7 rows)
+**Purpose:** Lookup table for database metric names
+**Sample Metric Names:**
+- `table_size_bytes`, `record_count`, `database_size`
+- `total_pages`, `free_pages`, `index_count`
+
+#### 12. `db_monitored_objects` Table (12 rows)
+**Purpose:** Lookup table for database objects being monitored
+**Sample Objects:**
+- Tables: `runs`, `metrics`, `events`, `settings`, etc.
+- Indexes: `idx_metrics_run_id_name_time`, `idx_events_run_id_time`, etc.
+
 
 ## Recommendations for Analysis
 
-1. **Game Performance Analysis**: Focus on the `metrics` table (1.2M+ records) for detailed gameplay performance analysis
-2. **Database Health Monitoring**: Use the `db_metrics` table for database performance trends, table growth, and optimization insights
-3. **Normalized Data Access**: Leverage `event_names` and `metric_names` lookup tables for efficient queries and consistent naming
-4. **Run-Based Analysis**: Examine relationships between `runs`, `metrics`, and `events` tables for comprehensive game session analysis
-5. **Event Pattern Analysis**: Check the `events` table for gameplay event patterns and user behavior insights
-6. **Time-Series Analysis**: All tables use Unix timestamps - ideal for time-series analysis and Grafana dashboards
-7. **Schema Evolution**: Database V5 provides enhanced monitoring capabilities - consider leveraging these for operational insights
-8. **Data Volume Considerations**: With 1.2M+ metrics records, consider indexing strategies for optimal query performance
+1. **Game Performance Analysis**: Focus on the `metrics` table (1.2M+ records) for detailed gameplay performance analysis. Use JOIN operations with `metric_names` for human-readable metric names.
+
+2. **Enhanced Database Health Monitoring**: Use the normalized `db_metrics` table with `db_metric_names` and `db_monitored_objects` for comprehensive database performance trends, table growth, and optimization insights.
+
+3. **Normalized Data Access**: Leverage all lookup tables (`event_names`, `metric_names`, `game_versions`, `db_metric_names`, `db_monitored_objects`) for efficient queries and consistent naming.
+
+4. **Run-Based Analysis**: Examine relationships between `runs`, `metrics`, and `events` tables for comprehensive game session analysis. Use foreign key relationships for optimal query performance.
+
+5. **Event Pattern Analysis**: Check the `events` table with `event_names` lookup for gameplay event patterns and user behavior insights.
+
+6. **Time-Series Analysis**: All tables use Unix millisecond timestamps - ideal for time-series analysis and Grafana dashboards.
+
+7. **Schema Evolution**: Database V6 provides enhanced monitoring capabilities with full normalization - consider leveraging these for operational insights.
+
+8. **Data Volume Considerations**: With 1.2M+ metrics records, the normalized structure and proper indexing provide optimal query performance.
+
+9. **Precision Handling**: Remember that all numeric values are stored as integers with scaling factors (typically 1000x) - apply appropriate scaling when analyzing data.
+
+10. **UUID Handling**: Run IDs are stored as BLOB format - use appropriate UUID handling when working with these identifiers.
+
+11. **Metadata Utilization**: Take advantage of rich metadata in lookup tables (display names, descriptions, units) for better data presentation and understanding.
+
+12. **Foreign Key Relationships**: Use the normalized structure to ensure data consistency and leverage SQLite's foreign key constraints for data integrity.

@@ -4,6 +4,7 @@ import math
 import random
 import uuid
 import multiprocessing as mp
+import sqlite3
 from datetime import datetime, timedelta
 from typing import Optional
 from pathlib import Path
@@ -24,6 +25,40 @@ from tower_iq.core.config import ConfigurationManager
 from tower_iq.core.logging_config import setup_logging
 from tower_iq.services.database_service import DatabaseService
 
+# Import database schema configuration
+try:
+    # Try importing from project root config directory
+    import importlib.util
+    
+    CONFIG_PATH = PROJECT_ROOT / "config" / "database_schema.py"
+    
+    if CONFIG_PATH.exists():
+        spec = importlib.util.spec_from_file_location("database_schema", CONFIG_PATH)
+        if spec is not None and spec.loader is not None:
+            database_schema = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(database_schema)
+        else:
+            raise ImportError("Failed to create module spec")
+        
+        METRIC_METADATA = database_schema.METRIC_METADATA
+        EVENT_METADATA = database_schema.EVENT_METADATA
+        get_tables_to_wipe = database_schema.get_tables_to_wipe
+    else:
+        raise ImportError("database_schema.py not found")
+        
+except (ImportError, AttributeError) as e:
+    # Fallback if schema config is not available
+    METRIC_METADATA = {}
+    EVENT_METADATA = {}
+    
+    def get_tables_to_wipe():
+        return ['events', 'metrics', 'runs', 'game_versions', 'metric_names', 'event_names', 'db_metrics', 'db_metric_names', 'db_monitored_objects']
+
+
+# ============================================================================
+# METADATA DEFINITIONS - Now imported from config/database_schema.py
+# ============================================================================
+# METRIC_METADATA and EVENT_METADATA are imported from database_schema
 
 # ============================================================================
 # CONFIGURATION VARIABLES - Edit these to customize the seeding behavior
@@ -44,6 +79,10 @@ DEFAULT_TIME_DISTRIBUTION = "evening_heavy"  # Time distribution: "uniform", "af
 GAME_VERSION = "27.0.4"
 SECONDS_PER_WAVE = 30.0  # Game time per wave
 STAGGER_MINUTES = 10  # Minutes between run start times
+
+# INTEGER scaling factors for database storage (to preserve decimal precision)
+SCALING_FACTOR = 1000  # 3 decimal places for most values
+TIME_SCALING_FACTOR = 1000  # For game_timestamp (milliseconds)
 
 # Survival probability parameters
 SURVIVAL_PROB_MIN_WAVE = 0.95  # 95% survival at min_wave
@@ -234,170 +273,23 @@ def generate_distributed_timestamp(start_date: datetime, end_date: datetime, tim
 def wipe_tables(db: DatabaseService) -> None:
     conn = db.sqlite_conn
     assert conn is not None
-    conn.execute("DELETE FROM metrics")
-    conn.execute("DELETE FROM events")
-    conn.execute("DELETE FROM runs")
-    conn.commit()
-
-
-def collect_metrics_at_timestamp(db: DatabaseService, timestamp_dt: datetime, logger) -> None:
-    """
-    Collect database metrics at a specific timestamp and store them in the normalized db_metrics table.
-    This simulates historical metrics collection during the seeding process.
     
-    Args:
-        db: DatabaseService instance
-        timestamp_dt: The datetime to use for the metrics timestamp
-        logger: Logger instance for reporting
-    """
-    try:
-        # Convert datetime to timestamp (seconds since epoch)
-        timestamp_ms = int(timestamp_dt.timestamp() * 1000)
-        
-        # Temporarily override the current timestamp in the metrics collection method
-        # We'll need to collect metrics manually to use our custom timestamp
-        if not db.sqlite_conn:
-            logger.warning("Cannot collect metrics: database connection not available")
-            return
-        
-        cursor = db.sqlite_conn.cursor()
-        
-        # List to store all metrics for bulk insert (timestamp, metric_name_id, metric_value, object_id)
-        metrics_to_insert = []
-        
-        # Collect database-level metrics using PRAGMA statements
+    # Only delete from tables that exist - use schema config
+    tables_to_wipe = get_tables_to_wipe()
+    for table in tables_to_wipe:
         try:
-            page_count = cursor.execute("PRAGMA page_count").fetchone()[0]
-            page_size = cursor.execute("PRAGMA page_size").fetchone()[0]
-            freelist_count = cursor.execute("PRAGMA freelist_count").fetchone()[0]
-            
-            # Calculate database size
-            database_size = page_count * page_size
-            
-            # Get or create metric name IDs for database-level metrics
-            total_pages_id = db._get_or_create_metric_name_id('total_pages', 'Total number of pages in the database')
-            page_size_id = db._get_or_create_metric_name_id('page_size', 'Database page size in bytes')
-            database_size_id = db._get_or_create_metric_name_id('database_size', 'Total database size in bytes')
-            free_pages_id = db._get_or_create_metric_name_id('free_pages', 'Number of free pages in the database')
-            
-            # Add database-level metrics with our custom timestamp (no object_id for database-level metrics)
-            metrics_to_insert.extend([
-                (timestamp_ms // 1000, total_pages_id, page_count, None),
-                (timestamp_ms // 1000, page_size_id, page_size, None),
-                (timestamp_ms // 1000, database_size_id, database_size, None),
-                (timestamp_ms // 1000, free_pages_id, freelist_count, None)
-            ])
-            
-            # Collect table-level metrics (record counts and sizes)
-            cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'")
-            tables = [row[0] for row in cursor.fetchall()]
-            
-            # Get or create metric name IDs for table-level metrics
-            record_count_id = db._get_or_create_metric_name_id('record_count', 'Number of records in the table')
-            table_size_bytes_id = db._get_or_create_metric_name_id('table_size_bytes', 'Table size in bytes')
-            
-            for table in tables:
-                try:
-                    # Get or create object ID for this table
-                    table_object_id = db._get_or_create_monitored_object_id(table, 'TABLE')
-                    
-                    # Get record count
-                    record_count = cursor.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
-                    metrics_to_insert.append(
-                        (timestamp_ms // 1000, record_count_id, record_count, table_object_id)
-                    )
-                    
-                    # Get table size in bytes using multiple methods
-                    try:
-                        table_size_bytes = None
-                        
-                        # Method 1: Try dbstat virtual table (most accurate)
-                        try:
-                            table_size_result = cursor.execute(
-                                "SELECT SUM(pgsize) FROM dbstat WHERE name = ?", (table,)
-                            ).fetchone()
-                            
-                            if table_size_result and table_size_result[0] is not None:
-                                table_size_bytes = table_size_result[0]
-                        except Exception:
-                            # dbstat not available, continue to other methods
-                            pass
-                        
-                        # Method 2: Fallback estimation based on table structure
-                        if table_size_bytes is None:
-                            try:
-                                table_info = cursor.execute(f"PRAGMA table_info({table})").fetchall()
-                                
-                                # Estimate bytes per row based on column types and count
-                                estimated_bytes_per_row = 50  # Base overhead
-                                for col_info in table_info:
-                                    col_type = col_info[2].upper() if col_info[2] else 'TEXT'
-                                    if 'INT' in col_type:
-                                        estimated_bytes_per_row += 8
-                                    elif 'REAL' in col_type or 'FLOAT' in col_type:
-                                        estimated_bytes_per_row += 8
-                                    elif 'TEXT' in col_type:
-                                        estimated_bytes_per_row += 50  # Average text size
-                                    elif 'BLOB' in col_type:
-                                        estimated_bytes_per_row += 100  # Average blob size
-                                    else:
-                                        estimated_bytes_per_row += 20  # Default
-                                
-                                table_size_bytes = record_count * estimated_bytes_per_row
-                            except Exception:
-                                # Final fallback: simple estimation
-                                table_size_bytes = record_count * 100
-                        
-                        metrics_to_insert.append(
-                            (timestamp_ms // 1000, table_size_bytes_id, table_size_bytes, table_object_id)
-                        )
-                        
-                    except Exception as size_e:
-                        # If we can't get size, use simple estimation
-                        logger.warning("Failed to get table size during seeding, using simple estimation", 
-                                      table=table, error=str(size_e))
-                        estimated_size = record_count * 100
-                        metrics_to_insert.append(
-                            (timestamp_ms // 1000, table_size_bytes_id, estimated_size, table_object_id)
-                        )
-                        
-                except Exception as e:
-                    logger.warning("Failed to get table metrics during seeding", 
-                                  table=table, error=str(e))
-                    continue
-            
-            # Collect index-level metrics (index count)
-            cursor.execute("SELECT COUNT(*) FROM sqlite_master WHERE type='index' AND name NOT LIKE 'sqlite_%'")
-            index_count = cursor.fetchone()[0]
-            
-            # Get or create metric name ID for index count
-            index_count_id = db._get_or_create_metric_name_id('index_count', 'Total number of user indexes')
-            metrics_to_insert.append(
-                (timestamp_ms // 1000, index_count_id, index_count, None)
-            )
-            
-            # Bulk insert all metrics using normalized schema
-            cursor.executemany("""
-                INSERT INTO db_metrics (timestamp, metric_name_id, metric_value, object_id)
-                VALUES (?, ?, ?, ?)
-            """, metrics_to_insert)
-            
-            db.sqlite_conn.commit()
-            logger.info("Database metrics collected during seeding", 
-                       timestamp=timestamp_dt.strftime("%Y-%m-%d %H:%M:%S"),
-                       metrics_count=len(metrics_to_insert))
-            
-        except Exception as e:
-            logger.error("Failed to collect database metrics during seeding", 
-                        timestamp=timestamp_dt.strftime("%Y-%m-%d %H:%M:%S"),
-                        error=str(e))
-            try:
-                db.sqlite_conn.rollback()
-            except Exception:
-                pass
+            conn.execute(f"DELETE FROM {table}")
+        except sqlite3.OperationalError:
+            # Table doesn't exist, skip it
+            pass
     
-    except Exception as e:
-        logger.error("Error in collect_metrics_at_timestamp", error=str(e))
+    conn.commit()
+    # Invalidate service-level caches
+    db._metric_name_cache.clear()
+    db._event_name_cache.clear()
+    db._game_version_cache.clear()
+
+
 
 
 def cleanup_sqlite_auxiliary_files(db_path: str, logger) -> None:
@@ -522,6 +414,9 @@ def generate_run_data(tier: int, min_wave: int, max_wave: int, start_date: datet
         # Game time per wave
         game_ts_sec = float(wave * SECONDS_PER_WAVE)
         real_ts_ms = start_time_ms + int(game_ts_sec * 1000)
+        
+        # Scale game timestamp for INTEGER storage
+        game_ts_scaled = int(game_ts_sec * TIME_SCALING_FACTOR)
 
         # Per-wave deltas with some variability
         base_coins = rng.uniform(BASE_COINS_MIN, BASE_COINS_MAX)
@@ -589,28 +484,29 @@ def generate_run_data(tier: int, min_wave: int, max_wave: int, start_date: datet
                 })
 
         # Build metrics bundle aligned with hook names
+        # Scale all metric values for INTEGER storage
         metrics_data = {
-            "round_coins": coins_total,
-            "wave_coins": wave_coins,
-            "coins": coins_total * GEMS_TOTAL_MULTIPLIER + rng.uniform(0, GEMS_RANDOM_MAX),
-            "gems": (gem_blocks_count * GEM_BLOCK_VALUE) + (ad_gems_count * AD_GEM_VALUE) + guardian_gems_value,
-            "round_cells": cells_total,
-            "wave_cells": wave_cells,
-            "cells": cells_total * CELLS_TOTAL_MULTIPLIER + rng.uniform(0, CELLS_RANDOM_MAX),
-            "round_cash": cash_total,
-            "cash": cash_total + rng.uniform(0, CASH_RANDOM_MAX),
-            "stones": stones_total,
-            "round_gems_from_blocks_count": float(gem_blocks_count),
-            "round_gems_from_blocks_value": float(gem_blocks_count * GEM_BLOCK_VALUE),
-            "round_gems_from_ads_count": float(ad_gems_count),
-            "round_gems_from_ads_value": float(ad_gems_count * AD_GEM_VALUE),
-            "round_gems_from_guardian": float(guardian_gems_value),
+            "round_coins": int(coins_total * SCALING_FACTOR),
+            "wave_coins": int(wave_coins * SCALING_FACTOR),
+            "coins": int((coins_total * GEMS_TOTAL_MULTIPLIER + rng.uniform(0, GEMS_RANDOM_MAX)) * SCALING_FACTOR),
+            "gems": int(((gem_blocks_count * GEM_BLOCK_VALUE) + (ad_gems_count * AD_GEM_VALUE) + guardian_gems_value) * SCALING_FACTOR),
+            "round_cells": int(cells_total * SCALING_FACTOR),
+            "wave_cells": int(wave_cells * SCALING_FACTOR),
+            "cells": int((cells_total * CELLS_TOTAL_MULTIPLIER + rng.uniform(0, CELLS_RANDOM_MAX)) * SCALING_FACTOR),
+            "round_cash": int(cash_total * SCALING_FACTOR),
+            "cash": int((cash_total + rng.uniform(0, CASH_RANDOM_MAX)) * SCALING_FACTOR),
+            "stones": int(stones_total * SCALING_FACTOR),
+            "round_gems_from_blocks_count": int(gem_blocks_count * SCALING_FACTOR),
+            "round_gems_from_blocks_value": int((gem_blocks_count * GEM_BLOCK_VALUE) * SCALING_FACTOR),
+            "round_gems_from_ads_count": int(ad_gems_count * SCALING_FACTOR),
+            "round_gems_from_ads_value": int((ad_gems_count * AD_GEM_VALUE) * SCALING_FACTOR),
+            "round_gems_from_guardian": int(guardian_gems_value * SCALING_FACTOR),
         }
 
         metrics.append({
             "run_id": run_id,
             "real_timestamp": real_ts_ms,
-            "game_timestamp": game_ts_sec,
+            "game_timestamp": game_ts_scaled,  # Use scaled timestamp
             "current_wave": wave,
             "metrics": metrics_data,
         })
@@ -635,6 +531,10 @@ def generate_run_data(tier: int, min_wave: int, max_wave: int, start_date: datet
     end_time_ms = start_time_ms + int(duration_gametime * 1000)
     coins_earned = coins_total
     
+    # Calculate actual real-time duration in milliseconds
+    # Note: duration_realtime should be in milliseconds for database storage
+    duration_realtime = int(duration_gametime * 1000)
+    
     events.append({
         "run_id": run_id,
         "timestamp": end_time_ms,
@@ -657,165 +557,18 @@ def generate_run_data(tier: int, min_wave: int, max_wave: int, start_date: datet
         "game_version": game_version,
         "tier": tier,
         "final_wave": final_wave,
-        "coins_earned": coins_earned,
-        "duration_realtime": int(duration_gametime),
-        "duration_gametime": float(duration_gametime),
-        "round_cells": float(cells_total),
-        "round_gems": float((gem_blocks_count * GEM_BLOCK_VALUE) + (ad_gems_count * AD_GEM_VALUE) + guardian_gems_value),
-        "round_cash": float(cash_total),
+        "coins_earned": int(coins_earned * SCALING_FACTOR),  # Scale for INTEGER storage
+        "duration_realtime": duration_realtime,
+        "duration_gametime": int(duration_gametime * SCALING_FACTOR),  # Scale for INTEGER storage
+        "round_cells": int(cells_total * SCALING_FACTOR),  # Scale for INTEGER storage
+        "round_gems": int(((gem_blocks_count * GEM_BLOCK_VALUE) + (ad_gems_count * AD_GEM_VALUE) + guardian_gems_value) * SCALING_FACTOR),  # Scale for INTEGER storage
+        "round_cash": int(cash_total * SCALING_FACTOR),  # Scale for INTEGER storage
         "events": events,
         "metrics": metrics
     }
 
 
-def generate_run(
-    db: DatabaseService,
-    logger,
-    tier: int,
-    min_wave: int,
-    max_wave: int,
-    base_start: datetime,
-    run_index: int,
-) -> None:
-    run_id = str(uuid.uuid4())
-    game_version = GAME_VERSION
-
-    # Stagger start times apart into the past
-    start_dt = base_start - timedelta(minutes=STAGGER_MINUTES * run_index)
-    start_time_ms = int(start_dt.timestamp() * 1000)
-
-    db.insert_run_start(run_id=run_id, start_time=start_time_ms, game_version=game_version, tier=tier)
-    db.write_event(run_id, start_time_ms, "startNewRound", {"tier": tier})
-
-    # Initialize simulated accumulators
-    coins_total = 0.0
-    cells_total = 0.0
-    cash_total = 0.0
-    stones_total = 0.0
-    gem_blocks_count = 0
-    ad_gems_count = 0
-    guardian_gems_value = 0
-
-    last_speed = 1.0
-    final_wave = 0
-
-    # Simulate wave progression with survival probability
-    for wave in range(1, max_wave + 1):
-        # Check if we survive this wave
-        survival_prob = calculate_survival_probability(wave, min_wave, max_wave)
-        if wave > min_wave and random.random() > survival_prob:
-            # Game over - we died on this wave
-            final_wave = wave - 1
-            break
-        
-        final_wave = wave
-        # Game time per wave
-        game_ts_sec = float(wave * SECONDS_PER_WAVE)
-        real_ts_ms = start_time_ms + int(game_ts_sec * 1000)
-
-        # Per-wave deltas with some variability
-        # Per-wave deltas with multiple variation factors
-        base_coins = random.uniform(BASE_COINS_MIN, BASE_COINS_MAX)
-
-        # Wave scaling (later waves give more coins)
-        wave_scale = 1.0 + (wave * WAVE_SCALE_FACTOR)
-
-        # Random multiplier for dramatic variation
-        multiplier = random.choice(COIN_MULTIPLIERS)
-
-        # Occasional bonus waves
-        if random.random() < BONUS_WAVE_CHANCE:
-            multiplier *= random.uniform(BONUS_MULTIPLIER_MIN, BONUS_MULTIPLIER_MAX)
-
-        # Occasional penalty waves  
-        if random.random() < PENALTY_WAVE_CHANCE:
-            multiplier *= random.uniform(PENALTY_MULTIPLIER_MIN, PENALTY_MULTIPLIER_MAX)
-
-        wave_coins = base_coins * wave_scale * multiplier
-        coins_total += wave_coins
-
-        wave_cells = random.uniform(CELLS_MIN, CELLS_MAX)
-        cells_total += wave_cells
-
-        cash_delta = random.choice(CASH_DELTAS)
-        cash_total += cash_delta
-
-        stones_delta = random.uniform(STONES_MIN, STONES_MAX)
-        stones_total += stones_delta
-
-        # Gem sources
-        # Randomly decide block taps and ad claims near some checkpoints
-        if random.random() < GEM_BLOCK_TAP_CHANCE:
-            block_taps = random.randint(GEM_BLOCK_TAPS_MIN, GEM_BLOCK_TAPS_MAX)
-            gem_blocks_count += block_taps
-            db.write_event(run_id, real_ts_ms, "gemBlockTapped", {"gemValue": GEM_BLOCK_VALUE})
-        if random.random() < AD_GEM_CLAIM_CHANCE:
-            ad_claims = 1
-            ad_gems_count += ad_claims
-            db.write_event(run_id, real_ts_ms, "adGemClaimed", {"gemValue": AD_GEM_VALUE})
-
-        # Guardian gems sometimes contribute a few
-        guardian_gems_value += random.choice(GUARDIAN_GEM_VALUES)
-
-        # Occasional speed change event
-        if random.random() < SPEED_CHANGE_CHANCE:
-            new_speed = round(random.choice(SPEED_OPTIONS), 2)
-            if new_speed != last_speed:
-                last_speed = new_speed
-                db.write_event(run_id, real_ts_ms, "gameSpeedChanged", {"value": new_speed})
-
-        # Build metrics bundle aligned with hook names
-        metrics = {
-            "round_coins": coins_total,
-            "wave_coins": wave_coins,
-            "coins": coins_total * GEMS_TOTAL_MULTIPLIER + random.uniform(0, GEMS_RANDOM_MAX),
-            "gems": (gem_blocks_count * GEM_BLOCK_VALUE) + (ad_gems_count * AD_GEM_VALUE) + guardian_gems_value,
-            "round_cells": cells_total,
-            "wave_cells": wave_cells,
-            "cells": cells_total * CELLS_TOTAL_MULTIPLIER + random.uniform(0, CELLS_RANDOM_MAX),
-            "round_cash": cash_total,
-            "cash": cash_total + random.uniform(0, CASH_RANDOM_MAX),
-            "stones": stones_total,
-            "round_gems_from_blocks_count": float(gem_blocks_count),
-            "round_gems_from_blocks_value": float(gem_blocks_count * GEM_BLOCK_VALUE),
-            "round_gems_from_ads_count": float(ad_gems_count),
-            "round_gems_from_ads_value": float(ad_gems_count * AD_GEM_VALUE),
-            "round_gems_from_guardian": float(guardian_gems_value),
-        }
-
-        db.write_metric(
-            run_id=run_id,
-            real_timestamp=real_ts_ms,
-            game_timestamp=game_ts_sec,
-            current_wave=wave,
-            metrics=metrics,
-        )
-
-        # Pause/resume occasionally
-        if random.random() < PAUSE_CHANCE:
-            db.write_event(run_id, real_ts_ms, "gamePaused", {})
-            db.write_event(run_id, real_ts_ms + PAUSE_DURATION_MS, "gameResumed", {})
-
-    # Finalize run
-    duration_gametime = final_wave * SECONDS_PER_WAVE
-    end_time_ms = start_time_ms + int(duration_gametime * 1000)
-    coins_earned = coins_total
-    db.write_event(run_id, end_time_ms, "gameOver", {"coinsEarned": coins_earned})
-
-    # Persist aggregates into runs
-    db.update_run_end(
-        run_id=run_id,
-        end_time=end_time_ms,
-        final_wave=final_wave,
-        coins_earned=coins_earned,
-        duration_realtime=int(duration_gametime),
-        duration_gametime=float(duration_gametime),
-        round_cells=float(cells_total),
-        round_gems=float((gem_blocks_count * GEM_BLOCK_VALUE) + (ad_gems_count * AD_GEM_VALUE) + guardian_gems_value),
-        round_cash=float(cash_total),
-    )
-
-    logger.info("Seeded run", run_id=run_id, tier=tier, final_wave=final_wave)
+# Removed generate_run function - no longer needed with bulk operations
 
 
 def write_run_data_to_db(db: DatabaseService, run_data: dict) -> None:
@@ -910,7 +663,14 @@ def bulk_write_all_runs_to_db(db: DatabaseService, run_data_list: list, start_da
                 datetime.fromtimestamp(run_data['start_time'] / 1000) >= next_metrics_time):
                 
                 # Collect metrics at this timestamp
-                collect_metrics_at_timestamp(db, next_metrics_time, logger)
+                try:
+                    db.collect_and_store_db_metrics()
+                    print(f"📈 Database metrics collected at {next_metrics_time.strftime('%Y-%m-%d %H:%M')}")
+                except Exception as e:
+                    if logger:
+                        logger.warning("Failed to collect database metrics", error=str(e))
+                    else:
+                        print(f"⚠️  Failed to collect database metrics: {e}")
                 
                 # Move to next metrics collection time
                 metrics_index += 1
@@ -963,7 +723,14 @@ def bulk_write_all_runs_to_db(db: DatabaseService, run_data_list: list, start_da
         
         # Collect any remaining metrics timestamps (after all runs)
         while metrics_index < len(metrics_timestamps):
-            collect_metrics_at_timestamp(db, metrics_timestamps[metrics_index], logger)
+            try:
+                db.collect_and_store_db_metrics()
+                print(f"📈 Database metrics collected at {metrics_timestamps[metrics_index].strftime('%Y-%m-%d %H:%M')}")
+            except Exception as e:
+                if logger:
+                    logger.warning("Failed to collect database metrics", error=str(e))
+                else:
+                    print(f"⚠️  Failed to collect database metrics: {e}")
             metrics_index += 1
         
         # Commit the entire transaction
@@ -983,6 +750,15 @@ def bulk_write_all_runs_to_db(db: DatabaseService, run_data_list: list, start_da
     finally:
         # Restore original debug method
         db.logger.debug = original_debug
+
+
+def pre_populate_lookup_tables(db: DatabaseService, logger):
+    logger.info("Pre-populating metadata for lookup tables...")
+    for name, meta in METRIC_METADATA.items():
+        db.pre_populate_metric_metadata(name, meta)
+    for name, meta in EVENT_METADATA.items():
+        db.pre_populate_event_metadata(name, meta)
+    logger.info("Metadata pre-population complete.")
 
 
 def main():
@@ -1059,6 +835,7 @@ def main():
     structlog_logger.setLevel(logging.INFO)
 
     wipe_tables(db)
+    pre_populate_lookup_tables(db, logger)
 
     # Determine number of workers
     num_workers = args.workers or mp.cpu_count()

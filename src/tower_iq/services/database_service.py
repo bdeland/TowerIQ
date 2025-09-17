@@ -9,6 +9,7 @@ import json
 import sqlite3
 import os
 import shutil
+import sys
 from typing import Any, Optional, Dict, List, cast
 from pathlib import Path
 from datetime import datetime
@@ -16,8 +17,44 @@ import pandas as pd
 import functools
 import tempfile
 import zipfile
+import uuid
 
 from ..core.config import ConfigurationManager
+
+# Import database schema configuration
+try:
+    # Try importing from project root config directory
+    import importlib.util
+    import os
+    
+    PROJECT_ROOT = Path(__file__).parent.parent.parent.parent
+    CONFIG_PATH = PROJECT_ROOT / "config" / "database_schema.py"
+    
+    if CONFIG_PATH.exists():
+        spec = importlib.util.spec_from_file_location("database_schema", CONFIG_PATH)
+        if spec is not None and spec.loader is not None:
+            database_schema = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(database_schema)
+        else:
+            raise ImportError("Failed to create module spec")
+        
+        SCHEMA_VERSION = database_schema.SCHEMA_VERSION
+        METRIC_METADATA = database_schema.METRIC_METADATA
+        EVENT_METADATA = database_schema.EVENT_METADATA
+        DB_METRIC_METADATA = database_schema.DB_METRIC_METADATA
+        get_full_schema_script = database_schema.get_full_schema_script
+    else:
+        raise ImportError("database_schema.py not found")
+        
+except (ImportError, AttributeError) as e:
+    # Fallback if schema config is not available
+    SCHEMA_VERSION = "1.0"
+    METRIC_METADATA = {}
+    EVENT_METADATA = {}
+    DB_METRIC_METADATA = {}
+    
+    def get_full_schema_script():
+        return ""  # Fallback to empty schema
 
 # Decorator to handle DB connection checks and errors
 def db_operation(default_return_value: Any = None):
@@ -53,7 +90,7 @@ class DatabaseService:
     Handles connections, writes, reads, migrations, and backups.
     """
     
-    DB_VERSION = "6" # Normalized db_metrics table with lookup tables for better performance
+    SCHEMA_VERSION = SCHEMA_VERSION  # Single optimized schema version identifier
     
     def __init__(self, config: ConfigurationManager, logger: Any, db_path: str = '') -> None:
         """
@@ -71,6 +108,9 @@ class DatabaseService:
             self.db_path = config.get('database.sqlite_path', 'data/toweriq.sqlite')
         self.logger.debug("Database path resolved", db_path=self.db_path, db_path_type=str(type(self.db_path)))
         self.sqlite_conn: Optional[sqlite3.Connection] = None
+        self._metric_name_cache: Dict[str, int] = {}
+        self._event_name_cache: Dict[str, int] = {}
+        self._game_version_cache: Dict[str, int] = {}
     
     def connect(self) -> None:
         """
@@ -82,6 +122,9 @@ class DatabaseService:
             db_path = Path(self.db_path)
             db_path.parent.mkdir(parents=True, exist_ok=True)
             
+            # Check if this is a new database BEFORE connecting
+            is_new_db = not db_path.exists()
+            
             self.logger.info("Connecting to SQLite database", path=self.db_path)
             
             # Connect to standard SQLite database
@@ -92,6 +135,9 @@ class DatabaseService:
 
             # Enable WAL mode for better concurrency
             self.sqlite_conn.execute("PRAGMA journal_mode=WAL;")
+
+            # Enforce foreign key constraints for relational integrity
+            self.sqlite_conn.execute("PRAGMA foreign_keys=ON;")
 
             # If prior run left WAL/SHM, checkpoint them safely at startup
             try:
@@ -111,14 +157,41 @@ class DatabaseService:
             
             self.logger.info("SQLite connection established successfully")
             
-            # Run migrations
-            self.run_migrations()
+            # Initialize schema for new databases
+            if is_new_db:
+                self.logger.info("New database detected. Initializing V1.0 schema.")
+                self._initialize_schema()
+                self.set_setting("schema_version", self.SCHEMA_VERSION)
             
         except Exception as e:
             self.logger.error("Failed to connect to SQLite database", error=str(e))
             self.sqlite_conn = None
             raise
     
+
+    def _initialize_schema(self) -> None:
+        """Create the V1.0 schema if it is not already present."""
+        if self.sqlite_conn is None:
+            raise RuntimeError("Database connection is not established")
+        conn = cast(sqlite3.Connection, self.sqlite_conn)
+        cursor = conn.cursor()
+
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='game_versions'")
+        if cursor.fetchone():
+            self.logger.debug("Schema already initialized", schema_version=self.SCHEMA_VERSION)
+            return
+
+        self.logger.info("Creating all tables for schema V1.0...", schema_version=self.SCHEMA_VERSION)
+        schema_script = get_full_schema_script()
+
+        cursor.executescript(schema_script)
+        conn.commit()
+
+        self._metric_name_cache.clear()
+        self._event_name_cache.clear()
+        self._game_version_cache.clear()
+        self.logger.info("Schema initialization complete", schema_version=self.SCHEMA_VERSION)
+
     def close(self) -> None:
         """Gracefully close the database connection and clean up WAL files."""
         if self.sqlite_conn:
@@ -159,747 +232,34 @@ class DatabaseService:
             finally:
                 self.sqlite_conn = None
     
-    def run_migrations(self) -> None:
-        """
-        Manages database schema migrations based on a version stored in the DB.
-        """
-        self.logger.info("Checking database schema version.")
-        if self.sqlite_conn is None:
-            raise RuntimeError("Database connection is not established")
-        conn = cast(sqlite3.Connection, self.sqlite_conn)
-        
-        # Check if settings table exists and what schema it has
-        cursor = conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='settings'")
-        settings_exists = cursor.fetchone() is not None
-        
-        if settings_exists:
-            # Settings table exists, check its schema
-            cursor = conn.execute("PRAGMA table_info(settings)")
-            columns = [row[1] for row in cursor.fetchall()]
-            has_enhanced_schema = 'value_type' in columns
-            
-            if has_enhanced_schema:
-                # Enhanced schema exists, check version
-                current_version = self.get_setting("db_version")
-                if current_version == self.DB_VERSION:
-                    self.logger.info("Database schema is up to date.", version=self.DB_VERSION)
-                    return
-            else:
-                # Basic schema exists, migrate to enhanced
-                self.logger.info("Migrating settings table from basic to enhanced schema")
-                self._migrate_settings_table_if_needed()
-                current_version = self.get_setting("db_version")
-                if current_version == self.DB_VERSION:
-                    self.logger.info("Database schema is up to date after migration.", version=self.DB_VERSION)
-                    return
-        else:
-            # No settings table exists, this is a fresh database
-            current_version = None
-
-        self.logger.warning(
-            "Database schema is outdated or new. Running migrations.",
-            current_version=current_version,
-            target_version=self.DB_VERSION
-        )
-        
-        # For this major change, we will create the new optimized schema.
-        # A more advanced system would have sequential migration scripts (e.g., migrate_v1_to_v2).
-        self._create_schema_v6()
-
-        self.set_setting("db_version", self.DB_VERSION)
-        self.logger.info("Database migration to version %s completed.", self.DB_VERSION)
-        
-        # Create default dashboards after schema is ready
-        # self.create_default_dashboards() # <--- THIS LINE IS NOW COMMENTED OUT
-
-    def _migrate_settings_table_if_needed(self):
-        """Migrate the settings table to include metadata if needed."""
-        if self.sqlite_conn is None:
-            return
-            
-        try:
-            # Check if the enhanced schema already exists
-            cursor = self.sqlite_conn.execute("PRAGMA table_info(settings)")
-            columns = [row[1] for row in cursor.fetchall()]
-            
-            if 'value_type' not in columns:
-                self.logger.info("Migrating settings table to enhanced schema")
-                
-                # Create new table with enhanced schema
-                self.sqlite_conn.execute("""
-                    CREATE TABLE settings_new (
-                        id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        key TEXT NOT NULL UNIQUE,
-                        value TEXT NOT NULL,
-                        value_type TEXT NOT NULL DEFAULT 'string',
-                        description TEXT,
-                        category TEXT DEFAULT 'general',
-                        is_sensitive BOOLEAN DEFAULT 0,
-                        created_at TEXT DEFAULT (datetime('now', 'localtime')),
-                        updated_at TEXT DEFAULT (datetime('now', 'localtime')),
-                        created_by TEXT DEFAULT 'system',
-                        version INTEGER DEFAULT 1
-                    )
-                """)
-                
-                # Copy existing data
-                cursor = self.sqlite_conn.execute("SELECT key, value FROM settings")
-                for row in cursor.fetchall():
-                    key, value = row
-                    # Try to determine the type
-                    value_type = 'string'
-                    
-                    # First check for boolean values
-                    if isinstance(value, str) and value.lower() in ('true', 'false', '1', '0'):
-                        value_type = 'bool'
-                    else:
-                        try:
-                            # Try to parse as JSON
-                            json.loads(value)
-                            value_type = 'json'
-                        except (ValueError, json.JSONDecodeError):
-                            try:
-                                # Try to parse as int
-                                int(value)
-                                value_type = 'int'
-                            except ValueError:
-                                try:
-                                    # Try to parse as float
-                                    float(value)
-                                    value_type = 'float'
-                                except ValueError:
-                                    # Default to string
-                                    value_type = 'string'
-                    
-                    # Determine category
-                    category = 'general'
-                    if key.startswith('logging.'):
-                        category = 'logging'
-                    elif key.startswith('database.'):
-                        category = 'database'
-                    elif key.startswith('frida.'):
-                        category = 'frida'
-                    elif key.startswith('gui.'):
-                        category = 'gui'
-                    elif key.startswith('emulator.'):
-                        category = 'emulator'
-                    
-                    self.sqlite_conn.execute("""
-                        INSERT INTO settings_new 
-                        (key, value, value_type, category, created_at, updated_at) 
-                        VALUES (?, ?, ?, ?, ?, ?)
-                    """, (key, value, value_type, category, 
-                          datetime.now().isoformat(), datetime.now().isoformat()))
-                
-                # Drop old table and rename new one
-                self.sqlite_conn.execute("DROP TABLE settings")
-                self.sqlite_conn.execute("ALTER TABLE settings_new RENAME TO settings")
-                
-                # Create indexes
-                self.sqlite_conn.execute("CREATE INDEX idx_settings_key ON settings(key)")
-                self.sqlite_conn.execute("CREATE INDEX idx_settings_category ON settings(category)")
-                
-                self.sqlite_conn.commit()
-                self.logger.info("Settings table migration completed successfully")
-                
-        except Exception as e:
-            self.logger.error("Failed to migrate settings table", error=str(e))
-            # Don't raise the exception - the application can still work with the basic schema
-
-    def _create_schema_v2(self):
-        """Creates the version 2 schema with a 'long' metrics table."""
-        if self.sqlite_conn is None:
-            raise RuntimeError("Database connection is not established")
-        conn = cast(sqlite3.Connection, self.sqlite_conn)
-        try:
-            # Check which tables already exist
-            cursor = conn.execute("SELECT name FROM sqlite_master WHERE type='table'")
-            existing_tables = {row[0] for row in cursor.fetchall()}
-            
-            self.logger.info("Checking existing tables", existing_tables=list(existing_tables))
-            
-            # Only create tables that don't exist
-            if 'runs' not in existing_tables:
-                self.logger.info("Creating runs table")
-                conn.execute("""
-                    CREATE TABLE runs (
-                        run_id TEXT PRIMARY KEY,
-                        start_time INTEGER NOT NULL,
-                        end_time INTEGER,
-                        duration_realtime INTEGER,
-                        duration_gametime REAL,
-                        final_wave INTEGER,
-                        coins_earned REAL,
-                        CPH REAL,
-                        round_cells REAL,
-                        round_gems REAL,
-                        round_cash REAL,
-                        game_version TEXT,
-                        tier INTEGER
-                    )
-                """)
-
-            if 'metrics' not in existing_tables:
-                self.logger.info("Creating metrics table")
-                # NEW "Long" format for metrics table - highly extensible
-                conn.execute("""
-                    CREATE TABLE metrics (
-                        id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        run_id TEXT NOT NULL,
-                        real_timestamp INTEGER NOT NULL,
-                        game_timestamp REAL NOT NULL,
-                        current_wave INTEGER NOT NULL,
-                        metric_name TEXT NOT NULL,
-                        metric_value REAL NOT NULL
-                    )
-                """)
-                conn.execute("""
-                    CREATE INDEX idx_metrics_run_name_time 
-                    ON metrics(run_id, metric_name, real_timestamp)
-                """)
-
-            if 'events' not in existing_tables:
-                self.logger.info("Creating events table")
-                conn.execute("""
-                    CREATE TABLE events (
-                        id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        run_id TEXT NOT NULL,
-                        timestamp INTEGER NOT NULL,
-                        event_name TEXT NOT NULL,
-                        data TEXT
-                    )
-                """)
-                
-            if 'logs' not in existing_tables:
-                self.logger.info("Creating logs table")
-                conn.execute("""
-                    CREATE TABLE logs (
-                        timestamp INTEGER, level TEXT, source TEXT, event TEXT, data TEXT
-                    )
-                """)
-            
-            # Create dashboards table
-            if 'dashboards' not in existing_tables:
-                self.logger.info("Creating dashboards table")
-                conn.execute("""
-                    CREATE TABLE dashboards (
-                        id TEXT PRIMARY KEY,
-                        uid TEXT UNIQUE NOT NULL,
-                        title TEXT NOT NULL,
-                        description TEXT,
-                        config TEXT NOT NULL,
-                        tags TEXT,
-                        created_at TEXT DEFAULT (datetime('now', 'localtime')),
-                        updated_at TEXT DEFAULT (datetime('now', 'localtime')),
-                        created_by TEXT DEFAULT 'system',
-                        is_default BOOLEAN DEFAULT 0,
-                        schema_version INTEGER DEFAULT 1
-                    )
-                """)
-                conn.execute("CREATE INDEX idx_dashboards_uid ON dashboards(uid)")
-                conn.execute("CREATE INDEX idx_dashboards_title ON dashboards(title)")
-                conn.execute("CREATE INDEX idx_dashboards_created_at ON dashboards(created_at)")
-            else:
-                self.logger.info("Dashboards table already exists")
-            
-            # Always ensure settings table exists (it was deleted)
-            if 'settings' not in existing_tables:
-                self.logger.info("Creating settings table")
-                conn.execute("""
-                    CREATE TABLE settings (
-                        id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        key TEXT NOT NULL UNIQUE,
-                        value TEXT NOT NULL,
-                        value_type TEXT NOT NULL DEFAULT 'string',
-                        description TEXT,
-                        category TEXT DEFAULT 'general',
-                        is_sensitive BOOLEAN DEFAULT 0,
-                        created_at TEXT DEFAULT (datetime('now', 'localtime')),
-                        updated_at TEXT DEFAULT (datetime('now', 'localtime')),
-                        created_by TEXT DEFAULT 'system',
-                        version INTEGER DEFAULT 1
-                    )
-                """)
-                conn.execute("CREATE INDEX idx_settings_key ON settings(key)")
-                conn.execute("CREATE INDEX idx_settings_category ON settings(category)")
-            else:
-                self.logger.info("Settings table already exists")
-            
-            
-            conn.commit()
-            self.logger.info("Successfully created V2 database schema.")
-        except Exception as e:
-            self.logger.error("Failed during V2 schema creation", error=str(e))
-            try:
-                conn.rollback()
-            except Exception:
-                pass
-            raise
-
-    def _create_schema_v4(self):
-        """Creates the version 4 optimized schema with integer primary keys and lookup tables."""
-        if self.sqlite_conn is None:
-            raise RuntimeError("Database connection is not established")
-        conn = cast(sqlite3.Connection, self.sqlite_conn)
-        try:
-            # Check which tables already exist
-            cursor = conn.execute("SELECT name FROM sqlite_master WHERE type='table'")
-            existing_tables = {row[0] for row in cursor.fetchall()}
-            
-            self.logger.info("Checking existing tables for V4 schema", existing_tables=list(existing_tables))
-            
-            # Create lookup tables first
-            if 'metric_names' not in existing_tables:
-                self.logger.info("Creating metric_names lookup table")
-                conn.execute("""
-                    CREATE TABLE metric_names (
-                        metric_name_pk INTEGER PRIMARY KEY AUTOINCREMENT,
-                        metric_name TEXT NOT NULL UNIQUE
-                    )
-                """)
-                conn.execute("CREATE INDEX idx_metric_names_name ON metric_names(metric_name)")
-
-            if 'event_names' not in existing_tables:
-                self.logger.info("Creating event_names lookup table")
-                conn.execute("""
-                    CREATE TABLE event_names (
-                        event_name_pk INTEGER PRIMARY KEY AUTOINCREMENT,
-                        event_name TEXT NOT NULL UNIQUE
-                    )
-                """)
-                conn.execute("CREATE INDEX idx_event_names_name ON event_names(event_name)")
-
-            # Create optimized runs table with integer primary key
-            if 'runs' not in existing_tables:
-                self.logger.info("Creating optimized runs table")
-                conn.execute("""
-                    CREATE TABLE runs (
-                        run_pk INTEGER PRIMARY KEY AUTOINCREMENT,
-                        run_id TEXT NOT NULL UNIQUE,
-                        start_time INTEGER NOT NULL,
-                        end_time INTEGER,
-                        duration_realtime INTEGER,
-                        duration_gametime INTEGER,
-                        final_wave INTEGER,
-                        coins_earned INTEGER,
-                        CPH INTEGER,
-                        round_cells INTEGER,
-                        round_gems INTEGER,
-                        round_cash INTEGER,
-                        game_version TEXT,
-                        tier INTEGER
-                    )
-                """)
-                conn.execute("CREATE INDEX idx_runs_run_id ON runs(run_id)")
-                conn.execute("CREATE INDEX idx_runs_start_time ON runs(start_time)")
-
-            # Create optimized metrics table with foreign keys
-            if 'metrics' not in existing_tables:
-                self.logger.info("Creating optimized metrics table")
-                conn.execute("""
-                    CREATE TABLE metrics (
-                        metric_pk INTEGER PRIMARY KEY AUTOINCREMENT,
-                        run_fk INTEGER NOT NULL,
-                        metric_name_fk INTEGER NOT NULL,
-                        real_timestamp INTEGER NOT NULL,
-                        game_timestamp INTEGER NOT NULL,
-                        current_wave INTEGER NOT NULL,
-                        metric_value INTEGER NOT NULL,
-                        FOREIGN KEY (run_fk) REFERENCES runs(run_pk),
-                        FOREIGN KEY (metric_name_fk) REFERENCES metric_names(metric_name_pk)
-                    )
-                """)
-                conn.execute("""
-                    CREATE INDEX idx_metrics_run_fk_time 
-                    ON metrics(run_fk, real_timestamp)
-                """)
-                conn.execute("""
-                    CREATE INDEX idx_metrics_name_fk_time 
-                    ON metrics(metric_name_fk, real_timestamp)
-                """)
-
-            # Create optimized events table with foreign keys
-            if 'events' not in existing_tables:
-                self.logger.info("Creating optimized events table")
-                conn.execute("""
-                    CREATE TABLE events (
-                        event_pk INTEGER PRIMARY KEY AUTOINCREMENT,
-                        run_fk INTEGER NOT NULL,
-                        event_name_fk INTEGER NOT NULL,
-                        timestamp INTEGER NOT NULL,
-                        data TEXT,
-                        FOREIGN KEY (run_fk) REFERENCES runs(run_pk),
-                        FOREIGN KEY (event_name_fk) REFERENCES event_names(event_name_pk)
-                    )
-                """)
-                conn.execute("CREATE INDEX idx_events_run_fk ON events(run_fk)")
-                conn.execute("CREATE INDEX idx_events_timestamp ON events(timestamp)")
-
-            # Create logs table (unchanged)
-            if 'logs' not in existing_tables:
-                self.logger.info("Creating logs table")
-                conn.execute("""
-                    CREATE TABLE logs (
-                        timestamp INTEGER, level TEXT, source TEXT, event TEXT, data TEXT
-                    )
-                """)
-            
-            # Create dashboards table (unchanged)
-            if 'dashboards' not in existing_tables:
-                self.logger.info("Creating dashboards table")
-                conn.execute("""
-                    CREATE TABLE dashboards (
-                        id TEXT PRIMARY KEY,
-                        uid TEXT UNIQUE NOT NULL,
-                        title TEXT NOT NULL,
-                        description TEXT,
-                        config TEXT NOT NULL,
-                        tags TEXT,
-                        created_at TEXT DEFAULT (datetime('now', 'localtime')),
-                        updated_at TEXT DEFAULT (datetime('now', 'localtime')),
-                        created_by TEXT DEFAULT 'system',
-                        is_default BOOLEAN DEFAULT 0,
-                        schema_version INTEGER DEFAULT 1
-                    )
-                """)
-                conn.execute("CREATE INDEX idx_dashboards_uid ON dashboards(uid)")
-                conn.execute("CREATE INDEX idx_dashboards_title ON dashboards(title)")
-                conn.execute("CREATE INDEX idx_dashboards_created_at ON dashboards(created_at)")
-            
-            # Create optimized settings table
-            if 'settings' not in existing_tables:
-                self.logger.info("Creating optimized settings table")
-                conn.execute("""
-                    CREATE TABLE settings (
-                        setting_pk INTEGER PRIMARY KEY AUTOINCREMENT,
-                        key TEXT NOT NULL UNIQUE,
-                        value TEXT NOT NULL,
-                        is_sensitive INTEGER DEFAULT 0,
-                        created_at INTEGER DEFAULT (strftime('%s', 'now')),
-                        updated_at INTEGER DEFAULT (strftime('%s', 'now'))
-                    )
-                """)
-                conn.execute("CREATE INDEX idx_settings_key ON settings(key)")
-            
-            
-            conn.commit()
-            self.logger.info("Successfully created V4 optimized database schema.")
-        except Exception as e:
-            self.logger.error("Failed during V4 schema creation", error=str(e))
-            try:
-                conn.rollback()
-            except Exception:
-                pass
-            raise
-
-    def _create_schema_v5(self):
-        """Creates the version 5 schema with db_metrics table for database health monitoring."""
-        # First create all V4 tables
-        self._create_schema_v4()
-        
-        if self.sqlite_conn is None:
-            raise RuntimeError("Database connection is not established")
-        conn = cast(sqlite3.Connection, self.sqlite_conn)
-        try:
-            # Check which tables already exist
-            cursor = conn.execute("SELECT name FROM sqlite_master WHERE type='table'")
-            existing_tables = {row[0] for row in cursor.fetchall()}
-            
-            self.logger.info("Checking existing tables for V5 schema", existing_tables=list(existing_tables))
-            
-            # Create db_metrics table for database health monitoring
-            if 'db_metrics' not in existing_tables:
-                self.logger.info("Creating db_metrics table")
-                conn.execute("""
-                    CREATE TABLE db_metrics (
-                        id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        timestamp INTEGER NOT NULL,
-                        metric_name TEXT NOT NULL,
-                        metric_value REAL NOT NULL,
-                        table_name TEXT,  -- For table-specific metrics
-                        index_name TEXT   -- For index-specific metrics
-                    )
-                """)
-                conn.execute("CREATE INDEX idx_db_metrics_timestamp ON db_metrics(timestamp)")
-                conn.execute("CREATE INDEX idx_db_metrics_metric_name ON db_metrics(metric_name)")
-            
-            conn.commit()
-            self.logger.info("Successfully created V5 database schema with db_metrics table.")
-        except Exception as e:
-            self.logger.error("Failed during V5 schema creation", error=str(e))
-            try:
-                conn.rollback()
-            except Exception:
-                pass
-            raise
-
-    def _create_schema_v6(self):
-        """Creates the version 6 schema with normalized db_metrics table using lookup tables."""
-        # First create all V5 tables
-        self._create_schema_v5()
-        
-        if self.sqlite_conn is None:
-            raise RuntimeError("Database connection is not established")
-        conn = cast(sqlite3.Connection, self.sqlite_conn)
-        try:
-            # Check which tables already exist
-            cursor = conn.execute("SELECT name FROM sqlite_master WHERE type='table'")
-            existing_tables = {row[0] for row in cursor.fetchall()}
-            
-            self.logger.info("Checking existing tables for V6 schema", existing_tables=list(existing_tables))
-            
-            # Create db_metric_names lookup table
-            if 'db_metric_names' not in existing_tables:
-                self.logger.info("Creating db_metric_names lookup table")
-                conn.execute("""
-                    CREATE TABLE db_metric_names (
-                        metric_name_id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        metric_name TEXT NOT NULL UNIQUE,
-                        metric_description TEXT
-                    )
-                """)
-                conn.execute("CREATE UNIQUE INDEX idx_db_metric_names_name ON db_metric_names(metric_name)")
-            
-            # Create db_monitored_objects lookup table
-            if 'db_monitored_objects' not in existing_tables:
-                self.logger.info("Creating db_monitored_objects lookup table")
-                conn.execute("""
-                    CREATE TABLE db_monitored_objects (
-                        object_id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        object_name TEXT NOT NULL,
-                        object_type TEXT NOT NULL CHECK(object_type IN ('TABLE', 'INDEX'))
-                    )
-                """)
-                conn.execute("CREATE UNIQUE INDEX idx_db_monitored_objects_name_type ON db_monitored_objects(object_name, object_type)")
-            
-            # Check if we need to migrate existing db_metrics table
-            if 'db_metrics' in existing_tables:
-                # Check if the table is already normalized (has metric_name_id column)
-                cursor.execute("PRAGMA table_info(db_metrics)")
-                columns = [row[1] for row in cursor.fetchall()]
-                
-                if 'metric_name_id' not in columns:
-                    self.logger.info("Migrating existing db_metrics table to normalized schema")
-                    self._migrate_db_metrics_to_v6()
-                else:
-                    self.logger.info("db_metrics table already normalized")
-            else:
-                # Create new normalized db_metrics table
-                self.logger.info("Creating new normalized db_metrics table")
-                conn.execute("""
-                    CREATE TABLE db_metrics (
-                        id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        timestamp INTEGER NOT NULL,
-                        metric_name_id INTEGER NOT NULL,
-                        metric_value REAL NOT NULL,
-                        object_id INTEGER,
-                        FOREIGN KEY (metric_name_id) REFERENCES db_metric_names(metric_name_id),
-                        FOREIGN KEY (object_id) REFERENCES db_monitored_objects(object_id)
-                    )
-                """)
-                conn.execute("CREATE INDEX idx_db_metrics_timestamp ON db_metrics(timestamp)")
-                conn.execute("CREATE INDEX idx_db_metrics_metric_name_id ON db_metrics(metric_name_id)")
-                conn.execute("CREATE INDEX idx_db_metrics_object_id ON db_metrics(object_id)")
-            
-            conn.commit()
-            self.logger.info("Successfully created V6 normalized database schema.")
-        except Exception as e:
-            self.logger.error("Failed during V6 schema creation", error=str(e))
-            try:
-                conn.rollback()
-            except Exception:
-                pass
-            raise
-
-    def _migrate_db_metrics_to_v6(self):
-        """Migrates existing db_metrics table from V5 to V6 normalized schema."""
-        if self.sqlite_conn is None:
-            raise RuntimeError("Database connection is not established")
-        
-        conn = cast(sqlite3.Connection, self.sqlite_conn)
-        cursor = conn.cursor()
-        
-        try:
-            self.logger.info("Starting migration of db_metrics table to V6")
-            
-            # Step 1: Populate db_metric_names lookup table with existing metric names
-            self.logger.info("Populating db_metric_names lookup table")
-            cursor.execute("""
-                INSERT OR IGNORE INTO db_metric_names (metric_name)
-                SELECT DISTINCT metric_name FROM db_metrics
-                WHERE metric_name IS NOT NULL
-            """)
-            
-            # Step 2: Populate db_monitored_objects lookup table with existing table/index names
-            self.logger.info("Populating db_monitored_objects lookup table")
-            
-            # Add tables
-            cursor.execute("""
-                INSERT OR IGNORE INTO db_monitored_objects (object_name, object_type)
-                SELECT DISTINCT table_name, 'TABLE' FROM db_metrics
-                WHERE table_name IS NOT NULL
-            """)
-            
-            # Add indexes
-            cursor.execute("""
-                INSERT OR IGNORE INTO db_monitored_objects (object_name, object_type)
-                SELECT DISTINCT index_name, 'INDEX' FROM db_metrics
-                WHERE index_name IS NOT NULL
-            """)
-            
-            # Step 3: Create new normalized db_metrics table
-            self.logger.info("Creating new normalized db_metrics table")
-            cursor.execute("ALTER TABLE db_metrics RENAME TO db_metrics_old")
-            
-            cursor.execute("""
-                CREATE TABLE db_metrics (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    timestamp INTEGER NOT NULL,
-                    metric_name_id INTEGER NOT NULL,
-                    metric_value REAL NOT NULL,
-                    object_id INTEGER,
-                    FOREIGN KEY (metric_name_id) REFERENCES db_metric_names(metric_name_id),
-                    FOREIGN KEY (object_id) REFERENCES db_monitored_objects(object_id)
-                )
-            """)
-            
-            # Step 4: Migrate data from old table to new normalized structure
-            self.logger.info("Migrating data to normalized structure")
-            cursor.execute("""
-                INSERT INTO db_metrics (id, timestamp, metric_name_id, metric_value, object_id)
-                SELECT 
-                    dm_old.id,
-                    dm_old.timestamp,
-                    dmn.metric_name_id,
-                    dm_old.metric_value,
-                    CASE 
-                        WHEN dm_old.table_name IS NOT NULL THEN 
-                            (SELECT object_id FROM db_monitored_objects 
-                             WHERE object_name = dm_old.table_name AND object_type = 'TABLE')
-                        WHEN dm_old.index_name IS NOT NULL THEN 
-                            (SELECT object_id FROM db_monitored_objects 
-                             WHERE object_name = dm_old.index_name AND object_type = 'INDEX')
-                        ELSE NULL
-                    END
-                FROM db_metrics_old dm_old
-                JOIN db_metric_names dmn ON dm_old.metric_name = dmn.metric_name
-            """)
-            
-            # Step 5: Create indexes on new table (drop existing ones first if they exist)
-            try:
-                cursor.execute("DROP INDEX IF EXISTS idx_db_metrics_timestamp")
-                cursor.execute("DROP INDEX IF EXISTS idx_db_metrics_metric_name")
-                cursor.execute("DROP INDEX IF EXISTS idx_db_metrics_metric_name_id")
-                cursor.execute("DROP INDEX IF EXISTS idx_db_metrics_object_id")
-            except Exception:
-                pass  # Indexes may not exist, continue
-            
-            cursor.execute("CREATE INDEX idx_db_metrics_timestamp ON db_metrics(timestamp)")
-            cursor.execute("CREATE INDEX idx_db_metrics_metric_name_id ON db_metrics(metric_name_id)")
-            cursor.execute("CREATE INDEX idx_db_metrics_object_id ON db_metrics(object_id)")
-            
-            # Step 6: Drop old table
-            cursor.execute("DROP TABLE db_metrics_old")
-            
-            conn.commit()
-            self.logger.info("Successfully migrated db_metrics table to V6 normalized schema")
-            
-        except Exception as e:
-            self.logger.error("Failed to migrate db_metrics table to V6", error=str(e))
-            conn.rollback()
-            raise
-
-    @db_operation()
-    def _get_or_create_metric_name_id(self, metric_name: str, description: str = None) -> int:
-        """Get or create a metric name ID in the db_metric_names lookup table."""
+    def _get_or_create_lookup_id(self, table: str, column: str, value: str, cache: Dict[str, int]) -> int:
+        """Get or create a lookup ID for the given table, column, and value."""
         if not self.sqlite_conn:
             return 0
         
+        # Check cache first
+        if value in cache:
+            return cache[value]
+        
         # Try to get existing ID
         cursor = self.sqlite_conn.execute(
-            "SELECT metric_name_id FROM db_metric_names WHERE metric_name = ?", 
-            (metric_name,)
+            f"SELECT id FROM {table} WHERE {column} = ?", 
+            (value,)
         )
         result = cursor.fetchone()
         
         if result:
-            return result[0]
-        
-        # Create new entry
-        if description:
-            cursor = self.sqlite_conn.execute(
-                "INSERT INTO db_metric_names (metric_name, metric_description) VALUES (?, ?)", 
-                (metric_name, description)
-            )
-        else:
-            cursor = self.sqlite_conn.execute(
-                "INSERT INTO db_metric_names (metric_name) VALUES (?)", 
-                (metric_name,)
-            )
-        return cursor.lastrowid or 0
-
-    @db_operation()
-    def _get_or_create_monitored_object_id(self, object_name: str, object_type: str) -> int:
-        """Get or create a monitored object ID in the db_monitored_objects lookup table."""
-        if not self.sqlite_conn:
-            return 0
-        
-        # Validate object_type
-        if object_type not in ('TABLE', 'INDEX'):
-            raise ValueError(f"Invalid object_type: {object_type}. Must be 'TABLE' or 'INDEX'")
-        
-        # Try to get existing ID
-        cursor = self.sqlite_conn.execute(
-            "SELECT object_id FROM db_monitored_objects WHERE object_name = ? AND object_type = ?", 
-            (object_name, object_type)
-        )
-        result = cursor.fetchone()
-        
-        if result:
+            cache[value] = result[0]
             return result[0]
         
         # Create new entry
         cursor = self.sqlite_conn.execute(
-            "INSERT INTO db_monitored_objects (object_name, object_type) VALUES (?, ?)", 
-            (object_name, object_type)
+            f"INSERT INTO {table} ({column}) VALUES (?)", 
+            (value,)
         )
-        return cursor.lastrowid or 0
-
-    @db_operation()
-    def _get_or_create_event_name_id(self, event_name: str) -> int:
-        """Get or create an event name ID in the lookup table."""
-        if not self.sqlite_conn:
-            return 0
-        
-        # Try to get existing ID
-        cursor = self.sqlite_conn.execute(
-            "SELECT event_name_pk FROM event_names WHERE event_name = ?", 
-            (event_name,)
-        )
-        result = cursor.fetchone()
-        
-        if result:
-            return result[0]
-        
-        # Create new entry
-        cursor = self.sqlite_conn.execute(
-            "INSERT INTO event_names (event_name) VALUES (?)", 
-            (event_name,)
-        )
-        return cursor.lastrowid or 0
-
-    @db_operation()
-    def _get_run_pk_by_run_id(self, run_id: str) -> Optional[int]:
-        """Get the run_pk for a given run_id."""
-        if not self.sqlite_conn:
-            return None
-        
-        cursor = self.sqlite_conn.execute(
-            "SELECT run_pk FROM runs WHERE run_id = ?", 
-            (run_id,)
-        )
-        result = cursor.fetchone()
-        return result[0] if result else None
+        new_id = cursor.lastrowid or 0
+        cache[value] = new_id
+        return new_id
 
     @db_operation()
     def write_metric(self, run_id: str, real_timestamp: int, game_timestamp: float, current_wave: int, metrics: Dict[str, float]) -> None:
@@ -910,29 +270,22 @@ class DatabaseService:
         if not self.sqlite_conn:
             return
         
-        # Get run_pk for the given run_id
-        run_pk = self._get_run_pk_by_run_id(run_id)
-        if run_pk is None:
-            self.logger.error("Run not found for metric insertion", run_id=run_id)
-            return
+        # Convert string UUID to BLOB
+        run_id_blob = uuid.UUID(run_id).bytes
         
         metric_data = []
         for name, value in metrics.items():
             if value is not None:
                 # Get or create metric name ID
-                metric_name_id = self._get_or_create_metric_name_id(name)
-                
-                # Convert float values to integers (multiply by 1000 to preserve 3 decimal places)
-                # This is a scaling factor - adjust as needed for your data precision requirements
-                scaled_value = int(value * 1000) if isinstance(value, (int, float)) else int(value)
+                metric_name_id = self._get_or_create_lookup_id('metric_names', 'name', name, self._metric_name_cache)
                 
                 metric_data.append((
-                    run_pk,
+                    run_id_blob,
+                    real_timestamp,
+                    game_timestamp,
+                    current_wave,
                     metric_name_id,
-                    int(real_timestamp),
-                    int(game_timestamp * 1000),  # Convert to milliseconds
-                    int(current_wave),
-                    scaled_value
+                    value
                 ))
 
         if not metric_data:
@@ -940,7 +293,7 @@ class DatabaseService:
 
         sql = """
             INSERT INTO metrics 
-            (run_fk, metric_name_fk, real_timestamp, game_timestamp, current_wave, metric_value) 
+            (run_id, real_timestamp, game_timestamp, current_wave, metric_name_id, metric_value) 
             VALUES (?, ?, ?, ?, ?, ?)
         """
         self.sqlite_conn.executemany(sql, metric_data)
@@ -956,23 +309,23 @@ class DatabaseService:
         if not self.sqlite_conn:
             return pd.DataFrame()
         
+        # Convert string UUID to BLOB
+        run_id_blob = uuid.UUID(run_id).bytes
+        
         # Get the metric name ID
-        metric_name_id = self._get_or_create_metric_name_id(metric_name)
+        metric_name_id = self._get_or_create_lookup_id('metric_names', 'name', metric_name, self._metric_name_cache)
         if metric_name_id == 0:
             return pd.DataFrame()
         
         query = """
             SELECT m.real_timestamp, m.metric_value 
             FROM metrics m
-            JOIN runs r ON m.run_fk = r.run_pk
-            WHERE r.run_id = ? AND m.metric_name_fk = ? 
+            WHERE m.run_id = ? AND m.metric_name_id = ? 
             ORDER BY m.real_timestamp
         """
-        df = pd.read_sql_query(query, self.sqlite_conn, params=[run_id, metric_name_id])
+        df = pd.read_sql_query(query, self.sqlite_conn, params=[run_id_blob, metric_name_id])
         
-        # Convert scaled integer values back to floats
         if not df.empty:
-            df['metric_value'] = df['metric_value'] / 1000.0
             df.rename(columns={'metric_value': metric_name}, inplace=True)
         
         return df
@@ -983,19 +336,16 @@ class DatabaseService:
         if not self.sqlite_conn:
             return
         
-        # Get run_pk for the given run_id
-        run_pk = self._get_run_pk_by_run_id(run_id)
-        if run_pk is None:
-            self.logger.error("Run not found for event insertion", run_id=run_id)
-            return
+        # Convert string UUID to BLOB
+        run_id_blob = uuid.UUID(run_id).bytes
         
         # Get or create event name ID
-        event_name_id = self._get_or_create_event_name_id(event_name)
+        event_name_id = self._get_or_create_lookup_id('event_names', 'name', event_name, self._event_name_cache)
         
         data_json = json.dumps(data if data is not None else {})
         self.sqlite_conn.execute(
-            "INSERT INTO events (run_fk, event_name_fk, timestamp, data) VALUES (?, ?, ?, ?)",
-            (run_pk, event_name_id, int(timestamp), data_json)
+            "INSERT INTO events (run_id, event_name_id, timestamp, data) VALUES (?, ?, ?, ?)",
+            (run_id_blob, event_name_id, int(timestamp), data_json)
         )
         self.sqlite_conn.commit()
         self.logger.debug("Event inserted", run_id=run_id, event_name=event_name)
@@ -1156,9 +506,17 @@ class DatabaseService:
         """
         if not self.sqlite_conn:
             return
+        # Convert string UUID to BLOB
+        run_id_blob = uuid.UUID(run_id).bytes
+        
+        # Get or create game version ID
+        game_version_id = None
+        if game_version:
+            game_version_id = self._get_or_create_lookup_id('game_versions', 'version_text', game_version, self._game_version_cache)
+        
         self.sqlite_conn.execute(
-            "INSERT OR IGNORE INTO runs (run_id, start_time, game_version, tier, CPH, round_cells, round_gems, round_cash) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-            (str(run_id), int(start_time), str(game_version) if game_version is not None else None, int(tier) if tier is not None else None, None, None, None, None)
+            "INSERT OR IGNORE INTO runs (run_id, start_time, game_version_id, tier) VALUES (?, ?, ?, ?)",
+            (run_id_blob, int(start_time), game_version_id, int(tier) if tier is not None else None)
         )
         self.sqlite_conn.commit()
         self.logger.debug("Run start inserted", run_id=run_id, start_time=start_time)
@@ -1174,11 +532,14 @@ class DatabaseService:
         """
         if not self.sqlite_conn:
             return
+        # Convert string UUID to BLOB
+        run_id_blob = uuid.UUID(run_id).bytes
+        
         # If duration_realtime is not provided, calculate from start_time
         if duration_realtime is None:
             cursor = self.sqlite_conn.execute(
                 "SELECT start_time FROM runs WHERE run_id = ?",
-                (str(run_id),)
+                (run_id_blob,)
             )
             row = cursor.fetchone()
             if not row:
@@ -1189,12 +550,12 @@ class DatabaseService:
         # Convert duration_realtime from ms to seconds if it's > 10,000 (assume ms if so)
         if duration_realtime is not None and duration_realtime > 10000:
             duration_realtime = int(duration_realtime // 1000)
-        # Calculate CPH (coins per hour) and convert to integer
+        # Calculate CPH (coins per hour)
         CPH = None
         if coins_earned is not None and duration_realtime and duration_realtime > 0:
             hours = duration_realtime / 3600.0
             if hours > 0:
-                CPH = int((float(coins_earned) / hours) * 1000)  # Scale to preserve 3 decimal places
+                CPH = float(coins_earned) / hours  # Store as REAL in V1.0 schema
         
         self.sqlite_conn.execute(
             """
@@ -1204,14 +565,14 @@ class DatabaseService:
             (
                 int(end_time) if end_time is not None else None,
                 int(final_wave) if final_wave is not None else None,
-                int(coins_earned * 1000) if coins_earned is not None else None,  # Scale to preserve 3 decimal places
+                coins_earned,  # Store as REAL in V1.0 schema
                 int(duration_realtime) if duration_realtime is not None else None,
-                int(duration_gametime * 1000) if duration_gametime is not None else None,  # Scale to preserve 3 decimal places
-                CPH,  # Already converted to integer
-                int(round_cells * 1000) if round_cells is not None else None,  # Scale to preserve 3 decimal places
-                int(round_gems * 1000) if round_gems is not None else None,  # Scale to preserve 3 decimal places
-                int(round_cash * 1000) if round_cash is not None else None,  # Scale to preserve 3 decimal places
-                str(run_id)
+                duration_gametime,  # Store as REAL in V1.0 schema
+                CPH,  # Store as REAL in V1.0 schema
+                round_cells,  # Store as REAL in V1.0 schema
+                round_gems,  # Store as REAL in V1.0 schema
+                round_cash,  # Store as REAL in V1.0 schema
+                run_id_blob
             )
         )
         self.sqlite_conn.commit()
@@ -1421,21 +782,25 @@ class DatabaseService:
         # Prepare data for bulk insert
         run_records = []
         for run_data in runs_data:
+            # Convert string UUID to BLOB
+            run_id_blob = uuid.UUID(run_data['run_id']).bytes
+            
+            # Get or create game version ID
+            game_version_id = None
+            if run_data.get('game_version'):
+                game_version_id = self._get_or_create_lookup_id('game_versions', 'version_text', run_data['game_version'], self._game_version_cache)
+            
             run_records.append((
-                str(run_data['run_id']),
+                run_id_blob,
                 int(run_data['start_time']),
-                str(run_data.get('game_version', '')),
-                int(run_data.get('tier', 0)) if run_data.get('tier') is not None else None,
-                None,  # CPH
-                None,  # round_cells
-                None,  # round_gems
-                None   # round_cash
+                game_version_id,
+                int(run_data.get('tier', 0)) if run_data.get('tier') is not None else None
             ))
         
         sql = """
             INSERT OR IGNORE INTO runs 
-            (run_id, start_time, game_version, tier, CPH, round_cells, round_gems, round_cash) 
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            (run_id, start_time, game_version_id, tier) 
+            VALUES (?, ?, ?, ?)
         """
         self.sqlite_conn.executemany(sql, run_records)
         self.logger.debug("Bulk inserted runs", count=len(run_records))
@@ -1449,21 +814,18 @@ class DatabaseService:
         if not self.sqlite_conn or not events_data:
             return
         
-        # Prepare data for bulk insert using optimized schema
+        # Prepare data for bulk insert using V1.0 schema
         event_records = []
         for event_data in events_data:
-            # Get run_pk for foreign key reference
-            run_pk = self._get_run_pk_by_run_id(event_data['run_id'])
-            if run_pk is None:
-                self.logger.error("Run not found for event insertion", run_id=event_data['run_id'])
-                continue
+            # Convert string UUID to BLOB
+            run_id_blob = uuid.UUID(event_data['run_id']).bytes
             
             # Get or create event name ID
-            event_name_id = self._get_or_create_event_name_id(event_data['event_name'])
+            event_name_id = self._get_or_create_lookup_id('event_names', 'name', event_data['event_name'], self._event_name_cache)
             
             data_json = json.dumps(event_data.get('data', {}))
             event_records.append((
-                run_pk,
+                run_id_blob,
                 event_name_id,
                 int(event_data['timestamp']),
                 data_json
@@ -1471,7 +833,7 @@ class DatabaseService:
         
         if event_records:
             sql = """
-                INSERT INTO events (run_fk, event_name_fk, timestamp, data) 
+                INSERT INTO events (run_id, event_name_id, timestamp, data) 
                 VALUES (?, ?, ?, ?)
             """
             self.sqlite_conn.executemany(sql, event_records)
@@ -1486,35 +848,29 @@ class DatabaseService:
         if not self.sqlite_conn or not metrics_data:
             return
         
-        # Prepare data for bulk insert - flatten metrics into individual rows using optimized schema
+        # Prepare data for bulk insert - flatten metrics into individual rows using V1.0 schema
         metric_records = []
         for metric_data in metrics_data:
-            # Get run_pk for foreign key reference
-            run_pk = self._get_run_pk_by_run_id(metric_data['run_id'])
-            if run_pk is None:
-                self.logger.error("Run not found for metric insertion", run_id=metric_data['run_id'])
-                continue
+            # Convert string UUID to BLOB
+            run_id_blob = uuid.UUID(metric_data['run_id']).bytes
             
             real_timestamp = int(metric_data['real_timestamp'])
-            game_timestamp = int(metric_data['game_timestamp'] * 1000)  # Convert to milliseconds
+            game_timestamp = metric_data['game_timestamp']  # Store as REAL in V1.0 schema
             current_wave = int(metric_data['current_wave'])
             metrics = metric_data['metrics']
             
             for name, value in metrics.items():
                 if value is not None:
                     # Get or create metric name ID
-                    metric_name_id = self._get_or_create_metric_name_id(name)
-                    
-                    # Convert float values to integers (scale by 1000 to preserve 3 decimal places)
-                    scaled_value = int(value * 1000) if isinstance(value, (int, float)) else int(value)
+                    metric_name_id = self._get_or_create_lookup_id('metric_names', 'name', name, self._metric_name_cache)
                     
                     metric_records.append((
-                        run_pk,
-                        metric_name_id,
+                        run_id_blob,
                         real_timestamp,
                         game_timestamp,
                         current_wave,
-                        scaled_value
+                        metric_name_id,
+                        value  # Store as REAL in V1.0 schema
                     ))
         
         if not metric_records:
@@ -1522,7 +878,7 @@ class DatabaseService:
         
         sql = """
             INSERT INTO metrics 
-            (run_fk, metric_name_fk, real_timestamp, game_timestamp, current_wave, metric_value) 
+            (run_id, real_timestamp, game_timestamp, current_wave, metric_name_id, metric_value) 
             VALUES (?, ?, ?, ?, ?, ?)
         """
         self.sqlite_conn.executemany(sql, metric_records)
@@ -1542,8 +898,9 @@ class DatabaseService:
         run_updates = []
         for run_data in runs_end_data:
             # Calculate CPH if we have coins_earned and duration_realtime
+            # Note: coins_earned is now pre-scaled by 1000, duration_realtime is in seconds
             CPH = None
-            coins_earned = run_data.get('coins_earned')
+            coins_earned = run_data.get('coins_earned')  # Already scaled by 1000
             duration_realtime = run_data.get('duration_realtime')
             
             if coins_earned is not None and duration_realtime and duration_realtime > 0:
@@ -1552,19 +909,23 @@ class DatabaseService:
                     duration_realtime = duration_realtime // 1000
                 hours = duration_realtime / 3600.0
                 if hours > 0:
-                    CPH = int((float(coins_earned) / hours) * 1000)  # Scale to preserve 3 decimal places
+                    # coins_earned is already scaled by 1000, so CPH will be scaled by 1000 too
+                    CPH = int(float(coins_earned) / hours)
+            
+            # Convert string UUID to BLOB for WHERE clause
+            run_id_blob = uuid.UUID(run_data['run_id']).bytes
             
             run_updates.append((
                 int(run_data.get('end_time', 0)) if run_data.get('end_time') is not None else None,
                 int(run_data.get('final_wave', 0)) if run_data.get('final_wave') is not None else None,
-                int(coins_earned * 1000) if coins_earned is not None else None,  # Scale to preserve 3 decimal places
+                coins_earned,
                 int(duration_realtime) if duration_realtime is not None else None,
-                int(run_data.get('duration_gametime', 0) * 1000) if run_data.get('duration_gametime') is not None else None,  # Scale to preserve 3 decimal places
+                run_data.get('duration_gametime'),
                 CPH,  # Already converted to integer
-                int(run_data.get('round_cells', 0) * 1000) if run_data.get('round_cells') is not None else None,  # Scale to preserve 3 decimal places
-                int(run_data.get('round_gems', 0) * 1000) if run_data.get('round_gems') is not None else None,  # Scale to preserve 3 decimal places
-                int(run_data.get('round_cash', 0) * 1000) if run_data.get('round_cash') is not None else None,  # Scale to preserve 3 decimal places
-                str(run_data['run_id'])
+                run_data.get('round_cells'),
+                run_data.get('round_gems'),
+                run_data.get('round_cash'),
+                run_id_blob
             ))
         
         sql = """
@@ -1589,68 +950,65 @@ class DatabaseService:
             # Start transaction
             self.sqlite_conn.execute("BEGIN TRANSACTION")
             
-            # Insert run start
+            # Insert run start - V1.0 schema uses BLOB run_id and game_version_id
+            run_id_blob = uuid.UUID(run_data['run_id']).bytes
+            game_version_id = self._get_or_create_lookup_id('game_versions', 'version_text', run_data.get('game_version', ''), self._game_version_cache)
+            
             self.sqlite_conn.execute(
-                "INSERT OR IGNORE INTO runs (run_id, start_time, game_version, tier, CPH, round_cells, round_gems, round_cash) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                "INSERT OR IGNORE INTO runs (run_id, start_time, game_version_id, tier) VALUES (?, ?, ?, ?)",
                 (
-                    str(run_data['run_id']),
+                    run_id_blob,
                     int(run_data['start_time']),
-                    str(run_data.get('game_version', '')),
-                    int(run_data.get('tier', 0)) if run_data.get('tier') is not None else None,
-                    None, None, None, None
+                    game_version_id,
+                    int(run_data.get('tier', 0)) if run_data.get('tier') is not None else None
                 )
             )
             
-            # Get run_pk for foreign key references
-            run_pk = self._get_run_pk_by_run_id(run_data['run_id'])
-            if run_pk is None:
-                raise Exception(f"Failed to get run_pk for run_id: {run_data['run_id']}")
-            
-            # Insert events using optimized schema
+            # Insert events using V1.0 schema
             if run_data.get('events'):
                 event_records = []
                 for event in run_data['events']:
                     data_json = json.dumps(event.get('data', {}))
                     event_name_id = self._get_or_create_event_name_id(event['event_name'])
                     event_records.append((
-                        run_pk,
-                        event_name_id,
+                        run_id_blob,
                         int(event['timestamp']),
+                        event_name_id,
                         data_json
                     ))
                 
                 if event_records:
                     self.sqlite_conn.executemany(
-                        "INSERT INTO events (run_fk, event_name_fk, timestamp, data) VALUES (?, ?, ?, ?)",
+                        "INSERT INTO events (run_id, timestamp, event_name_id, data) VALUES (?, ?, ?, ?)",
                         event_records
                     )
             
-            # Insert metrics using optimized schema
+            # Insert metrics using V1.0 schema
             if run_data.get('metrics'):
                 metric_records = []
                 for metric in run_data['metrics']:
                     real_timestamp = int(metric['real_timestamp'])
-                    game_timestamp = int(metric['game_timestamp'] * 1000)  # Convert to milliseconds
+                    game_timestamp = metric['game_timestamp']  # Keep as REAL
                     current_wave = int(metric['current_wave'])
                     metrics_dict = metric['metrics']
                     
                     for name, value in metrics_dict.items():
                         if value is not None:
                             metric_name_id = self._get_or_create_metric_name_id(name)
-                            scaled_value = int(value * 1000) if isinstance(value, (int, float)) else int(value)
                             metric_records.append((
-                                run_pk, metric_name_id, real_timestamp, game_timestamp, current_wave, scaled_value
+                                run_id_blob, real_timestamp, game_timestamp, current_wave, metric_name_id, value
                             ))
                 
                 if metric_records:
                     self.sqlite_conn.executemany(
-                        "INSERT INTO metrics (run_fk, metric_name_fk, real_timestamp, game_timestamp, current_wave, metric_value) VALUES (?, ?, ?, ?, ?, ?)",
+                        "INSERT INTO metrics (run_id, real_timestamp, game_timestamp, current_wave, metric_name_id, metric_value) VALUES (?, ?, ?, ?, ?, ?)",
                         metric_records
                     )
             
             # Update run end with integer values
+            # Note: coins_earned is now pre-scaled by 1000, duration_realtime is in seconds
             CPH = None
-            coins_earned = run_data.get('coins_earned')
+            coins_earned = run_data.get('coins_earned')  # Already scaled by 1000
             duration_realtime = run_data.get('duration_realtime')
             
             if coins_earned is not None and duration_realtime and duration_realtime > 0:
@@ -1658,7 +1016,8 @@ class DatabaseService:
                     duration_realtime = duration_realtime // 1000
                 hours = duration_realtime / 3600.0
                 if hours > 0:
-                    CPH = int((float(coins_earned) / hours) * 1000)  # Scale to preserve 3 decimal places
+                    # coins_earned is already scaled by 1000, so CPH will be scaled by 1000 too
+                    CPH = int(float(coins_earned) / hours)
             
             self.sqlite_conn.execute(
                 """
@@ -1670,14 +1029,14 @@ class DatabaseService:
                 (
                     int(run_data.get('end_time', 0)) if run_data.get('end_time') is not None else None,
                     int(run_data.get('final_wave', 0)) if run_data.get('final_wave') is not None else None,
-                    int(coins_earned * 1000) if coins_earned is not None else None,  # Scale to preserve 3 decimal places
+                    coins_earned,
                     int(duration_realtime) if duration_realtime is not None else None,
-                    int(run_data.get('duration_gametime', 0) * 1000) if run_data.get('duration_gametime') is not None else None,  # Scale to preserve 3 decimal places
+                    run_data.get('duration_gametime'),
                     CPH,  # Already converted to integer
-                    int(run_data.get('round_cells', 0) * 1000) if run_data.get('round_cells') is not None else None,  # Scale to preserve 3 decimal places
-                    int(run_data.get('round_gems', 0) * 1000) if run_data.get('round_gems') is not None else None,  # Scale to preserve 3 decimal places
-                    int(run_data.get('round_cash', 0) * 1000) if run_data.get('round_cash') is not None else None,  # Scale to preserve 3 decimal places
-                    str(run_data['run_id'])
+                    run_data.get('round_cells'),
+                    run_data.get('round_gems'),
+                    run_data.get('round_cash'),
+                    run_id_blob
                 )
             )
             
@@ -1734,6 +1093,99 @@ class DatabaseService:
         
         return stats
 
+    def _get_or_create_metric_name_id_for_db(self, name: str, description: Optional[str] = None) -> int:
+        """Get or create a metric name ID for database metrics."""
+        if not self.sqlite_conn:
+            return 0
+        
+        # Use description from schema config if not provided
+        if description is None and name in DB_METRIC_METADATA:
+            description = DB_METRIC_METADATA[name].get('description')
+        
+        # Try to get existing ID
+        cursor = self.sqlite_conn.execute(
+            "SELECT id FROM db_metric_names WHERE name = ?", 
+            (name,)
+        )
+        result = cursor.fetchone()
+        
+        if result:
+            return result[0]
+        
+        # Create new entry
+        cursor = self.sqlite_conn.execute(
+            "INSERT INTO db_metric_names (name, description) VALUES (?, ?)", 
+            (name, description)
+        )
+        return cursor.lastrowid or 0
+
+    def _get_or_create_monitored_object_id(self, name: str, obj_type: str) -> int:
+        """Get or create a monitored object ID."""
+        if not self.sqlite_conn:
+            return 0
+        
+        # Try to get existing ID
+        cursor = self.sqlite_conn.execute(
+            "SELECT id FROM db_monitored_objects WHERE name = ? AND type = ?", 
+            (name, obj_type)
+        )
+        result = cursor.fetchone()
+        
+        if result:
+            return result[0]
+        
+        # Create new entry
+        cursor = self.sqlite_conn.execute(
+            "INSERT INTO db_monitored_objects (name, type) VALUES (?, ?)", 
+            (name, obj_type)
+        )
+        return cursor.lastrowid or 0
+
+    def _get_run_pk_by_run_id(self, run_id: str) -> Optional[int]:
+        """Get run primary key by run_id. Note: This is for the old V4 schema, V1.0 uses BLOB run_id directly."""
+        # In V1.0 schema, we use BLOB run_id directly, so this method shouldn't be needed
+        # But if called, we can return None to indicate we should use the BLOB directly
+        return None
+
+    def _get_or_create_metric_name_id(self, name: str) -> int:
+        """Get or create metric name ID using the existing lookup method."""
+        return self._get_or_create_lookup_id('metric_names', 'name', name, self._metric_name_cache)
+
+    def _get_or_create_event_name_id(self, name: str) -> int:
+        """Get or create event name ID using the existing lookup method."""
+        return self._get_or_create_lookup_id('event_names', 'name', name, self._event_name_cache)
+
+    @db_operation()
+    def pre_populate_metric_metadata(self, name: str, metadata: Dict[str, str]) -> None:
+        """Gets or creates a metric name, ensuring its metadata is fully populated."""
+        if not self.sqlite_conn: return
+
+        display_name = metadata.get('display_name')
+        description = metadata.get('description')
+        unit = metadata.get('unit')
+
+        self.sqlite_conn.execute("""
+            INSERT INTO metric_names (name, display_name, description, unit)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(name) DO UPDATE SET
+                display_name = excluded.display_name,
+                description = excluded.description,
+                unit = excluded.unit
+        """, (name, display_name, description, unit))
+        self.sqlite_conn.commit()
+
+    @db_operation()
+    def pre_populate_event_metadata(self, name: str, metadata: Dict[str, str]) -> None:
+        """Gets or creates an event name, ensuring its metadata is fully populated."""
+        if not self.sqlite_conn: return
+        
+        description = metadata.get('description')
+        self.sqlite_conn.execute("""
+            INSERT INTO event_names (name, description) VALUES (?, ?)
+            ON CONFLICT(name) DO UPDATE SET description = excluded.description
+        """, (name, description))
+        self.sqlite_conn.commit()
+
     @db_operation()
     def collect_and_store_db_metrics(self) -> bool:
         """
@@ -1752,7 +1204,7 @@ class DatabaseService:
             cursor = self.sqlite_conn.cursor()
             current_timestamp = int(datetime.now().timestamp())
             
-            # List to store all metrics for bulk insert (timestamp, metric_name_id, metric_value, object_id)
+            # List to store all metrics for bulk insert (timestamp, metric_id, object_id, value)
             metrics_to_insert = []
             
             # Collect database-level metrics using PRAGMA statements
@@ -1766,18 +1218,17 @@ class DatabaseService:
             # Calculate database size
             database_size = page_count * page_size
             
-            # Get or create metric name IDs for database-level metrics
-            total_pages_id = self._get_or_create_metric_name_id('total_pages', 'Total number of pages in the database')
-            page_size_id = self._get_or_create_metric_name_id('page_size', 'Database page size in bytes')
-            database_size_id = self._get_or_create_metric_name_id('database_size', 'Total database size in bytes')
-            free_pages_id = self._get_or_create_metric_name_id('free_pages', 'Number of free pages in the database')
-            
             # Add database-level metrics (no object_id for database-level metrics)
+            total_pages_id = self._get_or_create_metric_name_id_for_db('total_pages')
+            page_size_id = self._get_or_create_metric_name_id_for_db('page_size')
+            database_size_id = self._get_or_create_metric_name_id_for_db('database_size')
+            free_pages_id = self._get_or_create_metric_name_id_for_db('free_pages')
+            
             metrics_to_insert.extend([
-                (current_timestamp, total_pages_id, page_count, None),
-                (current_timestamp, page_size_id, page_size, None),
-                (current_timestamp, database_size_id, database_size, None),
-                (current_timestamp, free_pages_id, freelist_count, None)
+                (current_timestamp, total_pages_id, None, page_count),
+                (current_timestamp, page_size_id, None, page_size),
+                (current_timestamp, database_size_id, None, database_size),
+                (current_timestamp, free_pages_id, None, freelist_count)
             ])
             
             self.logger.info("Collected database metrics", 
@@ -1789,13 +1240,13 @@ class DatabaseService:
             # Collect table-level metrics (record counts and sizes)
             self.logger.info("Collecting table-level metrics")
             
-            # Get or create metric name IDs for table-level metrics
-            record_count_id = self._get_or_create_metric_name_id('record_count', 'Number of records in the table')
-            table_size_bytes_id = self._get_or_create_metric_name_id('table_size_bytes', 'Table size in bytes')
-            
             # Get list of all user tables (excluding SQLite system tables)
             cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'")
             tables = [row[0] for row in cursor.fetchall()]
+            
+            # Get metric IDs for table-level metrics
+            record_count_id = self._get_or_create_metric_name_id_for_db('record_count')
+            table_size_bytes_id = self._get_or_create_metric_name_id_for_db('table_size_bytes')
             
             for table in tables:
                 try:
@@ -1805,7 +1256,7 @@ class DatabaseService:
                     # Get record count
                     record_count = cursor.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
                     metrics_to_insert.append(
-                        (current_timestamp, record_count_id, record_count, table_object_id)
+                        (current_timestamp, record_count_id, table_object_id, record_count)
                     )
                     
                     # Get table size in bytes using multiple methods
@@ -1886,7 +1337,7 @@ class DatabaseService:
                                                 table=table, size_bytes=table_size_bytes)
                         
                         metrics_to_insert.append(
-                            (current_timestamp, table_size_bytes_id, table_size_bytes, table_object_id)
+                            (current_timestamp, table_size_bytes_id, table_object_id, table_size_bytes)
                         )
                         
                         self.logger.debug("Collected table metrics", 
@@ -1900,7 +1351,7 @@ class DatabaseService:
                                           table=table, error=str(size_e))
                         estimated_size = record_count * 100
                         metrics_to_insert.append(
-                            (current_timestamp, table_size_bytes_id, estimated_size, table_object_id)
+                            (current_timestamp, table_size_bytes_id, table_object_id, estimated_size)
                         )
                         
                 except Exception as e:
@@ -1913,16 +1364,16 @@ class DatabaseService:
             cursor.execute("SELECT COUNT(*) FROM sqlite_master WHERE type='index' AND name NOT LIKE 'sqlite_%'")
             index_count = cursor.fetchone()[0]
             
-            # Get or create metric name ID for index count
-            index_count_id = self._get_or_create_metric_name_id('index_count', 'Total number of user indexes')
+            # Add index count metric (no object_id for database-level metrics)
+            index_count_id = self._get_or_create_metric_name_id_for_db('index_count')
             metrics_to_insert.append(
-                (current_timestamp, index_count_id, index_count, None)
+                (current_timestamp, index_count_id, None, index_count)
             )
             
-            # Bulk insert all metrics using normalized schema
+            # Bulk insert all metrics using the normalized schema
             self.logger.info("Storing metrics to database", metric_count=len(metrics_to_insert))
             cursor.executemany("""
-                INSERT INTO db_metrics (timestamp, metric_name_id, metric_value, object_id)
+                INSERT INTO db_metrics (timestamp, metric_id, object_id, value)
                 VALUES (?, ?, ?, ?)
             """, metrics_to_insert)
             
