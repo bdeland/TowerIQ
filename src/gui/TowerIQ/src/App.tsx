@@ -18,11 +18,15 @@ import {
 import { HomePage } from './pages/HomePage';
 import { DashboardsPage } from './pages/DashboardsPage';
 import { DashboardViewPage } from './pages/DashboardViewPage';
+import { DatabaseHealthDashboardPage } from './pages/DatabaseHealthDashboardPage';
 import { PanelViewPage } from './pages/PanelViewPage';
 import { PanelEditPage } from './pages/PanelEditPage';
 import { ExplorePage } from './pages/ExplorePage';
 import { HistoryPage } from './pages/HistoryPage';
 import { SettingsPage } from './pages/SettingsPage';
+import { DatabaseSettings } from './pages/DatabaseSettings';
+import { AppearanceSettings } from './pages/AppearanceSettings';
+import { OtherSettings } from './pages/OtherSettings';
 import { ConnectionPage } from './pages/ConnectionPage';
 
 import SplashScreen from './components/SplashScreen';
@@ -425,10 +429,14 @@ function DashboardLayout() {
             <Route path="/dashboards/:id" element={<DashboardViewPage />} />
             <Route path="/dashboard/:dashboardId/panels/:panelId/view" element={<PanelViewPage />} />
             <Route path="/dashboard/:dashboardId/panels/:panelId/edit" element={<PanelEditPage />} />
+            <Route path="/database-health" element={<DatabaseHealthDashboardPage />} />
             <Route path="/connection" element={<ConnectionPage />} />
             <Route path="/explore" element={<ExplorePage />} />
             <Route path="/history" element={<HistoryPage />} />
             <Route path="/settings" element={<SettingsPage />} />
+            <Route path="/settings/database" element={<DatabaseSettings />} />
+            <Route path="/settings/appearance" element={<AppearanceSettings />} />
+            <Route path="/settings/other" element={<OtherSettings />} />
           </Routes>
         </Box>
       </Box>

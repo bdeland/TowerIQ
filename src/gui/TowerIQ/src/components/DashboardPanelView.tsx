@@ -1,4 +1,8 @@
+// ============================================================================
+// IMPORTS - External libraries and internal utilities
+// ============================================================================
 import React, { useEffect, useState, useRef } from 'react';
+// Material-UI components for UI elements (buttons, dialogs, menus, etc.)
 import { 
   Box, 
   Typography, 
@@ -15,6 +19,7 @@ import {
   DialogActions,
   Button
 } from '@mui/material';
+// Material-UI icons for various actions (menu, fullscreen, edit, etc.)
 import { 
   MoreVert as MoreVertIcon,
   Visibility as ViewIcon,
@@ -25,34 +30,58 @@ import {
   ArrowBack as ArrowBackIcon,
   SettingsBackupRestore as SettingsBackupRestoreIcon
 } from '@mui/icons-material';
+// ECharts React wrapper for rendering charts
 import ReactECharts from 'echarts-for-react';
+// Internal imports for dashboard context, navigation, and utilities
 import { DashboardPanel } from '../contexts/DashboardContext';
 import { useNavigate } from 'react-router-dom';
 import { applyTransformations } from '../services/transformationService';
 import { grafanaToECharts, mergeWithEChartsOption } from '../utils/grafanaToECharts';
 import { API_CONFIG } from '../config/environment';
 import { getCategoricalColor } from '../utils/colorPalette';
-import { formatCurrency } from '../utils/currencyFormatter';
+import { formatCurrency, formatNumber } from '../utils/formattingUtils';
 
+// ============================================================================
+// TYPE DEFINITIONS - Props and data structures
+// ============================================================================
+
+/**
+ * Props interface for the DashboardPanelView component
+ * Defines all the properties that can be passed to customize panel behavior
+ */
 interface DashboardPanelViewProps {
-  panel: DashboardPanel;
-  data?: any[]; // Pre-fetched data to use instead of fetching
-  onClick?: () => void;
-  isEditMode?: boolean;
-  showMenu?: boolean;
-  showFullscreen?: boolean;
-  onDelete?: (panelId: string) => void;
-  onEdit?: (panelId: string) => void;
-  onDataFetched?: (data: any[]) => void;
-  onFullscreenToggle?: (panelId: string) => void;
+  panel: DashboardPanel;                    // The panel configuration and data
+  data?: any[];                            // Pre-fetched data to use instead of fetching
+  onClick?: () => void;                    // Callback when panel is clicked (edit mode)
+  isEditMode?: boolean;                    // Whether panel is in edit mode
+  showMenu?: boolean;                      // Whether to show the context menu button
+  showFullscreen?: boolean;                // Whether to show the fullscreen button
+  onDelete?: (panelId: string) => void;    // Callback when panel is deleted
+  onEdit?: (panelId: string) => void;      // Callback when panel is edited
+  onDataFetched?: (data: any[]) => void;   // Callback when data is fetched
+  onFullscreenToggle?: (panelId: string) => void; // Callback for fullscreen toggle
 }
 
+/**
+ * Interface for query results from the backend
+ * Contains the data array and optional error message
+ */
 interface QueryResult {
   data: any[];
   error?: string;
 }
 
-// Tier color mapping function using standardized color palette
+// ============================================================================
+// UTILITY FUNCTIONS - Helper functions for data processing
+// ============================================================================
+
+/**
+ * Maps tier numbers to consistent colors using the standardized color palette
+ * Used for bar charts that display tier-based data (like game tiers)
+ * @param tier - The tier number to get color for
+ * @param availableTiers - Array of all available tiers in the data
+ * @returns CSS color string for the tier
+ */
 const getTierColor = (tier: number, availableTiers: number[]): string => {
   // Find the index of this tier in the sorted available tiers array
   const sortedTiers = [...availableTiers].sort((a, b) => a - b);
@@ -62,6 +91,15 @@ const getTierColor = (tier: number, availableTiers: number[]): string => {
   return getCategoricalColor(tierIndex >= 0 ? tierIndex : 0);
 };
 
+// ============================================================================
+// MAIN COMPONENT - DashboardPanelViewComponent
+// ============================================================================
+
+/**
+ * Main dashboard panel component that renders different types of charts and data visualizations
+ * Supports multiple chart types: stat, timeseries, bar, pie, table, treemap, calendar
+ * Includes drilldown functionality, fullscreen mode, and context menus
+ */
 const DashboardPanelViewComponent: React.FC<DashboardPanelViewProps> = ({ 
   panel, 
   data,
@@ -74,36 +112,50 @@ const DashboardPanelViewComponent: React.FC<DashboardPanelViewProps> = ({
   onDataFetched,
   onFullscreenToggle
 }) => {
-  const navigate = useNavigate();
-  const [queryResult, setQueryResult] = useState<QueryResult>({ data: [] });
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const chartRef = useRef<ReactECharts>(null);
-  const dataFetchedRef = useRef<boolean>(false);
+  // ============================================================================
+  // HOOKS AND STATE MANAGEMENT
+  // ============================================================================
   
-  // Menu state
-  const [menuOpen, setMenuOpen] = useState(false);
-  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const navigate = useNavigate(); // React Router navigation hook
   
-  // Drilldown state
-  const [isDrilldown, setIsDrilldown] = useState(false);
-  const [originalOption, setOriginalOption] = useState<any>(null);
-  const [drilldownData, setDrilldownData] = useState<any[]>([]);
+  // Core data and loading states
+  const [queryResult, setQueryResult] = useState<QueryResult>({ data: [] }); // Query results from backend
+  const [loading, setLoading] = useState(false); // Loading state for data fetching
+  const [error, setError] = useState<string | null>(null); // Error state for failed operations
+  const chartRef = useRef<ReactECharts>(null); // Reference to ECharts instance
+  const dataFetchedRef = useRef<boolean>(false); // Prevents duplicate data fetching
   
-  // Calendar drilldown specific state
-  const [calendarDrilldownLevel, setCalendarDrilldownLevel] = useState<number>(0);
-  const [calendarDrilldownStack, setCalendarDrilldownStack] = useState<any[]>([]);
+  // UI interaction states
+  const [menuOpen, setMenuOpen] = useState(false); // Context menu visibility
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false); // Delete confirmation dialog
   
-  // Performance optimization refs
-  const zoomUpdateTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  const lastZoomStateRef = useRef<{start: number, end: number} | null>(null);
+  // Drilldown functionality states
+  const [isDrilldown, setIsDrilldown] = useState(false); // Whether currently in drilldown mode
+  const [originalOption, setOriginalOption] = useState<any>(null); // Original chart config for back navigation
+  const [drilldownData, setDrilldownData] = useState<any[]>([]); // Data for drilldown view
   
-  // Chart state tracking
-  const [isChartModified, setIsChartModified] = useState(false);
+  // Calendar-specific drilldown states (hierarchical navigation)
+  const [calendarDrilldownLevel, setCalendarDrilldownLevel] = useState<number>(0); // Current drill level
+  const [calendarDrilldownStack, setCalendarDrilldownStack] = useState<any[]>([]); // Navigation stack
+  
+  // Performance optimization refs (for zoom/pan operations)
+  const zoomUpdateTimeoutRef = useRef<NodeJS.Timeout | null>(null); // Debounced zoom updates
+  const lastZoomStateRef = useRef<{start: number, end: number} | null>(null); // Last zoom state
+  
+  // Chart interaction state
+  const [isChartModified, setIsChartModified] = useState(false); // Whether chart has been zoomed/panned
   
 
 
-  // Fetch data from backend based on panel query
+  // ============================================================================
+  // DATA FETCHING FUNCTIONS
+  // ============================================================================
+
+  /**
+   * Fetches data from the backend API based on the panel's SQL query
+   * Handles loading states, errors, and placeholder queries
+   * Called when panel needs fresh data (not using pre-fetched data)
+   */
   const fetchPanelData = async () => {
     if (!panel.query) {
       setError('No query defined for panel');
@@ -150,7 +202,15 @@ const DashboardPanelViewComponent: React.FC<DashboardPanelViewProps> = ({
     }
   };
 
-  // Handle drilldown functionality
+  // ============================================================================
+  // DRILLDOWN FUNCTIONALITY
+  // ============================================================================
+
+  /**
+   * Handles standard drilldown functionality (clicking on chart elements)
+   * Used for bar charts and other chart types where clicking shows detailed data
+   * @param runNumber - The run number or data index that was clicked
+   */
   const handleDrilldown = async (runNumber: number) => {
     if (!panel.echartsOption.drilldown) return;
     
@@ -207,7 +267,12 @@ const DashboardPanelViewComponent: React.FC<DashboardPanelViewProps> = ({
     }
   };
 
-  // Handle calendar hierarchical drilldown functionality
+  /**
+   * Handles calendar hierarchical drilldown functionality
+   * Used for calendar heatmaps where clicking on dates drills down to more detailed views
+   * Supports multiple levels: year -> quarter -> month -> week -> day -> hour
+   * @param params - ECharts click event parameters containing the clicked date
+   */
   const handleCalendarDrilldown = async (params: any) => {
     if (!panel.echartsOption.drilldown?.enabled || panel.echartsOption.drilldown.type !== 'calendar_hierarchical') return;
     
@@ -311,7 +376,14 @@ const DashboardPanelViewComponent: React.FC<DashboardPanelViewProps> = ({
     }
   };
   
-  // Handle back to original chart
+  // ============================================================================
+  // NAVIGATION AND RESET FUNCTIONS
+  // ============================================================================
+
+  /**
+   * Returns to the original chart view, clearing all drilldown state
+   * Resets all drilldown-related state variables and clears performance optimization refs
+   */
   const handleBackToOriginal = () => {
     setIsDrilldown(false);
     setDrilldownData([]);
@@ -330,7 +402,10 @@ const DashboardPanelViewComponent: React.FC<DashboardPanelViewProps> = ({
     lastZoomStateRef.current = null;
   };
 
-  // Handle calendar drilldown back navigation
+  /**
+   * Handles back navigation in calendar hierarchical drilldown
+   * Pops the last state from the navigation stack and restores the previous view
+   */
   const handleCalendarDrilldownBack = () => {
     if (calendarDrilldownStack.length === 0) {
       handleBackToOriginal();
@@ -349,7 +424,10 @@ const DashboardPanelViewComponent: React.FC<DashboardPanelViewProps> = ({
     }
   };
   
-  // Handle chart reset (zoom/pan back to default)
+  /**
+   * Resets chart zoom and pan to default state
+   * Used when the reset button is clicked in drilldown mode
+   */
   const handleChartReset = () => {
     if (chartRef.current) {
       const chartInstance = chartRef.current.getEchartsInstance();
@@ -366,7 +444,14 @@ const DashboardPanelViewComponent: React.FC<DashboardPanelViewProps> = ({
     }
   };
   
-  // Cleanup on unmount
+  // ============================================================================
+  // EFFECTS AND EVENT HANDLERS
+  // ============================================================================
+
+  /**
+   * Cleanup effect - clears timeouts when component unmounts
+   * Prevents memory leaks from pending zoom update timeouts
+   */
   useEffect(() => {
     return () => {
       if (zoomUpdateTimeoutRef.current) {
@@ -375,7 +460,10 @@ const DashboardPanelViewComponent: React.FC<DashboardPanelViewProps> = ({
     };
   }, []);
   
-  // Chart event handlers
+  /**
+   * Chart event handlers for ECharts interactions
+   * Handles click events for drilldown and zoom events for performance optimization
+   */
   const onChartEvents = {
     click: (params: any) => {
       if (panel.echartsOption.drilldown?.enabled && params.componentType === 'series') {
@@ -389,6 +477,11 @@ const DashboardPanelViewComponent: React.FC<DashboardPanelViewProps> = ({
         }
       }
     },
+    /**
+     * Handles zoom/pan events for performance optimization
+     * Dynamically shows/hides chart symbols based on data density
+     * Debounces updates to prevent excessive calculations
+     */
     datazoom: (_params: any) => {
       // Handle zoom events for dynamic point visibility with performance optimizations
       if (!isDrilldown || !chartRef.current || drilldownData.length === 0) {
@@ -486,7 +579,16 @@ const DashboardPanelViewComponent: React.FC<DashboardPanelViewProps> = ({
     }
   };
 
-  // Transform data based on panel type and update ECharts option
+  // ============================================================================
+  // CHART CONFIGURATION AND DATA TRANSFORMATION
+  // ============================================================================
+
+  /**
+   * Transforms data based on panel type and returns ECharts configuration
+   * This is the core function that converts raw data into chart-ready format
+   * Handles different chart types: stat, timeseries, bar, pie, table, treemap, calendar
+   * Also manages drilldown chart configurations
+   */
   const getTransformedEChartsOption = () => {
     // If in drilldown mode, return drilldown chart option
     if (isDrilldown && panel.echartsOption.drilldown) {
@@ -663,7 +765,11 @@ const DashboardPanelViewComponent: React.FC<DashboardPanelViewProps> = ({
       }
     }
 
-    // Helper function to intelligently map data columns
+    /**
+     * Helper function to intelligently map data columns to chart axes
+     * Auto-detects appropriate columns for x-axis, y-axis, and labels
+     * Falls back to manual column mapping if provided in panel config
+     */
     const getColumnMapping = (data: any[]) => {
       if (data.length === 0) return { xAxis: null, yAxis: null, label: null };
       
@@ -711,19 +817,50 @@ const DashboardPanelViewComponent: React.FC<DashboardPanelViewProps> = ({
       return mapping;
     };
 
+    // ============================================================================
+    // CHART TYPE SPECIFIC DATA TRANSFORMATION
+    // ============================================================================
+    
     switch (panel.type) {
       case 'stat': {
-        // For stat panels, display the first value
+        // STAT PANEL: Displays a single value (like total coins, database size, etc.)
         const mapping = getColumnMapping(queryResult.data);
         const value = queryResult.data[0]?.[mapping.yAxis] || 0;
         if (baseOption.graphic && baseOption.graphic[0]) {
-          baseOption.graphic[0].style.text = String(value);
+          // Check if this is a database health dashboard or contains count/size data
+          const isDatabaseHealth = panel.title.toLowerCase().includes('total') || 
+                                 panel.title.toLowerCase().includes('database') ||
+                                 panel.title.toLowerCase().includes('size') ||
+                                 panel.title.toLowerCase().includes('count') ||
+                                 panel.title.toLowerCase().includes('avg') ||
+                                 mapping.yAxis?.includes('total') ||
+                                 mapping.yAxis?.includes('count') ||
+                                 mapping.yAxis?.includes('size') ||
+                                 mapping.yAxis?.includes('formatted');
+          
+          // Format the value appropriately
+          let formattedValue: string;
+          if (isDatabaseHealth && typeof value === 'string' && value.includes(' ')) {
+            // If it's already formatted (like "15.2 MB"), use as-is
+            formattedValue = value;
+          } else if (isDatabaseHealth && typeof value === 'number') {
+            // Format numbers with K/M/B notation for database stats
+            formattedValue = formatNumber(value, 1);
+          } else if (typeof value === 'number') {
+            // Use currency formatting for game-related stats
+            formattedValue = formatCurrency(value, 1);
+          } else {
+            // Fallback to string conversion
+            formattedValue = String(value);
+          }
+          
+          baseOption.graphic[0].style.text = formattedValue;
         }
         return baseOption;
       }
 
       case 'timeseries': {
-        // For timeseries, transform data to ECharts format
+        // TIMESERIES PANEL: Line chart showing data over time
         const mapping = getColumnMapping(queryResult.data);
         const timeData = queryResult.data.map(row => [
           new Date(row[mapping.xAxis]).getTime(),
@@ -737,7 +874,7 @@ const DashboardPanelViewComponent: React.FC<DashboardPanelViewProps> = ({
       }
 
       case 'bar': {
-        // For bar charts
+        // BAR CHART PANEL: Vertical bars showing categorical data (supports tier coloring)
         const mapping = getColumnMapping(queryResult.data);
         const categories = queryResult.data.map(row => row[mapping.xAxis]);
         
@@ -776,7 +913,7 @@ const DashboardPanelViewComponent: React.FC<DashboardPanelViewProps> = ({
       }
 
       case 'pie': {
-        // For pie charts
+        // PIE CHART PANEL: Circular chart showing proportional data
         const mapping = getColumnMapping(queryResult.data);
         const pieData = queryResult.data.map(row => ({
           name: row[mapping.label],
@@ -794,13 +931,54 @@ const DashboardPanelViewComponent: React.FC<DashboardPanelViewProps> = ({
       }
 
       case 'table': {
-        // For tables, we'll use a custom approach since ECharts doesn't have native table support
-        // Return the base option and handle table rendering separately
+        // TABLE PANEL: Data table (rendered separately, not using ECharts)
         return baseOption;
       }
 
+      case 'treemap': {
+        // TREEMAP PANEL: Hierarchical data visualization with nested rectangles
+        const mapping = getColumnMapping(queryResult.data);
+        console.log('🌳 Processing treemap data:', queryResult.data);
+        console.log('🌳 Column mapping:', mapping);
+        
+        if (!queryResult.data || queryResult.data.length === 0) {
+          console.log('🌳 No data available for treemap');
+          return {
+            ...baseOption,
+            series: [{
+              ...baseOption.series?.[0],
+              type: 'treemap',
+              data: []
+            }]
+          };
+        }
+        
+        // Transform data to treemap format: {name: string, value: number}
+        // For treemap, we want the label/name as the name and the value as the size
+        const treemapData = queryResult.data.map(row => {
+          const name = row[mapping.label] || row[mapping.xAxis] || 'Unknown';
+          const value = Number(row[mapping.yAxis]) || 0;
+          console.log('🌳 Processing row:', { name, value, originalRow: row });
+          return {
+            name: name,
+            value: value
+          };
+        }).filter(item => item.value > 0); // Filter out zero values
+        
+        console.log('🌳 Processed treemap data:', treemapData);
+        
+        return {
+          ...baseOption,
+          series: [{
+            ...baseOption.series?.[0],
+            type: 'treemap',
+            data: treemapData
+          }]
+        };
+      }
+
       case 'calendar': {
-        // For calendar heatmaps, transform data to ECharts calendar format
+        // CALENDAR PANEL: Heatmap showing data over calendar dates (supports hierarchical drilldown)
         console.log('📅 Processing calendar data:', queryResult.data);
         
         // Check if we're in calendar drilldown mode and if it's the final level (day -> hourly bar chart)
@@ -1010,7 +1188,14 @@ const DashboardPanelViewComponent: React.FC<DashboardPanelViewProps> = ({
     }
   };
 
-  // Fetch data when panel changes, but only if not already fetched
+  // ============================================================================
+  // USEEFFECT HOOKS - Data fetching and UI interactions
+  // ============================================================================
+
+  /**
+   * Effect: Fetch data when panel changes, but only if not already fetched
+   * Uses pre-fetched data if available, otherwise fetches from API
+   */
   useEffect(() => {
     if (!dataFetchedRef.current) {
       // Use pre-fetched data if available, otherwise fetch from API
@@ -1026,7 +1211,10 @@ const DashboardPanelViewComponent: React.FC<DashboardPanelViewProps> = ({
     }
   }, [panel.query, data]);
 
-  // Reset dataFetchedRef when data prop changes
+  /**
+   * Effect: Reset dataFetchedRef when data prop changes
+   * Handles updates to pre-fetched data
+   */
   useEffect(() => {
     if (data) {
       setQueryResult({ data });
@@ -1038,7 +1226,10 @@ const DashboardPanelViewComponent: React.FC<DashboardPanelViewProps> = ({
     }
   }, [data, onDataFetched]);
 
-  // Re-render chart when data or echartsOption changes
+  /**
+   * Effect: Re-render chart when data or echartsOption changes
+   * Updates the ECharts instance with new configuration
+   */
   useEffect(() => {
     if (chartRef.current) {
       const chart = chartRef.current.getEchartsInstance();
@@ -1047,7 +1238,10 @@ const DashboardPanelViewComponent: React.FC<DashboardPanelViewProps> = ({
     }
   }, [queryResult, panel.echartsOption]);
 
-  // Close menu when clicking outside
+  /**
+   * Effect: Close menu when clicking outside
+   * Handles click-outside behavior for the context menu
+   */
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       // Check if the click is outside the menu and not on the menu button
@@ -1073,17 +1267,31 @@ const DashboardPanelViewComponent: React.FC<DashboardPanelViewProps> = ({
 
 
 
-  // Menu handlers
+  // ============================================================================
+  // UI EVENT HANDLERS - Menu, navigation, and interaction handlers
+  // ============================================================================
+
+  /**
+   * Handles clicking the menu button (three dots)
+   * Toggles menu visibility and prevents event bubbling
+   */
   const handleMenuClick = (event: React.MouseEvent<HTMLElement>) => {
     event.stopPropagation(); // Prevent panel click when clicking menu
     setMenuOpen(!menuOpen); // Toggle menu state
   };
 
+  /**
+   * Closes the context menu
+   */
   const handleMenuClose = () => {
     setMenuOpen(false);
   };
 
-  // Close menu when clicking outside
+  /**
+   * Handles clicking on the panel itself
+   * In edit mode, triggers the onClick callback
+   * Always closes the menu if it's open
+   */
   const handlePanelClick = () => {
     if (isEditMode && onClick) {
       onClick();
@@ -1094,6 +1302,9 @@ const DashboardPanelViewComponent: React.FC<DashboardPanelViewProps> = ({
     }
   };
 
+  /**
+   * Handles "View" menu item - navigates to fullscreen panel view
+   */
   const handleView = () => {
     handleMenuClose();
     // Get dashboard ID from current URL or context
@@ -1109,6 +1320,9 @@ const DashboardPanelViewComponent: React.FC<DashboardPanelViewProps> = ({
     }
   };
 
+  /**
+   * Handles "Edit" menu item - navigates to panel edit page
+   */
   const handleEdit = () => {
     handleMenuClose();
     if (onEdit) {
@@ -1128,11 +1342,17 @@ const DashboardPanelViewComponent: React.FC<DashboardPanelViewProps> = ({
     }
   };
 
+  /**
+   * Handles "Remove" menu item - opens delete confirmation dialog
+   */
   const handleRemove = () => {
     handleMenuClose();
     setDeleteDialogOpen(true);
   };
 
+  /**
+   * Confirms panel deletion
+   */
   const handleDeleteConfirm = () => {
     setDeleteDialogOpen(false);
     if (onDelete) {
@@ -1140,10 +1360,17 @@ const DashboardPanelViewComponent: React.FC<DashboardPanelViewProps> = ({
     }
   };
 
+  /**
+   * Cancels panel deletion
+   */
   const handleDeleteCancel = () => {
     setDeleteDialogOpen(false);
   };
 
+  /**
+   * Toggles fullscreen mode for the panel
+   * Detects current state and navigates accordingly
+   */
   const handleFullscreenToggle = () => {
     // Check if we're already in fullscreen mode (PanelViewPage)
     const isInFullscreen = window.location.pathname.includes('/panels/') && window.location.pathname.includes('/view');
@@ -1168,7 +1395,15 @@ const DashboardPanelViewComponent: React.FC<DashboardPanelViewProps> = ({
     }
   };
 
-  // Panel Header Component
+  // ============================================================================
+  // UI COMPONENTS - Panel header, menu, and content rendering
+  // ============================================================================
+
+  /**
+   * Panel Header Component
+   * Contains the panel title, drilldown navigation, and action buttons
+   * Shows breadcrumbs for calendar drilldowns and back/reset buttons
+   */
   const PanelHeader = () => (
     <Box 
       sx={{ 
@@ -1186,7 +1421,11 @@ const DashboardPanelViewComponent: React.FC<DashboardPanelViewProps> = ({
         maxHeight: '28px',
         borderTopLeftRadius: 'inherit',
         borderTopRightRadius: 'inherit',
-        position: 'relative' // Ensure proper positioning context
+        position: 'relative', // Ensure proper positioning context
+        '&:hover .fullscreen-button': {
+          opacity: 1,
+          visibility: 'visible'
+        }
       }}
     >
       {isDrilldown && (
@@ -1330,6 +1569,7 @@ const DashboardPanelViewComponent: React.FC<DashboardPanelViewProps> = ({
       {showFullscreen ? (
         <IconButton
           id={`panel-fullscreen-button-${panel.id}`}
+          className="fullscreen-button"
           size="small"
           onClick={handleFullscreenToggle}
           aria-label={window.location.pathname.includes('/panels/') && window.location.pathname.includes('/view') ? "Exit fullscreen" : "Enter fullscreen"}
@@ -1338,6 +1578,9 @@ const DashboardPanelViewComponent: React.FC<DashboardPanelViewProps> = ({
             color: 'text.secondary',
             borderRadius: 0.25, // Rectangle shape instead of circle
             position: 'relative', // Ensure proper positioning context
+            opacity: 0,
+            visibility: 'hidden',
+            transition: 'opacity 0.2s ease, visibility 0.2s ease',
             '&:hover': {
               backgroundColor: 'action.hover',
               color: 'text.primary'
@@ -1374,7 +1617,11 @@ const DashboardPanelViewComponent: React.FC<DashboardPanelViewProps> = ({
     </Box>
   );
 
-  // Context Menu
+  /**
+   * Context Menu Component
+   * Dropdown menu with View, Edit, and Remove options
+   * Includes delete confirmation dialog
+   */
   const ContextMenu = () => (
     <>
              {showMenu && menuOpen && (
@@ -1469,7 +1716,11 @@ const DashboardPanelViewComponent: React.FC<DashboardPanelViewProps> = ({
     </>
   );
 
-  // Render panel content based on type
+  /**
+   * Renders panel content based on type and state
+   * Handles loading states, errors, and different chart types
+   * Returns appropriate UI for tables vs charts
+   */
   const renderPanelContent = () => {
     if (loading) {
       return (
@@ -1489,7 +1740,7 @@ const DashboardPanelViewComponent: React.FC<DashboardPanelViewProps> = ({
       );
     }
 
-    // Table content
+    // TABLE CONTENT: Custom HTML table rendering (not using ECharts)
     if (panel.type === 'table') {
       return (
         <Box sx={{ overflowX: 'auto', flex: 1 }}>
@@ -1534,7 +1785,7 @@ const DashboardPanelViewComponent: React.FC<DashboardPanelViewProps> = ({
       );
     }
 
-    // Chart content (for timeseries, bar, pie, stat, etc.)
+    // CHART CONTENT: ECharts rendering for all chart types (timeseries, bar, pie, stat, etc.)
     return (
       <Box sx={{ 
         height: '100%', 
@@ -1553,7 +1804,14 @@ const DashboardPanelViewComponent: React.FC<DashboardPanelViewProps> = ({
     );
   };
 
-  // Unified panel container
+  // ============================================================================
+  // MAIN RENDER - Unified panel container with header and content
+  // ============================================================================
+
+  /**
+   * Main panel container that combines header, content, and context menu
+   * Handles panel styling, hover effects, and click interactions
+   */
   return (
     <Box
       sx={{
@@ -1596,6 +1854,15 @@ const DashboardPanelViewComponent: React.FC<DashboardPanelViewProps> = ({
   );
 };
 
+// ============================================================================
+// COMPONENT EXPORT - Memoized component for performance optimization
+// ============================================================================
+
+/**
+ * Memoized version of DashboardPanelViewComponent
+ * Prevents unnecessary re-renders when props haven't changed
+ * Improves performance in dashboard grids with many panels
+ */
 const DashboardPanelView = React.memo(DashboardPanelViewComponent);
 
 export default DashboardPanelView;

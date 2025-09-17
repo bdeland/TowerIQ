@@ -4,14 +4,17 @@
 This document provides a comprehensive analysis of the TowerIQ database structure for external analysis.
 
 ## Database Statistics
-- **Database File Size**: 746.2 MB (782,417,920 bytes)
-- **Total Runs**: 300
-- **Total Metrics**: 3,670,935
-- **Total Events**: 193,561
+- **Database File Size**: 85.3 MB (89,497,600 bytes)
+- **Schema Version**: 24 (Database V5 with db_metrics table)
+- **Total Runs**: 100
+- **Total Metrics**: 1,222,005
+- **Total Events**: 64,417
 - **Total Logs**: 0
-- **Total Settings**: 9
+- **Total Settings**: 0
 - **Total Dashboards**: 0
-- **Total MOCK_DATA**: 1,000 (test data)
+- **Total DB Metrics**: 2,275 (database health monitoring data)
+- **Total Event Names**: 7 (lookup table)
+- **Total Metric Names**: 15 (lookup table)
 
 ## Table Structure
 
@@ -124,16 +127,41 @@ This document provides a comprehensive analysis of the TowerIQ database structur
 - `idx_dashboards_title` on (title)
 - `idx_dashboards_created_at` on (created_at)
 
-### 7. `MOCK_DATA` Table
-**Purpose**: Test/development data
-**Primary Key**: None
+### 7. `db_metrics` Table
+**Purpose**: Database health monitoring and performance metrics
+**Primary Key**: `id` (INTEGER AUTOINCREMENT)
 
 | Column | Type | Description |
 |--------|------|-------------|
-| time | DATE | Timestamp |
-| value1 | DECIMAL(7,3) | Numeric value 1 |
-| value2 | DECIMAL(6,2) | Numeric value 2 |
-| value3 | VARCHAR(50) | String value |
+| id | INTEGER | Auto-incrementing primary key |
+| timestamp | INTEGER | Unix timestamp when metric was collected |
+| metric_name | TEXT | Name of the metric (e.g., 'table_size_bytes', 'record_count') |
+| metric_value | REAL | Numeric value of the metric |
+| table_name | TEXT | Table name for table-specific metrics (nullable) |
+| index_name | TEXT | Index name for index-specific metrics (nullable) |
+
+**Indexes**:
+- `idx_db_metrics_timestamp` on (timestamp)
+- `idx_db_metrics_metric_name` on (metric_name)
+
+### 8. `event_names` Table
+**Purpose**: Lookup table for event name normalization
+**Primary Key**: `id` (INTEGER AUTOINCREMENT)
+
+| Column | Type | Description |
+|--------|------|-------------|
+| id | INTEGER | Auto-incrementing primary key |
+| name | TEXT | Event name (unique) |
+
+### 9. `metric_names` Table
+**Purpose**: Lookup table for metric name normalization
+**Primary Key**: `id` (INTEGER AUTOINCREMENT)
+
+| Column | Type | Description |
+|--------|------|-------------|
+| id | INTEGER | Auto-incrementing primary key |
+| name | TEXT | Metric name (unique) |
+
 
 ## Data Relationships
 
@@ -144,15 +172,21 @@ runs (1) ←→ (many) events
 
 ## Key Observations
 
-1. **High Volume Data**: The metrics table contains over 600K records, indicating detailed data collection during gameplay.
+1. **High Volume Data**: The metrics table contains over 1.2M records, indicating detailed data collection during gameplay.
 
-2. **Time-based Data**: Most tables use INTEGER timestamps, suggesting Unix timestamp format.
+2. **Database Health Monitoring**: New `db_metrics` table (V5 schema) provides comprehensive database performance and health monitoring with 2,275+ metrics collected.
 
-3. **Flexible Configuration**: The settings table supports various data types and categories for flexible configuration management.
+3. **Normalized Lookup Tables**: `event_names` and `metric_names` tables provide data normalization for better storage efficiency and consistency.
 
-4. **Dashboard System**: The dashboards table is set up for a dashboard management system but currently contains no data.
+4. **Time-based Data**: Most tables use INTEGER timestamps in Unix timestamp format for efficient storage and querying.
 
-5. **Event Tracking**: The events table captures game events with flexible JSON data storage.
+5. **Flexible Configuration**: The settings table supports various data types and categories for flexible configuration management.
+
+6. **Dashboard System**: The dashboards table is set up for a dashboard management system but currently contains no data.
+
+7. **Event Tracking**: The events table captures game events with flexible JSON data storage.
+
+8. **Schema Evolution**: Database has evolved to V5 with significant improvements in monitoring and data normalization.
 
 ## Files Generated for Analysis
 
@@ -163,17 +197,19 @@ runs (1) ←→ (many) events
 ## Data Summary with Examples
 
 ### Current Database Statistics (Updated)
-- **Total Runs**: 300
-- **Total Metrics**: 3,670,935
-- **Total Events**: 193,561
+- **Total Runs**: 100
+- **Total Metrics**: 1,222,005
+- **Total Events**: 64,417
 - **Total Logs**: 0
-- **Total Settings**: 9
+- **Total Settings**: 0
 - **Total Dashboards**: 0
-- **Total MOCK_DATA**: 1,000 (test data)
+- **Total DB Metrics**: 2,275
+- **Total Event Names**: 7
+- **Total Metric Names**: 15
 
 ### Sample Data Examples
 
-#### 1. `runs` Table (300 rows)
+#### 1. `runs` Table (100 rows)
 **Sample Records:**
 ```json
 {
@@ -193,7 +229,7 @@ runs (1) ←→ (many) events
 }
 ```
 
-#### 2. `metrics` Table (3,670,935 rows)
+#### 2. `metrics` Table (1,222,005 rows)
 **Metric Types Found:**
 - `cash`, `cells`, `coins`, `gems`
 - `round_cash`, `round_cells`, `round_coins`, `round_gems_from_ads_count`
@@ -212,7 +248,7 @@ runs (1) ←→ (many) events
 }
 ```
 
-#### 3. `events` Table (193,561 rows)
+#### 3. `events` Table (64,417 rows)
 **Event Types Found:**
 - `startNewRound`, `gemBlockTapped`, `adGemClaimed`
 - `gameSpeedChanged`, `gamePaused`, `gameResumed`, `gameOver`
@@ -228,45 +264,45 @@ runs (1) ←→ (many) events
 }
 ```
 
-#### 4. `settings` Table (9 rows)
-**Sample Records:**
-```json
-{
-  "id": 1,
-  "key": "db_version",
-  "value": "3",
-  "value_type": "string",
-  "description": null,
-  "category": "general",
-  "is_sensitive": 0,
-  "created_at": "2025-07-23 11:50:35",
-  "updated_at": "2025-07-23 11:50:35",
-  "created_by": "system",
-  "version": 1
-}
-```
+#### 4. `settings` Table (0 rows)
+**Structure Ready:** Table exists but contains no data currently.
 
-#### 5. `MOCK_DATA` Table (1,000 rows - Test Data)
-**Sample Records:**
-```json
-{
-  "time": 1754991307000,
-  "value1": 867.103,
-  "value2": 50.5,
-  "value3": "1"
-}
-```
+#### 5. `db_metrics` Table (2,275 rows)
+**Purpose:** Database health monitoring metrics collected automatically
+**Sample Metric Types:**
+- `table_size_bytes` - Size of each table in bytes
+- `record_count` - Number of records per table
+- `database_size` - Total database size
+- `total_pages` - Database page count
+- `free_pages` - Free page count
 
-#### 6. `dashboards` Table (0 rows)
+#### 6. `event_names` Table (7 rows)
+**Purpose:** Lookup table for event name normalization
+**Sample Event Names:**
+- `startNewRound`, `gemBlockTapped`, `adGemClaimed`
+- `gameSpeedChanged`, `gamePaused`, `gameResumed`, `gameOver`
+
+#### 7. `metric_names` Table (15 rows)
+**Purpose:** Lookup table for metric name normalization
+**Sample Metric Names:**
+- `cash`, `cells`, `coins`, `gems`
+- `round_cash`, `round_cells`, `round_coins`
+- `round_gems_from_ads_count`, `round_gems_from_blocks_count`
+
+#### 8. `dashboards` Table (0 rows)
 **Structure Ready:** Table exists but contains no data yet.
 
-#### 7. `logs` Table (0 rows)
+#### 9. `logs` Table (0 rows)
 **Structure Ready:** Table exists but contains no data yet.
+
 
 ## Recommendations for Analysis
 
-1. Focus on the `metrics` table for performance analysis - it contains the most data
-2. Examine the relationship between `runs` and `metrics` for run-based analysis
-3. Check the `events` table for game event patterns
-4. Review `settings` table for configuration analysis
-5. The `MOCK_DATA` table appears to be for testing and can likely be ignored
+1. **Game Performance Analysis**: Focus on the `metrics` table (1.2M+ records) for detailed gameplay performance analysis
+2. **Database Health Monitoring**: Use the `db_metrics` table for database performance trends, table growth, and optimization insights
+3. **Normalized Data Access**: Leverage `event_names` and `metric_names` lookup tables for efficient queries and consistent naming
+4. **Run-Based Analysis**: Examine relationships between `runs`, `metrics`, and `events` tables for comprehensive game session analysis
+5. **Event Pattern Analysis**: Check the `events` table for gameplay event patterns and user behavior insights
+6. **Time-Series Analysis**: All tables use Unix timestamps - ideal for time-series analysis and Grafana dashboards
+7. **Schema Evolution**: Database V5 provides enhanced monitoring capabilities - consider leveraging these for operational insights
+8. **Data Volume Considerations**: With 1.2M+ metrics records, consider indexing strategies for optimal query performance

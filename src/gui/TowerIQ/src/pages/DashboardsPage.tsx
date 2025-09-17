@@ -45,6 +45,7 @@ import { generateUUID } from '../utils/uuid';
 import { featureFlags } from '../config/featureFlags';
 import { ConfirmationDialog } from '../components/ConfirmationDialog';
 import { defaultDashboard } from '../config/defaultDashboard';
+import { databaseHealthDashboard } from '../config/databaseHealthDashboard';
 
 export function DashboardsPage() {
   const navigate = useNavigate();
@@ -70,8 +71,8 @@ export function DashboardsPage() {
   const [selectedDashboards, setSelectedDashboards] = useState<string[]>([]);
   const [tagFilter, setTagFilter] = useState<string>('all');
 
-  // Combine database dashboards with the hardcoded default dashboard
-  const allDashboards = [defaultDashboard, ...dashboards];
+  // Combine database dashboards with the hardcoded dashboards
+  const allDashboards = [defaultDashboard, databaseHealthDashboard, ...dashboards];
 
   // Get all unique tags from all dashboards
   const allTags = Array.from(new Set(allDashboards.flatMap(d => d.tags))).sort();
@@ -125,9 +126,9 @@ export function DashboardsPage() {
   };
 
   const handleDeleteDashboard = (dashboard: Dashboard) => {
-    // Prevent deleting the default dashboard
-    if (dashboard.id === 'default-dashboard') {
-      console.log('Cannot delete the default dashboard');
+    // Prevent deleting the default dashboard and database health dashboard
+    if (dashboard.id === 'default-dashboard' || dashboard.id === 'database-health-dashboard') {
+      console.log('Cannot delete system dashboards');
       return;
     }
     setDashboardToDelete(dashboard);
@@ -184,9 +185,9 @@ export function DashboardsPage() {
   };
 
   const handleSetDefault = async (dashboard: Dashboard) => {
-    // Prevent setting default for the hardcoded default dashboard
-    if (dashboard.id === 'default-dashboard') {
-      console.log('Default dashboard is already the default');
+    // Prevent setting default for the hardcoded dashboards
+    if (dashboard.id === 'default-dashboard' || dashboard.id === 'database-health-dashboard') {
+      console.log('System dashboards cannot be set as default');
       return;
     }
     await setDefaultDashboard(dashboard.id);

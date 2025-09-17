@@ -62,7 +62,7 @@ sequenceDiagram
   - FastAPI app with lifespan, CORS for Tauri dev origins (localhost:1420), and routes for health, Frida operations, devices, dashboards, and safe SQL preview/exec.
 
 - Database Initialization
-  - SQLite WAL mode, schema creation/migration to V2 (`runs`, `metrics` long‑format, `events`, `logs`, `settings` with metadata, `dashboards`, `MOCK_DATA`).
+  - SQLite WAL mode, schema creation/migration to V2 (`runs`, `metrics` long‑format, `events`, `logs`, `settings` with metadata, `dashboards`).
 
 - Service Composition
   - `MainController` composes `SessionManager` (PyQt6 signals/mutex), `EmulatorService` (ADB + Frida server manager), `FridaService` (message queue, attach/detach, heartbeat integration), and `HookScriptManager` (discovers `.js` scripts and loads content).

@@ -3,7 +3,7 @@
 - **File**: `data/toweriq.sqlite`
 - **Engine**: SQLite
 - **Primary purpose**: Persist app configuration, dashboards, lightweight logs/events, and mock time-series used for chart demos.
-- **Tables**: `settings`, `dashboards`, `logs`, `MOCK_DATA`
+- **Tables**: `settings`, `dashboards`, `logs`
 - **Foreign keys**: none declared
 
 This document describes the current schema, data conventions, helpful queries, and examples to give agents enough context for data visualization work.
@@ -121,24 +121,6 @@ SELECT * FROM logs ORDER BY timestamp DESC LIMIT 100;
 SELECT timestamp, source, event, data FROM logs WHERE level='ERROR' ORDER BY timestamp DESC;
 ```
 
-## MOCK_DATA
-
-- **Purpose**: Synthetic time-series used for charts/demos
-- **Common fields**:
-  - `time` DATE             (often stored as epoch ms)
-  - `value1` DECIMAL(7,3)
-  - `value2` DECIMAL(6,2)
-  - `value3` VARCHAR(50)
-- **Example rows**:
-```json
-{"time": 1754991307000, "value1": 867.103, "value2": 50.50, "value3": "1"}
-{"time": 1755704516000, "value1": 756.129, "value2": 50.07, "value3": "1"}
-```
-- **Useful queries**:
-```sql
--- First 100 points ordered by time
-SELECT time, value1, value2 FROM MOCK_DATA ORDER BY time LIMIT 100;
-```
 
 ## Data conventions
 
@@ -170,7 +152,6 @@ ORDER BY cnt DESC;
 ## Notes for visualization work
 
 - `dashboards.config` is the primary source for panel/widget definitions and time ranges.
-- `MOCK_DATA` provides easy-to-consume time-series for ECharts/Grafana-style panels.
 - `logs` can back live event streams or simple counters (with grouping by `level`, `source`, or `event`).
 - `settings` should drive user-visible toggles (e.g., theme) and backend feature flags.
 

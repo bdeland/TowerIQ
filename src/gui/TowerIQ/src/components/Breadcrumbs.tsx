@@ -5,6 +5,7 @@ import { useDashboard } from '../contexts/DashboardContext';
 import { useDeveloper } from '../contexts/DeveloperContext';
 import { useEffect, useState, useMemo } from 'react';
 import { defaultDashboard } from '../config/defaultDashboard';
+import { databaseHealthDashboard } from '../config/databaseHealthDashboard';
 
 interface BreadcrumbItem {
   label: string;
@@ -54,6 +55,12 @@ export function Breadcrumbs() {
       // Check if this is the default dashboard first
       if (dashboardId === 'default-dashboard') {
         setDashboardTitle(defaultDashboard.title);
+        return;
+      }
+      
+      // Check if this is the database health dashboard
+      if (dashboardId === 'database-health-dashboard') {
+        setDashboardTitle(databaseHealthDashboard.title);
         return;
       }
       
@@ -147,6 +154,18 @@ export function Breadcrumbs() {
     }
     else if (firstSegment === 'settings') {
       items.push({ label: 'Settings', path: '/settings' });
+      
+      // Handle settings sub-pages
+      if (pathSegments.length > 1) {
+        const settingsPage = pathSegments[1];
+        if (settingsPage === 'database') {
+          items.push({ label: 'Database', path: '/settings/database' });
+        } else if (settingsPage === 'appearance') {
+          items.push({ label: 'Appearance', path: '/settings/appearance' });
+        } else if (settingsPage === 'other') {
+          items.push({ label: 'Other', path: '/settings/other' });
+        }
+      }
     }
     
     return items;

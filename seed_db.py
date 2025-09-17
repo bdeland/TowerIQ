@@ -5,6 +5,7 @@ import random
 import uuid
 import multiprocessing as mp
 from datetime import datetime, timedelta
+from typing import Optional
 from pathlib import Path
 from concurrent.futures import ProcessPoolExecutor, as_completed
 import queue
@@ -29,11 +30,11 @@ from tower_iq.services.database_service import DatabaseService
 # ============================================================================
 
 # Default command line arguments (can be overridden with --runs, --tiers, etc.)
-DEFAULT_RUNS = 300
+DEFAULT_RUNS = 100
 DEFAULT_TIERS = "5-10"  # Tier range, e.g. "5-8" or single tier like "7"
 DEFAULT_MIN_WAVE = 800
 DEFAULT_MAX_WAVE = 1500
-DEFAULT_SEED = 42
+DEFAULT_SEED = 422452487245672
 DEFAULT_WORKERS = None  # None = use CPU count
 DEFAULT_START_DATE = "90d"  # Start date: "30d" (30 days ago), "2024-01-01", or "2024-01-01 14:30"
 DEFAULT_END_DATE = "now"  # End date: "now", "2024-12-31", or "2024-12-31 18:00"
@@ -96,6 +97,10 @@ PAUSE_DURATION_MS = 1000  # 1 second pause
 # Progress reporting
 PROGRESS_LOG_INTERVAL = 5  # Log every 5th run
 PROGRESS_BAR_WIDTH = 50
+
+# Database metrics collection
+METRICS_COLLECTION_ENABLED = True  # Enable daily metrics collection during seeding
+METRICS_COLLECTION_INTERVAL_HOURS = 24  # Collect metrics every 24 hours (daily)
 
 # Time distribution presets (weights for each hour 0-23)
 TIME_DISTRIBUTIONS = {
@@ -233,6 +238,166 @@ def wipe_tables(db: DatabaseService) -> None:
     conn.execute("DELETE FROM events")
     conn.execute("DELETE FROM runs")
     conn.commit()
+
+
+def collect_metrics_at_timestamp(db: DatabaseService, timestamp_dt: datetime, logger) -> None:
+    """
+    Collect database metrics at a specific timestamp and store them in the normalized db_metrics table.
+    This simulates historical metrics collection during the seeding process.
+    
+    Args:
+        db: DatabaseService instance
+        timestamp_dt: The datetime to use for the metrics timestamp
+        logger: Logger instance for reporting
+    """
+    try:
+        # Convert datetime to timestamp (seconds since epoch)
+        timestamp_ms = int(timestamp_dt.timestamp() * 1000)
+        
+        # Temporarily override the current timestamp in the metrics collection method
+        # We'll need to collect metrics manually to use our custom timestamp
+        if not db.sqlite_conn:
+            logger.warning("Cannot collect metrics: database connection not available")
+            return
+        
+        cursor = db.sqlite_conn.cursor()
+        
+        # List to store all metrics for bulk insert (timestamp, metric_name_id, metric_value, object_id)
+        metrics_to_insert = []
+        
+        # Collect database-level metrics using PRAGMA statements
+        try:
+            page_count = cursor.execute("PRAGMA page_count").fetchone()[0]
+            page_size = cursor.execute("PRAGMA page_size").fetchone()[0]
+            freelist_count = cursor.execute("PRAGMA freelist_count").fetchone()[0]
+            
+            # Calculate database size
+            database_size = page_count * page_size
+            
+            # Get or create metric name IDs for database-level metrics
+            total_pages_id = db._get_or_create_metric_name_id('total_pages', 'Total number of pages in the database')
+            page_size_id = db._get_or_create_metric_name_id('page_size', 'Database page size in bytes')
+            database_size_id = db._get_or_create_metric_name_id('database_size', 'Total database size in bytes')
+            free_pages_id = db._get_or_create_metric_name_id('free_pages', 'Number of free pages in the database')
+            
+            # Add database-level metrics with our custom timestamp (no object_id for database-level metrics)
+            metrics_to_insert.extend([
+                (timestamp_ms // 1000, total_pages_id, page_count, None),
+                (timestamp_ms // 1000, page_size_id, page_size, None),
+                (timestamp_ms // 1000, database_size_id, database_size, None),
+                (timestamp_ms // 1000, free_pages_id, freelist_count, None)
+            ])
+            
+            # Collect table-level metrics (record counts and sizes)
+            cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'")
+            tables = [row[0] for row in cursor.fetchall()]
+            
+            # Get or create metric name IDs for table-level metrics
+            record_count_id = db._get_or_create_metric_name_id('record_count', 'Number of records in the table')
+            table_size_bytes_id = db._get_or_create_metric_name_id('table_size_bytes', 'Table size in bytes')
+            
+            for table in tables:
+                try:
+                    # Get or create object ID for this table
+                    table_object_id = db._get_or_create_monitored_object_id(table, 'TABLE')
+                    
+                    # Get record count
+                    record_count = cursor.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
+                    metrics_to_insert.append(
+                        (timestamp_ms // 1000, record_count_id, record_count, table_object_id)
+                    )
+                    
+                    # Get table size in bytes using multiple methods
+                    try:
+                        table_size_bytes = None
+                        
+                        # Method 1: Try dbstat virtual table (most accurate)
+                        try:
+                            table_size_result = cursor.execute(
+                                "SELECT SUM(pgsize) FROM dbstat WHERE name = ?", (table,)
+                            ).fetchone()
+                            
+                            if table_size_result and table_size_result[0] is not None:
+                                table_size_bytes = table_size_result[0]
+                        except Exception:
+                            # dbstat not available, continue to other methods
+                            pass
+                        
+                        # Method 2: Fallback estimation based on table structure
+                        if table_size_bytes is None:
+                            try:
+                                table_info = cursor.execute(f"PRAGMA table_info({table})").fetchall()
+                                
+                                # Estimate bytes per row based on column types and count
+                                estimated_bytes_per_row = 50  # Base overhead
+                                for col_info in table_info:
+                                    col_type = col_info[2].upper() if col_info[2] else 'TEXT'
+                                    if 'INT' in col_type:
+                                        estimated_bytes_per_row += 8
+                                    elif 'REAL' in col_type or 'FLOAT' in col_type:
+                                        estimated_bytes_per_row += 8
+                                    elif 'TEXT' in col_type:
+                                        estimated_bytes_per_row += 50  # Average text size
+                                    elif 'BLOB' in col_type:
+                                        estimated_bytes_per_row += 100  # Average blob size
+                                    else:
+                                        estimated_bytes_per_row += 20  # Default
+                                
+                                table_size_bytes = record_count * estimated_bytes_per_row
+                            except Exception:
+                                # Final fallback: simple estimation
+                                table_size_bytes = record_count * 100
+                        
+                        metrics_to_insert.append(
+                            (timestamp_ms // 1000, table_size_bytes_id, table_size_bytes, table_object_id)
+                        )
+                        
+                    except Exception as size_e:
+                        # If we can't get size, use simple estimation
+                        logger.warning("Failed to get table size during seeding, using simple estimation", 
+                                      table=table, error=str(size_e))
+                        estimated_size = record_count * 100
+                        metrics_to_insert.append(
+                            (timestamp_ms // 1000, table_size_bytes_id, estimated_size, table_object_id)
+                        )
+                        
+                except Exception as e:
+                    logger.warning("Failed to get table metrics during seeding", 
+                                  table=table, error=str(e))
+                    continue
+            
+            # Collect index-level metrics (index count)
+            cursor.execute("SELECT COUNT(*) FROM sqlite_master WHERE type='index' AND name NOT LIKE 'sqlite_%'")
+            index_count = cursor.fetchone()[0]
+            
+            # Get or create metric name ID for index count
+            index_count_id = db._get_or_create_metric_name_id('index_count', 'Total number of user indexes')
+            metrics_to_insert.append(
+                (timestamp_ms // 1000, index_count_id, index_count, None)
+            )
+            
+            # Bulk insert all metrics using normalized schema
+            cursor.executemany("""
+                INSERT INTO db_metrics (timestamp, metric_name_id, metric_value, object_id)
+                VALUES (?, ?, ?, ?)
+            """, metrics_to_insert)
+            
+            db.sqlite_conn.commit()
+            logger.info("Database metrics collected during seeding", 
+                       timestamp=timestamp_dt.strftime("%Y-%m-%d %H:%M:%S"),
+                       metrics_count=len(metrics_to_insert))
+            
+        except Exception as e:
+            logger.error("Failed to collect database metrics during seeding", 
+                        timestamp=timestamp_dt.strftime("%Y-%m-%d %H:%M:%S"),
+                        error=str(e))
+            try:
+                db.sqlite_conn.rollback()
+            except Exception:
+                pass
+    
+    except Exception as e:
+        logger.error("Error in collect_metrics_at_timestamp", error=str(e))
 
 
 def cleanup_sqlite_auxiliary_files(db_path: str, logger) -> None:
@@ -670,10 +835,42 @@ def write_run_data_to_db(db: DatabaseService, run_data: dict) -> None:
         db.logger.debug = original_debug
 
 
-def bulk_write_all_runs_to_db(db: DatabaseService, run_data_list: list) -> None:
+def get_metrics_collection_timestamps(run_data_list: list, start_date: datetime, end_date: datetime, metrics_enabled: bool = True) -> list:
+    """
+    Generate timestamps for metrics collection based on the date range and run data.
+    Collects metrics at daily intervals within the data generation period.
+    
+    Args:
+        run_data_list: List of generated run data
+        start_date: Start date of the data generation period
+        end_date: End date of the data generation period
+    
+    Returns:
+        List of datetime objects representing when to collect metrics
+    """
+    if not metrics_enabled or not run_data_list:
+        return []
+    
+    # Create a list of timestamps at daily intervals
+    collection_timestamps = []
+    current_time = start_date
+    
+    while current_time <= end_date:
+        collection_timestamps.append(current_time)
+        current_time += timedelta(hours=METRICS_COLLECTION_INTERVAL_HOURS)
+    
+    # Always include the end date as the final collection point
+    if collection_timestamps[-1] != end_date:
+        collection_timestamps.append(end_date)
+    
+    return collection_timestamps
+
+
+def bulk_write_all_runs_to_db(db: DatabaseService, run_data_list: list, start_date: Optional[datetime] = None, end_date: Optional[datetime] = None, logger=None, metrics_enabled: bool = True) -> None:
     """
     Write all run data to the database using the most efficient bulk operations.
     This groups operations by type and uses transactions for maximum performance.
+    Also collects database metrics at daily intervals during the seeding process.
     """
     if not run_data_list:
         return
@@ -688,13 +885,40 @@ def bulk_write_all_runs_to_db(db: DatabaseService, run_data_list: list) -> None:
             raise Exception("Database connection not available")
         db.sqlite_conn.execute("BEGIN TRANSACTION")
         
+        # Sort runs by start time for chronological insertion and metrics collection
+        sorted_runs = sorted(run_data_list, key=lambda x: x['start_time'])
+        
+        # Get metrics collection timestamps if enabled
+        metrics_timestamps = []
+        if metrics_enabled and start_date and end_date and logger:
+            metrics_timestamps = get_metrics_collection_timestamps(sorted_runs, start_date, end_date, metrics_enabled)
+            print(f"📈 Database metrics will be collected at {len(metrics_timestamps)} time points")
+        
         # Group data by type for bulk operations
         runs_start_data = []
         events_data = []
         metrics_data = []
         runs_end_data = []
         
-        for run_data in run_data_list:
+        # Process runs in chronological order and collect metrics at intervals
+        metrics_index = 0
+        next_metrics_time = metrics_timestamps[0] if metrics_timestamps else None
+        
+        for i, run_data in enumerate(sorted_runs):
+            # Check if we should collect metrics before inserting this run
+            if (next_metrics_time and 
+                datetime.fromtimestamp(run_data['start_time'] / 1000) >= next_metrics_time):
+                
+                # Collect metrics at this timestamp
+                collect_metrics_at_timestamp(db, next_metrics_time, logger)
+                
+                # Move to next metrics collection time
+                metrics_index += 1
+                if metrics_index < len(metrics_timestamps):
+                    next_metrics_time = metrics_timestamps[metrics_index]
+                else:
+                    next_metrics_time = None
+            
             # Collect run start data
             runs_start_data.append({
                 'run_id': run_data['run_id'],
@@ -737,10 +961,18 @@ def bulk_write_all_runs_to_db(db: DatabaseService, run_data_list: list) -> None:
         print("📊 Bulk updating run ends...")
         db.bulk_update_runs_end(runs_end_data)
         
+        # Collect any remaining metrics timestamps (after all runs)
+        while metrics_index < len(metrics_timestamps):
+            collect_metrics_at_timestamp(db, metrics_timestamps[metrics_index], logger)
+            metrics_index += 1
+        
         # Commit the entire transaction
         if db.sqlite_conn:
             db.sqlite_conn.commit()
         print("✅ All data committed to database!")
+        
+        if metrics_timestamps:
+            print(f"📈 Database metrics collected at {len(metrics_timestamps)} time points during seeding")
         
     except Exception as e:
         # Rollback on error
@@ -767,6 +999,8 @@ def main():
     parser.add_argument("--start-date", type=str, default=DEFAULT_START_DATE, help="Start date: '30d' (30 days ago), '2024-01-01', or '2024-01-01 14:30'")
     parser.add_argument("--end-date", type=str, default=DEFAULT_END_DATE, help="End date: 'now', '2024-12-31', or '2024-12-31 18:00'")
     parser.add_argument("--time-distribution", type=str, default=DEFAULT_TIME_DISTRIBUTION, help="Time distribution: 'uniform', 'afternoon_heavy', 'evening_heavy', 'morning_heavy', or custom weights")
+    parser.add_argument("--collect-metrics", action='store_true', default=METRICS_COLLECTION_ENABLED, help="Enable database metrics collection during seeding (default: enabled)")
+    parser.add_argument("--no-collect-metrics", dest='collect_metrics', action='store_false', help="Disable database metrics collection during seeding")
     args = parser.parse_args()
 
     random.seed(args.seed)
@@ -874,7 +1108,7 @@ def main():
     print(f"\n💾 Writing {len(run_data_list)} runs to database using bulk operations...")
     
     try:
-        bulk_write_all_runs_to_db(db, run_data_list)
+        bulk_write_all_runs_to_db(db, run_data_list, start_date, end_date, logger, args.collect_metrics)
         print("✅ Bulk write completed successfully!")
     except Exception as e:
         logger.error("Failed to bulk write runs to database", error=str(e))
@@ -941,11 +1175,32 @@ def main():
     print(f"🏆 Tier Range: {args.tiers}")
     print(f"📅 Date Range: {start_date.strftime('%Y-%m-%d %H:%M')} to {end_date.strftime('%Y-%m-%d %H:%M')}")
     print(f"⏰ Time Distribution: {args.time_distribution}")
+    print(f"📈 Database Metrics Collection: {'Enabled' if args.collect_metrics else 'Disabled'}")
     
     if stats.get('table_rows'):
         print(f"\n📋 Database Statistics:")
         for table, count in stats['table_rows'].items():
             print(f"   • {table}: {count:,} rows")
+    
+    # Show metrics collection info if enabled
+    if args.collect_metrics and db.sqlite_conn:
+        try:
+            # Count db_metrics entries to show how many metrics were collected
+            metrics_count = db.sqlite_conn.execute("SELECT COUNT(*) FROM db_metrics").fetchone()[0]
+            unique_timestamps = db.sqlite_conn.execute("SELECT COUNT(DISTINCT timestamp) FROM db_metrics").fetchone()[0]
+            print(f"\n📈 Database Metrics Collected:")
+            print(f"   • Total Metrics: {metrics_count:,}")
+            print(f"   • Collection Points: {unique_timestamps:,}")
+            
+            # Show date range of metrics
+            if metrics_count > 0:
+                first_metric = db.sqlite_conn.execute("SELECT MIN(timestamp) FROM db_metrics").fetchone()[0]
+                last_metric = db.sqlite_conn.execute("SELECT MAX(timestamp) FROM db_metrics").fetchone()[0]
+                first_date = datetime.fromtimestamp(first_metric).strftime('%Y-%m-%d %H:%M')
+                last_date = datetime.fromtimestamp(last_metric).strftime('%Y-%m-%d %H:%M')
+                print(f"   • Metrics Range: {first_date} to {last_date}")
+        except Exception as e:
+            logger.warning("Failed to get metrics statistics", error=str(e))
     
     print(f"\n💾 Database Path: {db_path}")
     print(f"🗂️  Generated Files: {len(run_data_list)} run data packages")

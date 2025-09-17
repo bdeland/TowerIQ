@@ -1,6 +1,6 @@
 import { Dashboard } from '../contexts/DashboardContext';
 import { generateUUID } from '../utils/uuid';
-import { formatCurrency, formatCurrencyForChart, formatCurrencyForTooltip } from '../utils/currencyFormatter';
+import { formatCurrency, formatCurrencyForChart, formatCurrencyForTooltip } from '../utils/formattingUtils';
 import { applyChartTheme } from '../utils/chartTheme';
 
 export const defaultDashboard: Dashboard = {

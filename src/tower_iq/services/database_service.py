@@ -53,7 +53,7 @@ class DatabaseService:
     Handles connections, writes, reads, migrations, and backups.
     """
     
-    DB_VERSION = "4" # Updated with optimized schema using integer primary keys and lookup tables
+    DB_VERSION = "6" # Normalized db_metrics table with lookup tables for better performance
     
     def __init__(self, config: ConfigurationManager, logger: Any, db_path: str = '') -> None:
         """
@@ -204,7 +204,7 @@ class DatabaseService:
         
         # For this major change, we will create the new optimized schema.
         # A more advanced system would have sequential migration scripts (e.g., migrate_v1_to_v2).
-        self._create_schema_v4()
+        self._create_schema_v6()
 
         self.set_setting("db_version", self.DB_VERSION)
         self.logger.info("Database migration to version %s completed.", self.DB_VERSION)
@@ -425,39 +425,6 @@ class DatabaseService:
             else:
                 self.logger.info("Settings table already exists")
             
-            # Create MOCK_DATA table for testing
-            if 'MOCK_DATA' not in existing_tables:
-                self.logger.info("Creating MOCK_DATA table for testing")
-                conn.execute("""
-                    CREATE TABLE MOCK_DATA (
-                        id INTEGER PRIMARY KEY,
-                        name TEXT NOT NULL,
-                        category TEXT NOT NULL,
-                        value REAL NOT NULL,
-                        count INTEGER NOT NULL,
-                        timestamp TEXT NOT NULL,
-                        status TEXT NOT NULL
-                    )
-                """)
-                
-                # Insert sample data
-                sample_data = [
-                    (1, 'Product A', 'Electronics', 150.50, 25, '2024-01-01 10:00:00', 'Active'),
-                    (2, 'Product B', 'Clothing', 75.25, 42, '2024-01-01 11:00:00', 'Active'),
-                    (3, 'Product C', 'Electronics', 200.00, 18, '2024-01-01 12:00:00', 'Inactive'),
-                    (4, 'Product D', 'Books', 25.99, 67, '2024-01-01 13:00:00', 'Active'),
-                    (5, 'Product E', 'Clothing', 89.99, 33, '2024-01-01 14:00:00', 'Active'),
-                    (6, 'Product F', 'Electronics', 120.75, 29, '2024-01-01 15:00:00', 'Active'),
-                    (7, 'Product G', 'Books', 15.50, 89, '2024-01-01 16:00:00', 'Inactive'),
-                    (8, 'Product H', 'Clothing', 45.00, 56, '2024-01-01 17:00:00', 'Active'),
-                ]
-                
-                conn.executemany("""
-                    INSERT INTO MOCK_DATA (id, name, category, value, count, timestamp, status)
-                    VALUES (?, ?, ?, ?, ?, ?, ?)
-                """, sample_data)
-                
-                self.logger.info("MOCK_DATA table created with sample data")
             
             conn.commit()
             self.logger.info("Successfully created V2 database schema.")
@@ -614,39 +581,6 @@ class DatabaseService:
                 """)
                 conn.execute("CREATE INDEX idx_settings_key ON settings(key)")
             
-            # Create MOCK_DATA table for testing (unchanged)
-            if 'MOCK_DATA' not in existing_tables:
-                self.logger.info("Creating MOCK_DATA table for testing")
-                conn.execute("""
-                    CREATE TABLE MOCK_DATA (
-                        id INTEGER PRIMARY KEY,
-                        name TEXT NOT NULL,
-                        category TEXT NOT NULL,
-                        value REAL NOT NULL,
-                        count INTEGER NOT NULL,
-                        timestamp TEXT NOT NULL,
-                        status TEXT NOT NULL
-                    )
-                """)
-                
-                # Insert sample data
-                sample_data = [
-                    (1, 'Product A', 'Electronics', 150.50, 25, '2024-01-01 10:00:00', 'Active'),
-                    (2, 'Product B', 'Clothing', 75.25, 42, '2024-01-01 11:00:00', 'Active'),
-                    (3, 'Product C', 'Electronics', 200.00, 18, '2024-01-01 12:00:00', 'Inactive'),
-                    (4, 'Product D', 'Books', 25.99, 67, '2024-01-01 13:00:00', 'Active'),
-                    (5, 'Product E', 'Clothing', 89.99, 33, '2024-01-01 14:00:00', 'Active'),
-                    (6, 'Product F', 'Electronics', 120.75, 29, '2024-01-01 15:00:00', 'Active'),
-                    (7, 'Product G', 'Books', 15.50, 89, '2024-01-01 16:00:00', 'Inactive'),
-                    (8, 'Product H', 'Clothing', 45.00, 56, '2024-01-01 17:00:00', 'Active'),
-                ]
-                
-                conn.executemany("""
-                    INSERT INTO MOCK_DATA (id, name, category, value, count, timestamp, status)
-                    VALUES (?, ?, ?, ?, ?, ?, ?)
-                """, sample_data)
-                
-                self.logger.info("MOCK_DATA table created with sample data")
             
             conn.commit()
             self.logger.info("Successfully created V4 optimized database schema.")
@@ -658,15 +592,232 @@ class DatabaseService:
                 pass
             raise
 
+    def _create_schema_v5(self):
+        """Creates the version 5 schema with db_metrics table for database health monitoring."""
+        # First create all V4 tables
+        self._create_schema_v4()
+        
+        if self.sqlite_conn is None:
+            raise RuntimeError("Database connection is not established")
+        conn = cast(sqlite3.Connection, self.sqlite_conn)
+        try:
+            # Check which tables already exist
+            cursor = conn.execute("SELECT name FROM sqlite_master WHERE type='table'")
+            existing_tables = {row[0] for row in cursor.fetchall()}
+            
+            self.logger.info("Checking existing tables for V5 schema", existing_tables=list(existing_tables))
+            
+            # Create db_metrics table for database health monitoring
+            if 'db_metrics' not in existing_tables:
+                self.logger.info("Creating db_metrics table")
+                conn.execute("""
+                    CREATE TABLE db_metrics (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        timestamp INTEGER NOT NULL,
+                        metric_name TEXT NOT NULL,
+                        metric_value REAL NOT NULL,
+                        table_name TEXT,  -- For table-specific metrics
+                        index_name TEXT   -- For index-specific metrics
+                    )
+                """)
+                conn.execute("CREATE INDEX idx_db_metrics_timestamp ON db_metrics(timestamp)")
+                conn.execute("CREATE INDEX idx_db_metrics_metric_name ON db_metrics(metric_name)")
+            
+            conn.commit()
+            self.logger.info("Successfully created V5 database schema with db_metrics table.")
+        except Exception as e:
+            self.logger.error("Failed during V5 schema creation", error=str(e))
+            try:
+                conn.rollback()
+            except Exception:
+                pass
+            raise
+
+    def _create_schema_v6(self):
+        """Creates the version 6 schema with normalized db_metrics table using lookup tables."""
+        # First create all V5 tables
+        self._create_schema_v5()
+        
+        if self.sqlite_conn is None:
+            raise RuntimeError("Database connection is not established")
+        conn = cast(sqlite3.Connection, self.sqlite_conn)
+        try:
+            # Check which tables already exist
+            cursor = conn.execute("SELECT name FROM sqlite_master WHERE type='table'")
+            existing_tables = {row[0] for row in cursor.fetchall()}
+            
+            self.logger.info("Checking existing tables for V6 schema", existing_tables=list(existing_tables))
+            
+            # Create db_metric_names lookup table
+            if 'db_metric_names' not in existing_tables:
+                self.logger.info("Creating db_metric_names lookup table")
+                conn.execute("""
+                    CREATE TABLE db_metric_names (
+                        metric_name_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        metric_name TEXT NOT NULL UNIQUE,
+                        metric_description TEXT
+                    )
+                """)
+                conn.execute("CREATE UNIQUE INDEX idx_db_metric_names_name ON db_metric_names(metric_name)")
+            
+            # Create db_monitored_objects lookup table
+            if 'db_monitored_objects' not in existing_tables:
+                self.logger.info("Creating db_monitored_objects lookup table")
+                conn.execute("""
+                    CREATE TABLE db_monitored_objects (
+                        object_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        object_name TEXT NOT NULL,
+                        object_type TEXT NOT NULL CHECK(object_type IN ('TABLE', 'INDEX'))
+                    )
+                """)
+                conn.execute("CREATE UNIQUE INDEX idx_db_monitored_objects_name_type ON db_monitored_objects(object_name, object_type)")
+            
+            # Check if we need to migrate existing db_metrics table
+            if 'db_metrics' in existing_tables:
+                # Check if the table is already normalized (has metric_name_id column)
+                cursor.execute("PRAGMA table_info(db_metrics)")
+                columns = [row[1] for row in cursor.fetchall()]
+                
+                if 'metric_name_id' not in columns:
+                    self.logger.info("Migrating existing db_metrics table to normalized schema")
+                    self._migrate_db_metrics_to_v6()
+                else:
+                    self.logger.info("db_metrics table already normalized")
+            else:
+                # Create new normalized db_metrics table
+                self.logger.info("Creating new normalized db_metrics table")
+                conn.execute("""
+                    CREATE TABLE db_metrics (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        timestamp INTEGER NOT NULL,
+                        metric_name_id INTEGER NOT NULL,
+                        metric_value REAL NOT NULL,
+                        object_id INTEGER,
+                        FOREIGN KEY (metric_name_id) REFERENCES db_metric_names(metric_name_id),
+                        FOREIGN KEY (object_id) REFERENCES db_monitored_objects(object_id)
+                    )
+                """)
+                conn.execute("CREATE INDEX idx_db_metrics_timestamp ON db_metrics(timestamp)")
+                conn.execute("CREATE INDEX idx_db_metrics_metric_name_id ON db_metrics(metric_name_id)")
+                conn.execute("CREATE INDEX idx_db_metrics_object_id ON db_metrics(object_id)")
+            
+            conn.commit()
+            self.logger.info("Successfully created V6 normalized database schema.")
+        except Exception as e:
+            self.logger.error("Failed during V6 schema creation", error=str(e))
+            try:
+                conn.rollback()
+            except Exception:
+                pass
+            raise
+
+    def _migrate_db_metrics_to_v6(self):
+        """Migrates existing db_metrics table from V5 to V6 normalized schema."""
+        if self.sqlite_conn is None:
+            raise RuntimeError("Database connection is not established")
+        
+        conn = cast(sqlite3.Connection, self.sqlite_conn)
+        cursor = conn.cursor()
+        
+        try:
+            self.logger.info("Starting migration of db_metrics table to V6")
+            
+            # Step 1: Populate db_metric_names lookup table with existing metric names
+            self.logger.info("Populating db_metric_names lookup table")
+            cursor.execute("""
+                INSERT OR IGNORE INTO db_metric_names (metric_name)
+                SELECT DISTINCT metric_name FROM db_metrics
+                WHERE metric_name IS NOT NULL
+            """)
+            
+            # Step 2: Populate db_monitored_objects lookup table with existing table/index names
+            self.logger.info("Populating db_monitored_objects lookup table")
+            
+            # Add tables
+            cursor.execute("""
+                INSERT OR IGNORE INTO db_monitored_objects (object_name, object_type)
+                SELECT DISTINCT table_name, 'TABLE' FROM db_metrics
+                WHERE table_name IS NOT NULL
+            """)
+            
+            # Add indexes
+            cursor.execute("""
+                INSERT OR IGNORE INTO db_monitored_objects (object_name, object_type)
+                SELECT DISTINCT index_name, 'INDEX' FROM db_metrics
+                WHERE index_name IS NOT NULL
+            """)
+            
+            # Step 3: Create new normalized db_metrics table
+            self.logger.info("Creating new normalized db_metrics table")
+            cursor.execute("ALTER TABLE db_metrics RENAME TO db_metrics_old")
+            
+            cursor.execute("""
+                CREATE TABLE db_metrics (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    timestamp INTEGER NOT NULL,
+                    metric_name_id INTEGER NOT NULL,
+                    metric_value REAL NOT NULL,
+                    object_id INTEGER,
+                    FOREIGN KEY (metric_name_id) REFERENCES db_metric_names(metric_name_id),
+                    FOREIGN KEY (object_id) REFERENCES db_monitored_objects(object_id)
+                )
+            """)
+            
+            # Step 4: Migrate data from old table to new normalized structure
+            self.logger.info("Migrating data to normalized structure")
+            cursor.execute("""
+                INSERT INTO db_metrics (id, timestamp, metric_name_id, metric_value, object_id)
+                SELECT 
+                    dm_old.id,
+                    dm_old.timestamp,
+                    dmn.metric_name_id,
+                    dm_old.metric_value,
+                    CASE 
+                        WHEN dm_old.table_name IS NOT NULL THEN 
+                            (SELECT object_id FROM db_monitored_objects 
+                             WHERE object_name = dm_old.table_name AND object_type = 'TABLE')
+                        WHEN dm_old.index_name IS NOT NULL THEN 
+                            (SELECT object_id FROM db_monitored_objects 
+                             WHERE object_name = dm_old.index_name AND object_type = 'INDEX')
+                        ELSE NULL
+                    END
+                FROM db_metrics_old dm_old
+                JOIN db_metric_names dmn ON dm_old.metric_name = dmn.metric_name
+            """)
+            
+            # Step 5: Create indexes on new table (drop existing ones first if they exist)
+            try:
+                cursor.execute("DROP INDEX IF EXISTS idx_db_metrics_timestamp")
+                cursor.execute("DROP INDEX IF EXISTS idx_db_metrics_metric_name")
+                cursor.execute("DROP INDEX IF EXISTS idx_db_metrics_metric_name_id")
+                cursor.execute("DROP INDEX IF EXISTS idx_db_metrics_object_id")
+            except Exception:
+                pass  # Indexes may not exist, continue
+            
+            cursor.execute("CREATE INDEX idx_db_metrics_timestamp ON db_metrics(timestamp)")
+            cursor.execute("CREATE INDEX idx_db_metrics_metric_name_id ON db_metrics(metric_name_id)")
+            cursor.execute("CREATE INDEX idx_db_metrics_object_id ON db_metrics(object_id)")
+            
+            # Step 6: Drop old table
+            cursor.execute("DROP TABLE db_metrics_old")
+            
+            conn.commit()
+            self.logger.info("Successfully migrated db_metrics table to V6 normalized schema")
+            
+        except Exception as e:
+            self.logger.error("Failed to migrate db_metrics table to V6", error=str(e))
+            conn.rollback()
+            raise
+
     @db_operation()
-    def _get_or_create_metric_name_id(self, metric_name: str) -> int:
-        """Get or create a metric name ID in the lookup table."""
+    def _get_or_create_metric_name_id(self, metric_name: str, description: str = None) -> int:
+        """Get or create a metric name ID in the db_metric_names lookup table."""
         if not self.sqlite_conn:
             return 0
         
         # Try to get existing ID
         cursor = self.sqlite_conn.execute(
-            "SELECT metric_name_pk FROM metric_names WHERE metric_name = ?", 
+            "SELECT metric_name_id FROM db_metric_names WHERE metric_name = ?", 
             (metric_name,)
         )
         result = cursor.fetchone()
@@ -675,9 +826,42 @@ class DatabaseService:
             return result[0]
         
         # Create new entry
+        if description:
+            cursor = self.sqlite_conn.execute(
+                "INSERT INTO db_metric_names (metric_name, metric_description) VALUES (?, ?)", 
+                (metric_name, description)
+            )
+        else:
+            cursor = self.sqlite_conn.execute(
+                "INSERT INTO db_metric_names (metric_name) VALUES (?)", 
+                (metric_name,)
+            )
+        return cursor.lastrowid or 0
+
+    @db_operation()
+    def _get_or_create_monitored_object_id(self, object_name: str, object_type: str) -> int:
+        """Get or create a monitored object ID in the db_monitored_objects lookup table."""
+        if not self.sqlite_conn:
+            return 0
+        
+        # Validate object_type
+        if object_type not in ('TABLE', 'INDEX'):
+            raise ValueError(f"Invalid object_type: {object_type}. Must be 'TABLE' or 'INDEX'")
+        
+        # Try to get existing ID
         cursor = self.sqlite_conn.execute(
-            "INSERT INTO metric_names (metric_name) VALUES (?)", 
-            (metric_name,)
+            "SELECT object_id FROM db_monitored_objects WHERE object_name = ? AND object_type = ?", 
+            (object_name, object_type)
+        )
+        result = cursor.fetchone()
+        
+        if result:
+            return result[0]
+        
+        # Create new entry
+        cursor = self.sqlite_conn.execute(
+            "INSERT INTO db_monitored_objects (object_name, object_type) VALUES (?, ?)", 
+            (object_name, object_type)
         )
         return cursor.lastrowid or 0
 
@@ -1549,6 +1733,211 @@ class DatabaseService:
             stats['total_rows'] = total_rows
         
         return stats
+
+    @db_operation()
+    def collect_and_store_db_metrics(self) -> bool:
+        """
+        Collects comprehensive database metrics and stores them in the normalized db_metrics table.
+        This includes database-level metrics (size, pages, fragmentation) and 
+        table-level metrics (record counts).
+        
+        Returns:
+            bool: True if metrics collection was successful, False otherwise
+        """
+        if not self.sqlite_conn:
+            self.logger.error("Cannot collect metrics: database connection not available")
+            return False
+        
+        try:
+            cursor = self.sqlite_conn.cursor()
+            current_timestamp = int(datetime.now().timestamp())
+            
+            # List to store all metrics for bulk insert (timestamp, metric_name_id, metric_value, object_id)
+            metrics_to_insert = []
+            
+            # Collect database-level metrics using PRAGMA statements
+            self.logger.info("Collecting database-level metrics")
+            
+            # Get page count and page size
+            page_count = cursor.execute("PRAGMA page_count").fetchone()[0]
+            page_size = cursor.execute("PRAGMA page_size").fetchone()[0]
+            freelist_count = cursor.execute("PRAGMA freelist_count").fetchone()[0]
+            
+            # Calculate database size
+            database_size = page_count * page_size
+            
+            # Get or create metric name IDs for database-level metrics
+            total_pages_id = self._get_or_create_metric_name_id('total_pages', 'Total number of pages in the database')
+            page_size_id = self._get_or_create_metric_name_id('page_size', 'Database page size in bytes')
+            database_size_id = self._get_or_create_metric_name_id('database_size', 'Total database size in bytes')
+            free_pages_id = self._get_or_create_metric_name_id('free_pages', 'Number of free pages in the database')
+            
+            # Add database-level metrics (no object_id for database-level metrics)
+            metrics_to_insert.extend([
+                (current_timestamp, total_pages_id, page_count, None),
+                (current_timestamp, page_size_id, page_size, None),
+                (current_timestamp, database_size_id, database_size, None),
+                (current_timestamp, free_pages_id, freelist_count, None)
+            ])
+            
+            self.logger.info("Collected database metrics", 
+                           total_pages=page_count, 
+                           page_size=page_size, 
+                           database_size=database_size, 
+                           free_pages=freelist_count)
+            
+            # Collect table-level metrics (record counts and sizes)
+            self.logger.info("Collecting table-level metrics")
+            
+            # Get or create metric name IDs for table-level metrics
+            record_count_id = self._get_or_create_metric_name_id('record_count', 'Number of records in the table')
+            table_size_bytes_id = self._get_or_create_metric_name_id('table_size_bytes', 'Table size in bytes')
+            
+            # Get list of all user tables (excluding SQLite system tables)
+            cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'")
+            tables = [row[0] for row in cursor.fetchall()]
+            
+            for table in tables:
+                try:
+                    # Get or create object ID for this table
+                    table_object_id = self._get_or_create_monitored_object_id(table, 'TABLE')
+                    
+                    # Get record count
+                    record_count = cursor.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
+                    metrics_to_insert.append(
+                        (current_timestamp, record_count_id, record_count, table_object_id)
+                    )
+                    
+                    # Get table size in bytes using multiple methods
+                    try:
+                        table_size_bytes = None
+                        
+                        # Method 1: Try dbstat virtual table (most accurate)
+                        try:
+                            table_size_result = cursor.execute(
+                                "SELECT SUM(pgsize) FROM dbstat WHERE name = ?", (table,)
+                            ).fetchone()
+                            
+                            if table_size_result and table_size_result[0] is not None:
+                                table_size_bytes = table_size_result[0]
+                                self.logger.debug("Got table size from dbstat", 
+                                                table=table, size_bytes=table_size_bytes)
+                        except Exception:
+                            # dbstat not available, continue to other methods
+                            pass
+                        
+                        # Method 2: Use ANALYZE and sqlite_stat1 if available
+                        if table_size_bytes is None:
+                            try:
+                                # Run ANALYZE on the table to populate statistics
+                                cursor.execute(f"ANALYZE {table}")
+                                
+                                # Try to get page count from sqlite_stat1
+                                stat_result = cursor.execute(
+                                    "SELECT stat FROM sqlite_stat1 WHERE tbl = ?", (table,)
+                                ).fetchone()
+                                
+                                if stat_result:
+                                    # Parse the stat string (format: "nrow ncol ...")
+                                    stat_parts = stat_result[0].split()
+                                    if len(stat_parts) >= 2:
+                                        nrow = int(stat_parts[0])
+                                        # Estimate bytes per row based on table structure
+                                        table_info = cursor.execute(f"PRAGMA table_info({table})").fetchall()
+                                        estimated_bytes_per_row = len(table_info) * 20  # Rough estimate
+                                        table_size_bytes = nrow * estimated_bytes_per_row
+                                        self.logger.debug("Got table size from sqlite_stat1", 
+                                                        table=table, size_bytes=table_size_bytes)
+                            except Exception:
+                                pass
+                        
+                        # Method 3: Fallback estimation based on record count and table structure
+                        if table_size_bytes is None:
+                            # Get table structure to make a better estimation
+                            try:
+                                table_info = cursor.execute(f"PRAGMA table_info({table})").fetchall()
+                                column_count = len(table_info)
+                                
+                                # Estimate bytes per row based on column types and count
+                                estimated_bytes_per_row = 50  # Base overhead
+                                for col_info in table_info:
+                                    col_type = col_info[2].upper() if col_info[2] else 'TEXT'
+                                    if 'INT' in col_type:
+                                        estimated_bytes_per_row += 8
+                                    elif 'REAL' in col_type or 'FLOAT' in col_type:
+                                        estimated_bytes_per_row += 8
+                                    elif 'TEXT' in col_type:
+                                        estimated_bytes_per_row += 50  # Average text size
+                                    elif 'BLOB' in col_type:
+                                        estimated_bytes_per_row += 100  # Average blob size
+                                    else:
+                                        estimated_bytes_per_row += 20  # Default
+                                
+                                table_size_bytes = record_count * estimated_bytes_per_row
+                                self.logger.debug("Using structure-based table size estimation", 
+                                                table=table, 
+                                                columns=column_count,
+                                                bytes_per_row=estimated_bytes_per_row,
+                                                size_bytes=table_size_bytes)
+                            except Exception:
+                                # Final fallback: simple estimation
+                                table_size_bytes = record_count * 100
+                                self.logger.debug("Using simple table size estimation", 
+                                                table=table, size_bytes=table_size_bytes)
+                        
+                        metrics_to_insert.append(
+                            (current_timestamp, table_size_bytes_id, table_size_bytes, table_object_id)
+                        )
+                        
+                        self.logger.debug("Collected table metrics", 
+                                        table=table, 
+                                        record_count=record_count,
+                                        size_bytes=table_size_bytes)
+                        
+                    except Exception as size_e:
+                        # If we can't get size, use simple estimation
+                        self.logger.warning("Failed to get table size, using simple estimation", 
+                                          table=table, error=str(size_e))
+                        estimated_size = record_count * 100
+                        metrics_to_insert.append(
+                            (current_timestamp, table_size_bytes_id, estimated_size, table_object_id)
+                        )
+                        
+                except Exception as e:
+                    self.logger.warning("Failed to get table metrics", 
+                                      table=table, error=str(e))
+                    continue
+            
+            # Collect index-level metrics (index count)
+            self.logger.info("Collecting index-level metrics")
+            cursor.execute("SELECT COUNT(*) FROM sqlite_master WHERE type='index' AND name NOT LIKE 'sqlite_%'")
+            index_count = cursor.fetchone()[0]
+            
+            # Get or create metric name ID for index count
+            index_count_id = self._get_or_create_metric_name_id('index_count', 'Total number of user indexes')
+            metrics_to_insert.append(
+                (current_timestamp, index_count_id, index_count, None)
+            )
+            
+            # Bulk insert all metrics using normalized schema
+            self.logger.info("Storing metrics to database", metric_count=len(metrics_to_insert))
+            cursor.executemany("""
+                INSERT INTO db_metrics (timestamp, metric_name_id, metric_value, object_id)
+                VALUES (?, ?, ?, ?)
+            """, metrics_to_insert)
+            
+            self.sqlite_conn.commit()
+            self.logger.info("Successfully collected and stored database metrics", 
+                           metrics_collected=len(metrics_to_insert))
+            return True
+            
+        except Exception as e:
+            self.logger.error("Failed to collect database metrics", error=str(e))
+            try:
+                self.sqlite_conn.rollback()
+            except Exception:
+                pass
+            return False
 
     @db_operation(default_return_value=[])
     def validate_database(self, perform_fixes: bool = False) -> List[Dict[str, Any]]:

@@ -233,6 +233,41 @@ async def lifespan(app: FastAPI):
 
     backup_task = asyncio.create_task(_periodic_backup_task())
 
+    # Periodic metrics collection task
+    async def _periodic_metrics_collection_task():
+        """Periodic task to collect database metrics every 24 hours."""
+        try:
+            # Wait a bit before starting metrics collection (let services initialize)
+            await asyncio.sleep(300)  # Wait 5 minutes after startup
+            
+            while True:
+                try:
+                    if db_service:
+                        if logger:
+                            logger.info("Starting scheduled database metrics collection")
+                        success = db_service.collect_and_store_db_metrics()
+                        if success:
+                            if logger:
+                                logger.info("Scheduled database metrics collection completed successfully")
+                        else:
+                            if logger:
+                                logger.warning("Scheduled database metrics collection failed")
+                    
+                    # Sleep for 24 hours (86400 seconds)
+                    await asyncio.sleep(86400)
+                    
+                except asyncio.CancelledError:
+                    break
+                except Exception as e:
+                    if logger:
+                        logger.warning("Periodic metrics collection failed", error=str(e))
+                    # Wait 1 hour before retrying on error
+                    await asyncio.sleep(3600)
+        except Exception:
+            pass
+
+    metrics_task = asyncio.create_task(_periodic_metrics_collection_task())
+
     # Compute restore suggestion: if db file missing or empty and backups exist
     restore_suggestion = {
         "suggest": False,
@@ -272,9 +307,14 @@ async def lifespan(app: FastAPI):
         if logger:
             logger.warning("Shutdown backup failed", error=str(e))
 
-    # Cancel periodic backup
+    # Cancel periodic tasks
     try:
         backup_task.cancel()
+    except Exception:
+        pass
+    
+    try:
+        metrics_task.cancel()
     except Exception:
         pass
 
@@ -1621,6 +1661,37 @@ async def get_database_statistics():
             logger.error("Failed to get database statistics", error=str(e))
         
         raise HTTPException(status_code=500, detail=f"Failed to get database statistics: {str(e)}")
+
+
+@app.post("/api/v1/database/collect-metrics")
+async def collect_database_metrics():
+    """Trigger collection and storage of database health metrics."""
+    global db_service, logger
+    
+    if not db_service:
+        raise HTTPException(status_code=500, detail="Database service not available")
+    
+    try:
+        if logger:
+            logger.info("Database metrics collection request received")
+        
+        # Trigger metrics collection using the new service method
+        success = db_service.collect_and_store_db_metrics()
+        
+        if success:
+            if logger:
+                logger.info("Database metrics collected and stored successfully")
+            return {"success": True, "message": "Database metrics collected and stored successfully"}
+        else:
+            if logger:
+                logger.error("Database metrics collection failed")
+            raise HTTPException(status_code=500, detail="Database metrics collection failed")
+        
+    except Exception as e:
+        if logger:
+            logger.error("Failed to collect database metrics", error=str(e))
+        
+        raise HTTPException(status_code=500, detail=f"Failed to collect database metrics: {str(e)}")
 
 
 @app.post("/api/query", response_model=QueryResponse)

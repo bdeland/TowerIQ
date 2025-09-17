@@ -9,6 +9,7 @@ import { DashboardGrid } from '../components/DashboardGrid';
 import { generateUUID } from '../utils/uuid';
 import { featureFlags } from '../config/featureFlags';
 import { defaultDashboard } from '../config/defaultDashboard';
+import { databaseHealthDashboard } from '../config/databaseHealthDashboard';
 import { DashboardVariableProvider, useDashboardVariable } from '../contexts/DashboardVariableContext';
 import { composeQuery } from '../utils/queryComposer';
 import { API_CONFIG } from '../config/environment';
@@ -27,38 +28,92 @@ function DefaultDashboardContent({ panels, currentDashboard, isEditMode, selecte
   onDeletePanel: (panelId: string) => void;
   getSelectedPanel: () => DashboardPanel | null;
 }) {
-  const { selectedValues } = useDashboardVariable();
   const { isDevMode } = useDeveloper();
   const [panelData, setPanelData] = useState<Record<string, any[]>>({});
+  const [isLoading, setIsLoading] = useState(false);
+  const [lastPanelIds, setLastPanelIds] = useState<string>('');
+
+  // Only use dashboard variables if the dashboard has them
+  let selectedValues = {};
+  try {
+    if (currentDashboard?.variables && currentDashboard.variables.length > 0) {
+      const dashboardVariableContext = useDashboardVariable();
+      selectedValues = dashboardVariableContext.selectedValues;
+    }
+  } catch (error) {
+    // Dashboard variable context not available, use empty values
+    selectedValues = {};
+  }
 
   useEffect(() => {
+    const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+    
+    // Create a stable identifier for the current panels to prevent infinite loops
+    const currentPanelIds = panels.map(p => p.id).sort().join(',');
+    const selectedValuesString = JSON.stringify(selectedValues);
+    
+    // Only fetch if panels have changed or selectedValues have changed, and we're not already loading
+    if (isLoading || currentPanelIds === lastPanelIds) {
+      return;
+    }
+    
     const fetchAllPanelData = async () => {
-      for (const panel of panels) {
-        if (panel.query) {
-          const finalQuery = composeQuery(panel.query, selectedValues);
-          try {
-            const response = await fetch(`${API_CONFIG.BASE_URL}/query`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ query: finalQuery }),
-            });
-            
-            if (!response.ok) {
-              throw new Error(`Query failed: ${response.statusText}`);
+      setIsLoading(true);
+      setLastPanelIds(currentPanelIds);
+      
+      // Reset panel data when starting fresh fetch
+      setPanelData({});
+      
+      // Process panels in batches to avoid overwhelming the server
+      const BATCH_SIZE = 2; // Reduced batch size to be more conservative
+      const DELAY_BETWEEN_BATCHES = 300; // Increased delay between batches
+      const DELAY_BETWEEN_REQUESTS = 150; // Increased delay between individual requests
+      
+      const panelsWithQueries = panels.filter(panel => panel.query);
+      
+      try {
+        for (let i = 0; i < panelsWithQueries.length; i += BATCH_SIZE) {
+          const batch = panelsWithQueries.slice(i, i + BATCH_SIZE);
+          
+          // Process each panel in the batch with a small delay between requests
+          for (const panel of batch) {
+            const finalQuery = composeQuery(panel.query, selectedValues);
+            try {
+              const response = await fetch(`${API_CONFIG.BASE_URL}/query`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ query: finalQuery }),
+              });
+              
+              if (!response.ok) {
+                throw new Error(`Query failed: ${response.statusText}`);
+              }
+              
+              const result = await response.json();
+              setPanelData(prev => ({ ...prev, [panel.id]: result.data }));
+            } catch (error) {
+              console.error(`Failed to fetch data for panel ${panel.title}:`, error);
+              setPanelData(prev => ({ ...prev, [panel.id]: [] }));
             }
             
-            const result = await response.json();
-            setPanelData(prev => ({ ...prev, [panel.id]: result.data }));
-          } catch (error) {
-            console.error(`Failed to fetch data for panel ${panel.title}:`, error);
-            setPanelData(prev => ({ ...prev, [panel.id]: [] }));
+            // Small delay between individual requests to prevent overwhelming
+            if (batch.indexOf(panel) < batch.length - 1) {
+              await delay(DELAY_BETWEEN_REQUESTS);
+            }
+          }
+          
+          // Delay between batches (except for the last batch)
+          if (i + BATCH_SIZE < panelsWithQueries.length) {
+            await delay(DELAY_BETWEEN_BATCHES);
           }
         }
+      } finally {
+        setIsLoading(false);
       }
     };
 
     fetchAllPanelData();
-  }, [selectedValues, panels]);
+  }, [selectedValues, panels, isLoading, lastPanelIds]);
 
   return (
     <Box sx={{ padding: '8px 8px 8px 8px', border: isDevMode ? '2px solid red' : 'none' }} data-content-container="true">
@@ -110,7 +165,7 @@ export function DashboardViewPage() {
   // Handler functions for dashboard edit context
   const handleEditModeToggle = useCallback(() => {
     if (!featureFlags.enableAdHocDashboards) return; // Prevent entering edit mode
-    if (id === 'default-dashboard') return; // Prevent editing default dashboard
+    if (id === 'default-dashboard' || id === 'database-health-dashboard') return; // Prevent editing system dashboards
     if (isEditMode) {
       setIsEditMode(false);
       setSelectedPanelId(null);
@@ -310,6 +365,18 @@ export function DashboardViewPage() {
           return;
         }
         
+        // Check if this is the database health dashboard
+        if (id === 'database-health-dashboard') {
+          console.log('DashboardViewPage - Loading hardcoded database health dashboard');
+          const dashboard = databaseHealthDashboard;
+          setCurrentDashboard(dashboard);
+          setPanels(dashboard.config.panels || []);
+          setIsEditMode(false);
+          setSelectedPanelId(null);
+          setOriginalPanels(dashboard.config.panels || []);
+          return;
+        }
+        
         // For other dashboards, fetch from backend
         const dashboard = await fetchDashboard(id);
         if (dashboard) {
@@ -424,7 +491,7 @@ export function DashboardViewPage() {
     </Box>
   );
 
-  // Use DefaultDashboardContent for default dashboard (provider is now at app level)
+  // Use DefaultDashboardContent for default dashboards (handles variables conditionally)
   if (currentDashboard?.is_default) {
     return (
       <DefaultDashboardContent
