@@ -696,21 +696,24 @@ class MainController:
 
                 elif event_type == 'gameOver' and run_id is not None:
                     final_wave = payload.get('currentWave')
-                    coins_earned = payload.get('coinsEarned')
-                    duration_gametime = payload.get('gameTimestamp')
+                    duration_gametime = payload.get('gameDuration')  # Fixed: use gameDuration not gameTimestamp
                     # Fetch final totals derived from metrics
                     totals = {}
                     try:
                         totals = self.db_service.get_final_round_totals(str(run_id)) or {}
                     except Exception:
                         totals = {}
+                    
+                    # Get round_coins from totals (now includes round_coins)
+                    round_coins = totals.get('round_coins')
+                    
                     self.db_service.update_run_end(
                         run_id=str(run_id),
                         end_time=event_ts,
                         final_wave=int(final_wave) if isinstance(final_wave, (int, float)) else None,
-                        coins_earned=float(coins_earned) if isinstance(coins_earned, (int, float)) else None,
+                        round_coins=int(round_coins) if isinstance(round_coins, (int, float)) else None,
                         duration_realtime=None,  # compute from start_time if available
-                        duration_gametime=float(duration_gametime) if isinstance(duration_gametime, (int, float)) else None,
+                        duration_gametime=int(duration_gametime) if isinstance(duration_gametime, (int, float)) else None,
                         round_cells=totals.get('round_cells'),
                         round_gems=totals.get('round_gems'),
                         round_cash=totals.get('round_cash'),

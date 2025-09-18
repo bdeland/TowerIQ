@@ -132,7 +132,7 @@ COLUMN_METADATA: Dict[str, Dict[str, Dict[str, Any]]] = {
                 "precision": 0
             }
         },
-        "coins_earned": {
+        "round_coins": {
             "data_type": DATA_TYPES["INTEGER"],
             "unit": UNITS["COINS"],
             "description": "Total coins earned in the run",
@@ -646,7 +646,7 @@ TABLE_DEFINITIONS: Dict[str, str] = {
             duration_realtime INTEGER,
             duration_gametime INTEGER,
             final_wave INTEGER,
-            coins_earned INTEGER,
+            round_coins INTEGER,
             CPH INTEGER,
             round_cells INTEGER,
             round_gems INTEGER,

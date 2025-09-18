@@ -605,13 +605,13 @@ class DatabaseService:
         self.logger.debug("Run start inserted", run_id=run_id, start_time=start_time)
 
     @db_operation()
-    def update_run_end(self, run_id: str, end_time: int, final_wave: Optional[int] = None, coins_earned: Optional[float] = None, duration_realtime: Optional[int] = None, duration_gametime: Optional[float] = None, round_cells: Optional[float] = None, round_gems: Optional[float] = None, round_cash: Optional[float] = None) -> None:
+    def update_run_end(self, run_id: str, end_time: int, final_wave: Optional[int] = None, round_coins: Optional[float] = None, duration_realtime: Optional[int] = None, duration_gametime: Optional[float] = None, round_cells: Optional[float] = None, round_gems: Optional[float] = None, round_cash: Optional[float] = None) -> None:
         """
         Update an existing run record at the end of a round.
-        duration_realtime is now stored in seconds (auto-converted if needed).
-        CPH (coins per hour) is calculated as coins_earned / (duration_realtime in hours).
+        duration_realtime is stored in milliseconds.
+        CPH (coins per hour) is calculated as round_coins / (duration_realtime in hours).
         round_cells, round_gems, and round_cash are stored as the final aggregate values for the round.
-        Argument order: run_id, end_time, final_wave, coins_earned, duration_realtime, duration_gametime, round_cells, round_gems, round_cash
+        Argument order: run_id, end_time, final_wave, round_coins, duration_realtime, duration_gametime, round_cells, round_gems, round_cash
         """
         if not self.sqlite_conn:
             return
@@ -630,31 +630,29 @@ class DatabaseService:
                 return
             start_time = row[0]
             duration_realtime = int(end_time) - int(start_time) if end_time is not None and start_time is not None else None
-        # Convert duration_realtime from ms to seconds if it's > 10,000 (assume ms if so)
-        if duration_realtime is not None and duration_realtime > 10000:
-            duration_realtime = int(duration_realtime // 1000)
-        # Calculate CPH (coins per hour)
+        # duration_realtime should be stored in milliseconds (no conversion)
+        # Calculate CPH (coins per hour) as integer
         CPH = None
-        if coins_earned is not None and duration_realtime and duration_realtime > 0:
-            hours = duration_realtime / 3600.0
+        if round_coins is not None and duration_realtime and duration_realtime > 0:
+            hours = duration_realtime / 3600000.0  # Convert milliseconds to hours
             if hours > 0:
-                CPH = float(coins_earned) / hours  # Store as REAL in V1.0 schema
+                CPH = int(round_coins / hours)  # Store as INTEGER
         
         self.sqlite_conn.execute(
             """
-            UPDATE runs SET end_time = ?, final_wave = ?, coins_earned = ?, duration_realtime = ?, duration_gametime = ?, CPH = ?, round_cells = ?, round_gems = ?, round_cash = ?
+            UPDATE runs SET end_time = ?, final_wave = ?, round_coins = ?, duration_realtime = ?, duration_gametime = ?, CPH = ?, round_cells = ?, round_gems = ?, round_cash = ?
             WHERE run_id = ?
             """,
             (
                 int(end_time) if end_time is not None else None,
                 int(final_wave) if final_wave is not None else None,
-                coins_earned,  # Store as REAL in V1.0 schema
+                int(round_coins) if round_coins is not None else None,  # Store as INTEGER
                 int(duration_realtime) if duration_realtime is not None else None,
-                duration_gametime,  # Store as REAL in V1.0 schema
-                CPH,  # Store as REAL in V1.0 schema
-                round_cells,  # Store as REAL in V1.0 schema
-                round_gems,  # Store as REAL in V1.0 schema
-                round_cash,  # Store as REAL in V1.0 schema
+                int(duration_gametime) if duration_gametime is not None else None,  # Store as INTEGER (milliseconds)
+                CPH,  # Already converted to INTEGER
+                int(round_cells) if round_cells is not None else None,  # Store as INTEGER
+                int(round_gems) if round_gems is not None else None,  # Store as INTEGER
+                int(round_cash) if round_cash is not None else None,  # Store as INTEGER
                 run_id_blob
             )
         )
@@ -763,6 +761,7 @@ class DatabaseService:
         try:
             # Get the last value for each metric of interest
             metrics_of_interest = [
+                'round_coins',
                 'round_cells',
                 'round_cash',
                 'round_gems_from_blocks_value',
@@ -789,6 +788,7 @@ class DatabaseService:
             for name, value in cursor.fetchall():
                 latest_values[name] = float(value)
 
+            round_coins = latest_values.get('round_coins')
             round_cells = latest_values.get('round_cells')
             round_cash = latest_values.get('round_cash')
             # Sum value-based gem metrics to get a total gem value for the round
@@ -799,6 +799,7 @@ class DatabaseService:
                 round_gems = (round_gems_blocks or 0.0) + (round_gems_ads or 0.0)
 
             return {
+                'round_coins': float(round_coins) if round_coins is not None else None,
                 'round_cells': float(round_cells) if round_cells is not None else None,
                 'round_gems': float(round_gems) if round_gems is not None else None,
                 'round_cash': float(round_cash) if round_cash is not None else None,
@@ -975,7 +976,7 @@ class DatabaseService:
     def bulk_update_runs_end(self, runs_end_data: List[Dict[str, Any]]) -> None:
         """
         Bulk update run records with end data for better performance.
-        Each run_end_data dict should contain: run_id, end_time, final_wave, coins_earned, 
+        Each run_end_data dict should contain: run_id, end_time, final_wave, round_coins, 
         duration_realtime, duration_gametime, round_cells, round_gems, round_cash
         """
         if not self.sqlite_conn or not runs_end_data:
@@ -984,20 +985,24 @@ class DatabaseService:
         # Prepare data for bulk update
         run_updates = []
         for run_data in runs_end_data:
-            # Calculate CPH if we have coins_earned and duration_realtime
-            # Note: coins_earned is now pre-scaled by 1000, duration_realtime is in seconds
+            # Get actual round_coins from metrics table instead of using provided value
+            run_id = run_data['run_id']
+            round_coins = None
+            try:
+                totals = self.get_final_round_totals(str(run_id)) or {}
+                round_coins = totals.get('round_coins')
+            except Exception:
+                round_coins = None
+            
+            # Calculate CPH if we have round_coins and duration_realtime
+            # duration_realtime is in milliseconds
             CPH = None
-            coins_earned = run_data.get('coins_earned')  # Already scaled by 1000
             duration_realtime = run_data.get('duration_realtime')
             
-            if coins_earned is not None and duration_realtime and duration_realtime > 0:
-                # Convert duration_realtime from ms to seconds if needed
-                if duration_realtime > 10000:
-                    duration_realtime = duration_realtime // 1000
-                hours = duration_realtime / 3600.0
+            if round_coins is not None and duration_realtime and duration_realtime > 0:
+                hours = duration_realtime / 3600000.0  # Convert milliseconds to hours
                 if hours > 0:
-                    # coins_earned is already scaled by 1000, so CPH will be scaled by 1000 too
-                    CPH = int(float(coins_earned) / hours)
+                    CPH = int(round_coins / hours)
             
             # Convert string UUID to BLOB for WHERE clause
             run_id_blob = uuid.UUID(run_data['run_id']).bytes
@@ -1005,19 +1010,19 @@ class DatabaseService:
             run_updates.append((
                 int(run_data.get('end_time', 0)) if run_data.get('end_time') is not None else None,
                 int(run_data.get('final_wave', 0)) if run_data.get('final_wave') is not None else None,
-                coins_earned,
+                int(round_coins) if round_coins is not None else None,
                 int(duration_realtime) if duration_realtime is not None else None,
-                run_data.get('duration_gametime'),
+                int(run_data.get('duration_gametime')) if run_data.get('duration_gametime') is not None else None,
                 CPH,  # Already converted to integer
-                run_data.get('round_cells'),
-                run_data.get('round_gems'),
-                run_data.get('round_cash'),
+                int(run_data.get('round_cells')) if run_data.get('round_cells') is not None else None,
+                int(run_data.get('round_gems')) if run_data.get('round_gems') is not None else None,
+                int(run_data.get('round_cash')) if run_data.get('round_cash') is not None else None,
                 run_id_blob
             ))
         
         sql = """
             UPDATE runs SET 
-                end_time = ?, final_wave = ?, coins_earned = ?, duration_realtime = ?, 
+                end_time = ?, final_wave = ?, round_coins = ?, duration_realtime = ?, 
                 duration_gametime = ?, CPH = ?, round_cells = ?, round_gems = ?, round_cash = ?
             WHERE run_id = ?
         """
@@ -1093,36 +1098,42 @@ class DatabaseService:
                     )
             
             # Update run end with integer values
-            # Note: coins_earned is now pre-scaled by 1000, duration_realtime is in seconds
+            # Get actual round_coins from metrics table instead of using provided value
+            run_id_str = str(run_data['run_id'])
+            round_coins = None
+            try:
+                totals = self.get_final_round_totals(run_id_str) or {}
+                round_coins = totals.get('round_coins')
+            except Exception:
+                round_coins = None
+            
+            # Calculate CPH if we have round_coins and duration_realtime
+            # duration_realtime is in milliseconds
             CPH = None
-            coins_earned = run_data.get('coins_earned')  # Already scaled by 1000
             duration_realtime = run_data.get('duration_realtime')
             
-            if coins_earned is not None and duration_realtime and duration_realtime > 0:
-                if duration_realtime > 10000:
-                    duration_realtime = duration_realtime // 1000
-                hours = duration_realtime / 3600.0
+            if round_coins is not None and duration_realtime and duration_realtime > 0:
+                hours = duration_realtime / 3600000.0  # Convert milliseconds to hours
                 if hours > 0:
-                    # coins_earned is already scaled by 1000, so CPH will be scaled by 1000 too
-                    CPH = int(float(coins_earned) / hours)
+                    CPH = int(round_coins / hours)
             
             self.sqlite_conn.execute(
                 """
                 UPDATE runs SET 
-                    end_time = ?, final_wave = ?, coins_earned = ?, duration_realtime = ?, 
+                    end_time = ?, final_wave = ?, round_coins = ?, duration_realtime = ?, 
                     duration_gametime = ?, CPH = ?, round_cells = ?, round_gems = ?, round_cash = ?
                 WHERE run_id = ?
                 """,
                 (
                     int(run_data.get('end_time', 0)) if run_data.get('end_time') is not None else None,
                     int(run_data.get('final_wave', 0)) if run_data.get('final_wave') is not None else None,
-                    coins_earned,
+                    int(round_coins) if round_coins is not None else None,
                     int(duration_realtime) if duration_realtime is not None else None,
-                    run_data.get('duration_gametime'),
+                    int(run_data.get('duration_gametime')) if run_data.get('duration_gametime') is not None else None,
                     CPH,  # Already converted to integer
-                    run_data.get('round_cells'),
-                    run_data.get('round_gems'),
-                    run_data.get('round_cash'),
+                    int(run_data.get('round_cells')) if run_data.get('round_cells') is not None else None,
+                    int(run_data.get('round_gems')) if run_data.get('round_gems') is not None else None,
+                    int(run_data.get('round_cash')) if run_data.get('round_cash') is not None else None,
                     run_id_blob
                 )
             )

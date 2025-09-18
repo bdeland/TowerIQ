@@ -557,7 +557,7 @@ def generate_run_data(tier: int, min_wave: int, max_wave: int, start_date: datet
         "game_version": game_version,
         "tier": tier,
         "final_wave": final_wave,
-        "coins_earned": int(coins_earned * SCALING_FACTOR),  # Scale for INTEGER storage
+        "round_coins": int(coins_earned * SCALING_FACTOR),  # Scale for INTEGER storage
         "duration_realtime": duration_realtime,
         "duration_gametime": int(duration_gametime * SCALING_FACTOR),  # Scale for INTEGER storage
         "round_cells": int(cells_total * SCALING_FACTOR),  # Scale for INTEGER storage
@@ -700,7 +700,7 @@ def bulk_write_all_runs_to_db(db: DatabaseService, run_data_list: list, start_da
                 'run_id': run_data['run_id'],
                 'end_time': run_data['end_time'],
                 'final_wave': run_data['final_wave'],
-                'coins_earned': run_data['coins_earned'],
+                'round_coins': run_data['round_coins'],
                 'duration_realtime': run_data['duration_realtime'],
                 'duration_gametime': run_data['duration_gametime'],
                 'round_cells': run_data['round_cells'],
