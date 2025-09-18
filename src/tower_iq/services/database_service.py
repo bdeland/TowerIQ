@@ -163,6 +163,7 @@ class DatabaseService:
                 self._initialize_schema()
                 self.set_setting("schema_version", self.SCHEMA_VERSION)
             
+            self._sync_lookup_metadata_from_schema()
         except Exception as e:
             self.logger.error("Failed to connect to SQLite database", error=str(e))
             self.sqlite_conn = None
@@ -191,6 +192,72 @@ class DatabaseService:
         self._event_name_cache.clear()
         self._game_version_cache.clear()
         self.logger.info("Schema initialization complete", schema_version=self.SCHEMA_VERSION)
+
+
+    def _sync_lookup_metadata_from_schema(self) -> None:
+        """Ensure lookup tables reflect metadata defined in the schema module."""
+        if not self.sqlite_conn:
+            return
+
+        try:
+            cursor = self.sqlite_conn.cursor()
+
+            metric_rows = [
+                (name, meta.get('display_name'), meta.get('description'), meta.get('unit'))
+                for name, meta in METRIC_METADATA.items()
+            ]
+            if metric_rows:
+                cursor.executemany(
+                    """
+                    INSERT INTO metric_names (name, display_name, description, unit)
+                    VALUES (?, ?, ?, ?)
+                    ON CONFLICT(name) DO UPDATE SET
+                        display_name = excluded.display_name,
+                        description = excluded.description,
+                        unit = excluded.unit
+                    """,
+                    metric_rows
+                )
+
+            event_rows = [
+                (name, meta.get('description'))
+                for name, meta in EVENT_METADATA.items()
+            ]
+            if event_rows:
+                cursor.executemany(
+                    """
+                    INSERT INTO event_names (name, description)
+                    VALUES (?, ?)
+                    ON CONFLICT(name) DO UPDATE SET
+                        description = excluded.description
+                    """,
+                    event_rows
+                )
+
+            db_metric_rows = [
+                (name, meta.get('description'))
+                for name, meta in DB_METRIC_METADATA.items()
+            ]
+            if db_metric_rows:
+                cursor.executemany(
+                    """
+                    INSERT INTO db_metric_names (name, description)
+                    VALUES (?, ?)
+                    ON CONFLICT(name) DO UPDATE SET
+                        description = excluded.description
+                    """,
+                    db_metric_rows
+                )
+
+            self.sqlite_conn.commit()
+            self._metric_name_cache.clear()
+            self._event_name_cache.clear()
+        except Exception as exc:
+            try:
+                self.sqlite_conn.rollback()
+            except sqlite3.Error:
+                pass
+            self.logger.error("Failed to synchronize schema metadata", error=str(exc))
 
     def close(self) -> None:
         """Gracefully close the database connection and clean up WAL files."""
