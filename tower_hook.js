@@ -14,8 +14,9 @@
     ]
 }
 */
-// tower_hook_integrated_v31.js
+// tower_hook_integrated_v32.js
 // This script is a long-running data logger.
+// v32: Removed 1000x scaling - values now sent as integers, changed gameTimestamp to gameDuration (milliseconds).
 // v31: Updated for new database structure - proper UUID generation for run_id,
 //      scaling all currency values by 1000, preserving roundSeed as game's natural PK.
 // v30: Added heartbeat and handshake mechanism for robust communication monitoring.
@@ -74,7 +75,7 @@ Il2Cpp.perform(() => {
         const basePayload = {
             timestamp: timestamp,
             roundStartTime: currentRoundStartTime,
-            gameTimestamp: getTypedFieldValue(context, "gameplayTimeThisRound"),
+            gameDuration: Math.round((getTypedFieldValue(context, "gameplayTimeThisRound") || 0) * 1000), // Convert seconds to milliseconds
             roundSeed: currentRoundSeed, // Game's natural primary key
             runId: currentRunId, // Our UUID for database compatibility
             isRoundActive: getTypedFieldValue(context, "roundActiveBool"),
@@ -88,23 +89,23 @@ Il2Cpp.perform(() => {
         const adGemsClaimed = getTypedFieldValue(context, "totalGemsEarnedFromTapjoy") || 0;
         const guardianGems = getTypedFieldValue(context, "totalGemsByGuardianThisRound") || 0;
         
-        // Scale values by 1000 for database storage (as per schema requirements)
+        // Convert values to integers for database storage
         const metrics = {
-            round_coins: Math.round((getTypedFieldValue(context, "coinsEarnedThisRound") || 0) * 1000),
-            wave_coins: Math.round((getTypedFieldValue(context, "coinsEarnedThisWave") || 0) * 1000),
-            coins: Math.round((getTypedFieldValue(context, "coins") || 0) * 1000),
-            gems: Math.round((getTypedFieldValue(context, "gems") || 0) * 1000),
-            round_cells: Math.round((getTypedFieldValue(context, "cellsEarnedThisRound") || 0) * 1000),
-            wave_cells: Math.round((getTypedFieldValue(context, "cellsEarnedThisWave") || 0) * 1000),
-            cells: Math.round((getTypedFieldValue(context, "cells") || 0) * 1000),
-            round_cash: Math.round((getTypedFieldValue(context, "cashEarnedThisRound") || 0) * 1000),
-            cash: Math.round((getTypedFieldValue(context, "cash") || 0) * 1000),
-            stones: Math.round((getTypedFieldValue(context, "stones") || 0) * 1000),
+            round_coins: Math.round(getTypedFieldValue(context, "coinsEarnedThisRound") || 0),
+            wave_coins: Math.round(getTypedFieldValue(context, "coinsEarnedThisWave") || 0),
+            coins: Math.round(getTypedFieldValue(context, "coins") || 0),
+            gems: Math.round(getTypedFieldValue(context, "gems") || 0),
+            round_cells: Math.round(getTypedFieldValue(context, "cellsEarnedThisRound") || 0),
+            wave_cells: Math.round(getTypedFieldValue(context, "cellsEarnedThisWave") || 0),
+            cells: Math.round(getTypedFieldValue(context, "cells") || 0),
+            round_cash: Math.round(getTypedFieldValue(context, "cashEarnedThisRound") || 0),
+            cash: Math.round(getTypedFieldValue(context, "cash") || 0),
+            stones: Math.round(getTypedFieldValue(context, "stones") || 0),
             round_gems_from_blocks_count: gemBlocksTapped,
-            round_gems_from_blocks_value: gemBlocksTapped * GEM_VALUE_BLOCK * 1000, // Scale gem values too
+            round_gems_from_blocks_value: gemBlocksTapped * GEM_VALUE_BLOCK,
             round_gems_from_ads_count: adGemsClaimed,
-            round_gems_from_ads_value: adGemsClaimed * GEM_VALUE_AD * 1000,
-            round_gems_from_guardian: guardianGems * 1000,
+            round_gems_from_ads_value: adGemsClaimed * GEM_VALUE_AD,
+            round_gems_from_guardian: guardianGems,
         };
         sendStatefulMessage(context, "game_metric", { metrics: metrics });
     }
@@ -134,6 +135,9 @@ Il2Cpp.perform(() => {
             tier: tier,
             seed: seed // Include the game's natural seed
         });
+        
+        // Send initial metrics bundle for the new round
+        sendMetricsBundle(instance);
     }
     try {
         const Main = Il2Cpp.domain.assembly("Assembly-CSharp").image.class("Main");
@@ -189,8 +193,11 @@ Il2Cpp.perform(() => {
             if (currentRunId && currentRoundSeed !== 0) {
                 log("INFO", `Capturing final stats for run: ${currentRunId} (seed: ${currentRoundSeed})`);
                 
-                // Scale coins earned by 1000 for database storage
-                const coinsEarned = (getTypedFieldValue(this, "coinsEarnedThisRound") || 0) * 1000;
+                // Send final metrics bundle before game over
+                sendMetricsBundle(this);
+                
+                // Get coins earned as integer
+                const coinsEarned = Math.round(getTypedFieldValue(this, "coinsEarnedThisRound") || 0);
                 
                 sendStatefulMessage(this, "game_event", {
                     event: "gameOver",
@@ -236,7 +243,7 @@ Il2Cpp.perform(() => {
             log("INFO", "Gem Block tapped by player.");
             sendStatefulMessage(this, "game_event", {
                 event: "gemBlockTapped",
-                gemValue: GEM_VALUE_BLOCK * 1000 // Scale for database storage
+                gemValue: GEM_VALUE_BLOCK
             });
             return this.method("GemBlockTap").invoke(...args);
         };
@@ -254,7 +261,7 @@ Il2Cpp.perform(() => {
             if (mainContext && !mainContext.isNull()) {
                 sendStatefulMessage(mainContext, "game_event", {
                     event: "adGemClaimed",
-                    gemValue: GEM_VALUE_AD * 1000 // Scale for database storage
+                    gemValue: GEM_VALUE_AD
                 });
             }
             else {

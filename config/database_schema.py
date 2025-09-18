@@ -101,7 +101,7 @@ COLUMN_METADATA: Dict[str, Dict[str, Dict[str, Any]]] = {
         },
         "duration_realtime": {
             "data_type": DATA_TYPES["DURATION"],
-            "unit": UNITS["SECONDS"],
+            "unit": UNITS["MILLISECONDS"],
             "description": "Real-world duration of the run",
             "is_primary_key": False,
             "is_nullable": True,
@@ -112,11 +112,10 @@ COLUMN_METADATA: Dict[str, Dict[str, Dict[str, Any]]] = {
         },
         "duration_gametime": {
             "data_type": DATA_TYPES["DURATION"],
-            "unit": UNITS["SECONDS"],
+            "unit": UNITS["MILLISECONDS"],
             "description": "In-game duration of the run",
             "is_primary_key": False,
             "is_nullable": True,
-            "scaling_factor": 1000,
             "formatting": {
                 "display_as": "duration",
                 "precision": 0
@@ -134,71 +133,66 @@ COLUMN_METADATA: Dict[str, Dict[str, Dict[str, Any]]] = {
             }
         },
         "coins_earned": {
-            "data_type": DATA_TYPES["CURRENCY"],
+            "data_type": DATA_TYPES["INTEGER"],
             "unit": UNITS["COINS"],
             "description": "Total coins earned in the run",
             "is_primary_key": False,
             "is_nullable": True,
-            "scaling_factor": 1000,
             "formatting": {
                 "display_as": "currency",
-                "precision": 3,
+                "precision": 0,
                 "use_commas": True,
                 "suffix": " coins"
             }
         },
         "CPH": {
-            "data_type": DATA_TYPES["CURRENCY"],
+            "data_type": DATA_TYPES["INTEGER"],
             "unit": UNITS["COINS_PER_HOUR"],
             "description": "Coins per hour rate",
             "is_primary_key": False,
             "is_nullable": True,
-            "scaling_factor": 1000,
             "formatting": {
                 "display_as": "currency",
-                "precision": 3,
+                "precision": 0,
                 "use_commas": True,
                 "suffix": " coins/h"
             }
         },
         "round_cells": {
-            "data_type": DATA_TYPES["CURRENCY"],
+            "data_type": DATA_TYPES["INTEGER"],
             "unit": UNITS["CELLS"],
             "description": "Total cells accumulated in the run",
             "is_primary_key": False,
             "is_nullable": True,
-            "scaling_factor": 1000,
             "formatting": {
                 "display_as": "currency",
-                "precision": 3,
+                "precision": 0,
                 "use_commas": True,
                 "suffix": " cells"
             }
         },
         "round_gems": {
-            "data_type": DATA_TYPES["CURRENCY"],
+            "data_type": DATA_TYPES["INTEGER"],
             "unit": UNITS["GEMS"],
             "description": "Total gems accumulated in the run",
             "is_primary_key": False,
             "is_nullable": True,
-            "scaling_factor": 1000,
             "formatting": {
                 "display_as": "currency",
-                "precision": 3,
+                "precision": 0,
                 "use_commas": True,
                 "suffix": " gems"
             }
         },
         "round_cash": {
-            "data_type": DATA_TYPES["CURRENCY"],
+            "data_type": DATA_TYPES["INTEGER"],
             "unit": UNITS["CASH"],
             "description": "Total cash accumulated in the run",
             "is_primary_key": False,
             "is_nullable": True,
-            "scaling_factor": 1000,
             "formatting": {
                 "display_as": "currency",
-                "precision": 3,
+                "precision": 0,
                 "use_commas": True,
                 "suffix": " cash"
             }
@@ -265,16 +259,15 @@ COLUMN_METADATA: Dict[str, Dict[str, Dict[str, Any]]] = {
                 "timezone": "UTC"
             }
         },
-        "game_timestamp": {
+        "game_duration": {
             "data_type": DATA_TYPES["DURATION"],
-            "unit": UNITS["SECONDS"],
-            "description": "In-game timestamp when metric was recorded",
+            "unit": UNITS["MILLISECONDS"],
+            "description": "In-game duration when metric was recorded",
             "is_primary_key": False,
             "is_nullable": True,
-            "scaling_factor": 1000,
             "formatting": {
                 "display_as": "duration",
-                "precision": 3
+                "precision": 0
             }
         },
         "current_wave": {
@@ -303,14 +296,13 @@ COLUMN_METADATA: Dict[str, Dict[str, Dict[str, Any]]] = {
         },
         "metric_value": {
             "data_type": DATA_TYPES["INTEGER"],
-            "unit": UNITS["SCALED"],
-            "description": "Scaled metric value (precision depends on metric type)",
+            "unit": UNITS["RAW"],
+            "description": "Metric value as integer",
             "is_primary_key": False,
             "is_nullable": False,
-            "scaling_factor": 1000,
             "formatting": {
                 "display_as": "number",
-                "precision": 3,
+                "precision": 0,
                 "use_commas": True
             }
         }
@@ -388,11 +380,10 @@ METRIC_METADATA: Dict[str, Dict[str, Any]] = {
         "display_name": "Round Coins", 
         "description": "Total coins accumulated during the run.", 
         "unit": UNITS["COINS"],
-        "data_type": DATA_TYPES["CURRENCY"],
-        "scaling_factor": 1000,
+        "data_type": DATA_TYPES["INTEGER"],
         "formatting": {
             "display_as": "currency",
-            "precision": 3,
+            "precision": 0,
             "use_commas": True,
             "suffix": " coins"
         }
@@ -401,11 +392,10 @@ METRIC_METADATA: Dict[str, Dict[str, Any]] = {
         "display_name": "Wave Coins", 
         "description": "Coins generated specifically by the completed wave.", 
         "unit": UNITS["COINS"],
-        "data_type": DATA_TYPES["CURRENCY"],
-        "scaling_factor": 1000,
+        "data_type": DATA_TYPES["INTEGER"],
         "formatting": {
             "display_as": "currency",
-            "precision": 3,
+            "precision": 0,
             "use_commas": True,
             "suffix": " coins"
         }
@@ -414,11 +404,10 @@ METRIC_METADATA: Dict[str, Dict[str, Any]] = {
         "display_name": "Global Coins", 
         "description": "The player's total coin balance, including global multipliers.", 
         "unit": UNITS["COINS"],
-        "data_type": DATA_TYPES["CURRENCY"],
-        "scaling_factor": 1000,
+        "data_type": DATA_TYPES["INTEGER"],
         "formatting": {
             "display_as": "currency",
-            "precision": 3,
+            "precision": 0,
             "use_commas": True,
             "suffix": " coins"
         }
@@ -427,11 +416,10 @@ METRIC_METADATA: Dict[str, Dict[str, Any]] = {
         "display_name": "Total Gems", 
         "description": "The player's total gem balance.", 
         "unit": UNITS["GEMS"],
-        "data_type": DATA_TYPES["CURRENCY"],
-        "scaling_factor": 1000,
+        "data_type": DATA_TYPES["INTEGER"],
         "formatting": {
             "display_as": "currency",
-            "precision": 3,
+            "precision": 0,
             "use_commas": True,
             "suffix": " gems"
         }
@@ -440,11 +428,10 @@ METRIC_METADATA: Dict[str, Dict[str, Any]] = {
         "display_name": "Round Cells", 
         "description": "Total cells accumulated during the run.", 
         "unit": UNITS["CELLS"],
-        "data_type": DATA_TYPES["CURRENCY"],
-        "scaling_factor": 1000,
+        "data_type": DATA_TYPES["INTEGER"],
         "formatting": {
             "display_as": "currency",
-            "precision": 3,
+            "precision": 0,
             "use_commas": True,
             "suffix": " cells"
         }
@@ -453,11 +440,10 @@ METRIC_METADATA: Dict[str, Dict[str, Any]] = {
         "display_name": "Wave Cells", 
         "description": "Cells generated specifically by the completed wave.", 
         "unit": UNITS["CELLS"],
-        "data_type": DATA_TYPES["CURRENCY"],
-        "scaling_factor": 1000,
+        "data_type": DATA_TYPES["INTEGER"],
         "formatting": {
             "display_as": "currency",
-            "precision": 3,
+            "precision": 0,
             "use_commas": True,
             "suffix": " cells"
         }
@@ -466,11 +452,10 @@ METRIC_METADATA: Dict[str, Dict[str, Any]] = {
         "display_name": "Global Cells", 
         "description": "The player's total cell balance, including global multipliers.", 
         "unit": UNITS["CELLS"],
-        "data_type": DATA_TYPES["CURRENCY"],
-        "scaling_factor": 1000,
+        "data_type": DATA_TYPES["INTEGER"],
         "formatting": {
             "display_as": "currency",
-            "precision": 3,
+            "precision": 0,
             "use_commas": True,
             "suffix": " cells"
         }
@@ -479,11 +464,10 @@ METRIC_METADATA: Dict[str, Dict[str, Any]] = {
         "display_name": "Round Cash", 
         "description": "Total cash accumulated during the run.", 
         "unit": UNITS["CASH"],
-        "data_type": DATA_TYPES["CURRENCY"],
-        "scaling_factor": 1000,
+        "data_type": DATA_TYPES["INTEGER"],
         "formatting": {
             "display_as": "currency",
-            "precision": 3,
+            "precision": 0,
             "use_commas": True,
             "suffix": " cash"
         }
@@ -492,11 +476,10 @@ METRIC_METADATA: Dict[str, Dict[str, Any]] = {
         "display_name": "Global Cash", 
         "description": "The player's total cash balance, including global multipliers.", 
         "unit": UNITS["CASH"],
-        "data_type": DATA_TYPES["CURRENCY"],
-        "scaling_factor": 1000,
+        "data_type": DATA_TYPES["INTEGER"],
         "formatting": {
             "display_as": "currency",
-            "precision": 3,
+            "precision": 0,
             "use_commas": True,
             "suffix": " cash"
         }
@@ -505,11 +488,10 @@ METRIC_METADATA: Dict[str, Dict[str, Any]] = {
         "display_name": "Stones", 
         "description": "Total stones accumulated.", 
         "unit": UNITS["STONES"],
-        "data_type": DATA_TYPES["CURRENCY"],
-        "scaling_factor": 1000,
+        "data_type": DATA_TYPES["INTEGER"],
         "formatting": {
             "display_as": "currency",
-            "precision": 3,
+            "precision": 0,
             "use_commas": True,
             "suffix": " stones"
         }
@@ -519,10 +501,9 @@ METRIC_METADATA: Dict[str, Dict[str, Any]] = {
         "description": "Number of times a gem block was tapped.", 
         "unit": UNITS["TAPS"],
         "data_type": DATA_TYPES["COUNT"],
-        "scaling_factor": 1000,
         "formatting": {
             "display_as": "number",
-            "precision": 3,
+            "precision": 0,
             "use_commas": True,
             "suffix": " taps"
         }
@@ -531,11 +512,10 @@ METRIC_METADATA: Dict[str, Dict[str, Any]] = {
         "display_name": "Gems from Blocks", 
         "description": "Total gem value from tapped blocks.", 
         "unit": UNITS["GEMS"],
-        "data_type": DATA_TYPES["CURRENCY"],
-        "scaling_factor": 1000,
+        "data_type": DATA_TYPES["INTEGER"],
         "formatting": {
             "display_as": "currency",
-            "precision": 3,
+            "precision": 0,
             "use_commas": True,
             "suffix": " gems"
         }
@@ -545,10 +525,9 @@ METRIC_METADATA: Dict[str, Dict[str, Any]] = {
         "description": "Number of times gems were claimed from ads.", 
         "unit": UNITS["CLAIMS"],
         "data_type": DATA_TYPES["COUNT"],
-        "scaling_factor": 1000,
         "formatting": {
             "display_as": "number",
-            "precision": 3,
+            "precision": 0,
             "use_commas": True,
             "suffix": " claims"
         }
@@ -557,11 +536,10 @@ METRIC_METADATA: Dict[str, Dict[str, Any]] = {
         "display_name": "Gems from Ads", 
         "description": "Total gem value from watching ads.", 
         "unit": UNITS["GEMS"],
-        "data_type": DATA_TYPES["CURRENCY"],
-        "scaling_factor": 1000,
+        "data_type": DATA_TYPES["INTEGER"],
         "formatting": {
             "display_as": "currency",
-            "precision": 3,
+            "precision": 0,
             "use_commas": True,
             "suffix": " gems"
         }
@@ -570,11 +548,10 @@ METRIC_METADATA: Dict[str, Dict[str, Any]] = {
         "display_name": "Gems from Guardian", 
         "description": "Total gem value awarded by the Guardian.", 
         "unit": UNITS["GEMS"],
-        "data_type": DATA_TYPES["CURRENCY"],
-        "scaling_factor": 1000,
+        "data_type": DATA_TYPES["INTEGER"],
         "formatting": {
             "display_as": "currency",
-            "precision": 3,
+            "precision": 0,
             "use_commas": True,
             "suffix": " gems"
         }
@@ -684,7 +661,7 @@ TABLE_DEFINITIONS: Dict[str, str] = {
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             run_id BLOB NOT NULL REFERENCES runs(run_id) ON DELETE CASCADE,
             real_timestamp INTEGER NOT NULL,
-            game_timestamp INTEGER,
+            game_duration INTEGER,
             current_wave INTEGER,
             metric_name_id INTEGER NOT NULL REFERENCES metric_names(id),
             metric_value INTEGER NOT NULL

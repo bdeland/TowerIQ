@@ -631,7 +631,7 @@ class MainController:
                 self.db_service.write_metric(
                     run_id=str(run_id),
                     real_timestamp=timestamp or int(time.time() * 1000),
-                    game_timestamp=payload.get('gameTimestamp', float(timestamp or time.time())),
+                    game_duration=payload.get('gameDuration', 0),
                     current_wave=wave or 0,
                     metrics=metrics
                 )

@@ -334,7 +334,7 @@ class DatabaseService:
         return new_id
 
     @db_operation()
-    def write_metric(self, run_id: str, real_timestamp: int, game_timestamp: float, current_wave: int, metrics: Dict[str, float]) -> None:
+    def write_metric(self, run_id: str, real_timestamp: int, game_duration: int, current_wave: int, metrics: Dict[str, float]) -> None:
         """
         Insert new metric rows in optimized format using lookup tables and integer values.
         This method is now fully dynamic and requires no changes to add new metrics.
@@ -354,10 +354,10 @@ class DatabaseService:
                 metric_data.append((
                     run_id_blob,
                     real_timestamp,
-                    game_timestamp,
+                    game_duration,
                     current_wave,
                     metric_name_id,
-                    value
+                    int(value)  # Cast to int as per new schema
                 ))
 
         if not metric_data:
@@ -365,7 +365,7 @@ class DatabaseService:
 
         sql = """
             INSERT INTO metrics 
-            (run_id, real_timestamp, game_timestamp, current_wave, metric_name_id, metric_value) 
+            (run_id, real_timestamp, game_duration, current_wave, metric_name_id, metric_value) 
             VALUES (?, ?, ?, ?, ?, ?)
         """
         self.sqlite_conn.executemany(sql, metric_data)
@@ -404,7 +404,7 @@ class DatabaseService:
 
     @db_operation()
     def write_event(self, run_id: str, timestamp: int, event_name: str, data: Optional[dict] = None) -> None:
-        """Insert a new event row using optimized schema."""
+        """Insert a new event row using optimized schema, cleaning the data payload."""
         if not self.sqlite_conn:
             return
         
@@ -414,13 +414,25 @@ class DatabaseService:
         # Get or create event name ID
         event_name_id = self._get_or_create_lookup_id('event_names', 'name', event_name, self._event_name_cache)
         
-        data_json = json.dumps(data if data is not None else {})
+        # Clean the data payload to remove redundant information
+        clean_data = {}
+        if data:
+            # Keys to remove as they are stored in dedicated columns or are redundant
+            redundant_keys = {
+                'runId', 'run_id', 'timestamp', 'event', 'event_name',
+                'roundStartTime', 'gameTimestamp', 'roundSeed', 
+                'isRoundActive', 'currentWave'
+            }
+            clean_data = {k: v for k, v in data.items() if k not in redundant_keys}
+
+        data_json = json.dumps(clean_data)
+        
         self.sqlite_conn.execute(
             "INSERT INTO events (run_id, event_name_id, timestamp, data) VALUES (?, ?, ?, ?)",
             (run_id_blob, event_name_id, int(timestamp), data_json)
         )
         self.sqlite_conn.commit()
-        self.logger.debug("Event inserted", run_id=run_id, event_name=event_name)
+        self.logger.debug("Event inserted", run_id=run_id, event_name=event_name, clean_data=clean_data)
 
     @db_operation()
     def write_log_entry(self, log_entry: dict) -> None:
@@ -808,12 +820,12 @@ class DatabaseService:
 
     @db_operation(default_return_value=None)
     def get_all_metrics_for_run(self, run_id):
-        """Return a DataFrame of all metrics for a run, ordered by game_timestamp or real_timestamp."""
+        """Return a DataFrame of all metrics for a run, ordered by game_duration or real_timestamp."""
         if self.sqlite_conn is None:
             import pandas as pd
             return pd.DataFrame()
         conn = self.sqlite_conn
-        query = "SELECT * FROM metrics WHERE run_id = ? ORDER BY game_timestamp ASC, real_timestamp ASC"
+        query = "SELECT * FROM metrics WHERE run_id = ? ORDER BY game_duration ASC, real_timestamp ASC"
         import pandas as pd
         df = pd.read_sql_query(query, conn, params=[run_id])
         return df
@@ -918,7 +930,7 @@ class DatabaseService:
     def bulk_insert_metrics(self, metrics_data: List[Dict[str, Any]]) -> None:
         """
         Bulk insert metric records for better performance using optimized schema.
-        Each metric_data dict should contain: run_id, real_timestamp, game_timestamp, current_wave, metrics
+        Each metric_data dict should contain: run_id, real_timestamp, game_duration, current_wave, metrics
         """
         if not self.sqlite_conn or not metrics_data:
             return
@@ -930,7 +942,7 @@ class DatabaseService:
             run_id_blob = uuid.UUID(metric_data['run_id']).bytes
             
             real_timestamp = int(metric_data['real_timestamp'])
-            game_timestamp = metric_data['game_timestamp']  # Store as REAL in V1.0 schema
+            game_duration = int(metric_data['game_duration'])  # Store as INTEGER in milliseconds
             current_wave = int(metric_data['current_wave'])
             metrics = metric_data['metrics']
             
@@ -942,10 +954,10 @@ class DatabaseService:
                     metric_records.append((
                         run_id_blob,
                         real_timestamp,
-                        game_timestamp,
+                        game_duration,
                         current_wave,
                         metric_name_id,
-                        value  # Store as REAL in V1.0 schema
+                        int(value)  # Store as INTEGER
                     ))
         
         if not metric_records:
@@ -953,7 +965,7 @@ class DatabaseService:
         
         sql = """
             INSERT INTO metrics 
-            (run_id, real_timestamp, game_timestamp, current_wave, metric_name_id, metric_value) 
+            (run_id, real_timestamp, game_duration, current_wave, metric_name_id, metric_value) 
             VALUES (?, ?, ?, ?, ?, ?)
         """
         self.sqlite_conn.executemany(sql, metric_records)
@@ -1063,7 +1075,7 @@ class DatabaseService:
                 metric_records = []
                 for metric in run_data['metrics']:
                     real_timestamp = int(metric['real_timestamp'])
-                    game_timestamp = metric['game_timestamp']  # Keep as REAL
+                    game_duration = int(metric['game_duration'])  # Store as INTEGER in milliseconds
                     current_wave = int(metric['current_wave'])
                     metrics_dict = metric['metrics']
                     
@@ -1071,12 +1083,12 @@ class DatabaseService:
                         if value is not None:
                             metric_name_id = self._get_or_create_metric_name_id(name)
                             metric_records.append((
-                                run_id_blob, real_timestamp, game_timestamp, current_wave, metric_name_id, value
+                                run_id_blob, real_timestamp, game_duration, current_wave, metric_name_id, int(value)
                             ))
                 
                 if metric_records:
                     self.sqlite_conn.executemany(
-                        "INSERT INTO metrics (run_id, real_timestamp, game_timestamp, current_wave, metric_name_id, metric_value) VALUES (?, ?, ?, ?, ?, ?)",
+                        "INSERT INTO metrics (run_id, real_timestamp, game_duration, current_wave, metric_name_id, metric_value) VALUES (?, ?, ?, ?, ?, ?)",
                         metric_records
                     )
             

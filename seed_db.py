@@ -82,7 +82,7 @@ STAGGER_MINUTES = 10  # Minutes between run start times
 
 # INTEGER scaling factors for database storage (to preserve decimal precision)
 SCALING_FACTOR = 1000  # 3 decimal places for most values
-TIME_SCALING_FACTOR = 1000  # For game_timestamp (milliseconds)
+TIME_SCALING_FACTOR = 1000  # For game_duration (milliseconds)
 
 # Survival probability parameters
 SURVIVAL_PROB_MIN_WAVE = 0.95  # 95% survival at min_wave
@@ -506,7 +506,7 @@ def generate_run_data(tier: int, min_wave: int, max_wave: int, start_date: datet
         metrics.append({
             "run_id": run_id,
             "real_timestamp": real_ts_ms,
-            "game_timestamp": game_ts_scaled,  # Use scaled timestamp
+            "game_duration": game_ts_scaled,  # Use scaled duration in milliseconds
             "current_wave": wave,
             "metrics": metrics_data,
         })
