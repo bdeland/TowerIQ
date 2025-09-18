@@ -306,8 +306,14 @@ class SourceLogFilter(logging.Filter):
 
 class ColoredConsoleRenderer:
     """
-    Custom renderer for colored console output.
+    Custom renderer for colored console output with smart formatting.
     """
+    
+    def __init__(self):
+        """Initialize the renderer with message tracking for deduplication."""
+        self.last_messages = {}
+        self.message_counts = {}
+        self.heartbeat_count = 0
     
     def __call__(self, logger: Any, method_name: str, event_dict: Any) -> str:
         """
@@ -327,6 +333,28 @@ class ColoredConsoleRenderer:
         original_source = event_dict.get('source', 'UNKNOWN')
         event = event_dict.get('event', '')
         
+        # Handle heartbeat messages specially
+        if 'frida_heartbeat' in event or 'Frida script is alive' in event:
+            self.heartbeat_count += 1
+            if self.heartbeat_count % 4 == 0:  # Show every 4th heartbeat
+                event = f"Frida heartbeat active ({self.heartbeat_count} beats)"
+            else:
+                return ""  # Skip this heartbeat
+        
+        # Smart truncation for very long messages
+        max_event_length = 120
+        if len(event) > max_event_length:
+            # Try to find a good break point
+            if '"' in event and event.count('"') >= 2:
+                # For JSON-like messages, truncate at a reasonable point
+                truncate_at = event.find('"', max_event_length // 2)
+                if truncate_at > max_event_length // 3:
+                    event = event[:truncate_at] + '"...'
+                else:
+                    event = event[:max_event_length] + "..."
+            else:
+                event = event[:max_event_length] + "..."
+        
         # Color mapping for log levels
         level_colors = {
             'DEBUG': Fore.CYAN,
@@ -338,12 +366,23 @@ class ColoredConsoleRenderer:
         
         level_color = level_colors.get(level, Fore.WHITE)
         
+        # Category-specific formatting
+        category_colors = {
+            'frida': Fore.MAGENTA,
+            'device': Fore.YELLOW,
+            'database': Fore.BLUE,
+            'application': Fore.GREEN,
+            'gui': Fore.CYAN,
+            'system': Fore.WHITE
+        }
+        
+        category_color = category_colors.get(category.lower(), Fore.BLUE)
+        
         # Base format with timestamp, level, category, and event
-        # Show category in main display, original source as context in extra fields
         formatted = (
             f"{Fore.WHITE}[{timestamp}] "
             f"{level_color}[{level:^7}] "
-            f"{Fore.BLUE}[{category.title()}] "
+            f"{category_color}[{category.title():^8}] "
             f"{Fore.WHITE}{event}"
         )
         
@@ -358,9 +397,20 @@ class ColoredConsoleRenderer:
         if original_source and original_source.lower() != category.lower():
             extra_fields.append(f"source={original_source}")
         
+        # Smart handling of extra fields - limit and format nicely
         for key, value in event_dict.items():
             if key not in excluded_keys:
-                extra_fields.append(f"{key}={value}")
+                # Truncate long values
+                str_value = str(value)
+                if len(str_value) > 50:
+                    str_value = str_value[:47] + "..."
+                extra_fields.append(f"{key}={str_value}")
+        
+        # Limit number of extra fields shown
+        if len(extra_fields) > 3:
+            shown_fields = extra_fields[:3]
+            shown_fields.append(f"...+{len(extra_fields)-3} more")
+            extra_fields = shown_fields
         
         if extra_fields:
             formatted += f" {Fore.CYAN}({', '.join(extra_fields)})"

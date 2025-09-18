@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { invoke } from '@tauri-apps/api/core';
+import { defaultRequestCache, CacheKeys } from '../utils/requestCache';
 
 export interface SessionState {
   is_connected: boolean;
@@ -235,15 +236,24 @@ export const useBackend = () => {
       setLoading(true);
       setError(null);
       
-      // Add timeout to prevent hanging
-      const timeoutPromise = new Promise<never>((_, reject) => {
-        setTimeout(() => reject(new Error('Device scanning timed out')), 45000); // 45 second timeout
-      });
+      // Use cache with 5-second TTL for device scanning
+      const result = await defaultRequestCache.get(
+        CacheKeys.devices(),
+        async () => {
+          // Add timeout to prevent hanging
+          const timeoutPromise = new Promise<never>((_, reject) => {
+            setTimeout(() => reject(new Error('Device scanning timed out')), 45000); // 45 second timeout
+          });
+          
+          const scanPromise = invoke<{devices: Device[]}>('scan_devices');
+          
+          const result = await Promise.race([scanPromise, timeoutPromise]);
+          return result.devices;
+        },
+        { ttl: 5000 } // 5 seconds as specified in PRD
+      );
       
-      const scanPromise = invoke<{devices: Device[]}>('scan_devices');
-      
-      const result = await Promise.race([scanPromise, timeoutPromise]);
-      return result.devices;
+      return result;
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Unknown error';
       setError(errorMessage);
@@ -260,15 +270,24 @@ export const useBackend = () => {
       setLoading(true);
       setError(null);
       
-      // Add timeout to prevent hanging
-      const timeoutPromise = new Promise<never>((_, reject) => {
-        setTimeout(() => reject(new Error('Device refresh timed out')), 45000); // 45 second timeout
-      });
+      // Force refresh by invalidating cache and making new request
+      const result = await defaultRequestCache.get(
+        CacheKeys.devices(),
+        async () => {
+          // Add timeout to prevent hanging
+          const timeoutPromise = new Promise<never>((_, reject) => {
+            setTimeout(() => reject(new Error('Device refresh timed out')), 45000); // 45 second timeout
+          });
+          
+          const refreshPromise = invoke<{devices: Device[]}>('refresh_devices');
+          
+          const result = await Promise.race([refreshPromise, timeoutPromise]);
+          return result.devices;
+        },
+        { forceRefresh: true, ttl: 5000 } // Force refresh and cache for 5 seconds
+      );
       
-      const refreshPromise = invoke<{devices: Device[]}>('refresh_devices');
-      
-      const result = await Promise.race([refreshPromise, timeoutPromise]);
-      return result.devices;
+      return result;
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Unknown error';
       setError(errorMessage);
@@ -284,14 +303,24 @@ export const useBackend = () => {
     try {
       setLoading(true);
       setError(null);
-      const result = await invoke<{processes: Process[], message?: string}>('get_processes', { deviceId });
       
-      // Log message if provided
-      if (result.message) {
-        console.log('Process listing message:', result.message);
-      }
+      // Cache processes for 10 seconds per device
+      const result = await defaultRequestCache.get(
+        CacheKeys.processes(deviceId),
+        async () => {
+          const result = await invoke<{processes: Process[], message?: string}>('get_processes', { deviceId });
+          
+          // Log message if provided
+          if (result.message) {
+            console.log('Process listing message:', result.message);
+          }
+          
+          return result.processes;
+        },
+        { ttl: 10000 } // 10 seconds for process lists
+      );
       
-      return result.processes;
+      return result;
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Unknown error';
       setError(errorMessage);
@@ -305,8 +334,18 @@ export const useBackend = () => {
     try {
       setLoading(true);
       setError(null);
-      const result = await invoke<{scripts: HookScript[]}>('get_hook_scripts');
-      return result.scripts;
+      
+      // Cache hook scripts for 30 seconds (they don't change often)
+      const result = await defaultRequestCache.get(
+        CacheKeys.hookScripts(),
+        async () => {
+          const result = await invoke<{scripts: HookScript[]}>('get_hook_scripts');
+          return result.scripts;
+        },
+        { ttl: 30000 } // 30 seconds for hook scripts
+      );
+      
+      return result;
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Unknown error';
       setError(errorMessage);
@@ -344,10 +383,20 @@ export const useBackend = () => {
     try {
       setLoading(true);
       setError(null);
-      console.log('useBackend: Getting Frida status for device:', deviceId);
-      const result = await invoke<{frida_status: FridaStatus}>('get_frida_status', { deviceId });
-      console.log('useBackend: Frida status result:', result);
-      return result.frida_status;
+      
+      // Cache Frida status for 15 seconds per device
+      const result = await defaultRequestCache.get(
+        CacheKeys.fridaStatus(deviceId),
+        async () => {
+          console.log('useBackend: Getting Frida status for device:', deviceId);
+          const result = await invoke<{frida_status: FridaStatus}>('get_frida_status', { deviceId });
+          console.log('useBackend: Frida status result:', result);
+          return result.frida_status;
+        },
+        { ttl: 15000 } // 15 seconds for Frida status
+      );
+      
+      return result;
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Unknown error';
       setError(errorMessage);
@@ -362,6 +411,10 @@ export const useBackend = () => {
       setLoading(true);
       setError(null);
       const result = await invoke('provision_frida_server', { deviceId });
+      
+      // Invalidate Frida status cache after provisioning
+      defaultRequestCache.invalidate(CacheKeys.fridaStatus(deviceId));
+      
       return result;
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Unknown error';
@@ -377,6 +430,10 @@ export const useBackend = () => {
       setLoading(true);
       setError(null);
       const result = await invoke('start_frida_server', { deviceId });
+      
+      // Invalidate Frida status cache after starting
+      defaultRequestCache.invalidate(CacheKeys.fridaStatus(deviceId));
+      
       return result;
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Unknown error';
@@ -392,6 +449,10 @@ export const useBackend = () => {
       setLoading(true);
       setError(null);
       const result = await invoke('stop_frida_server', { deviceId });
+      
+      // Invalidate Frida status cache after stopping
+      defaultRequestCache.invalidate(CacheKeys.fridaStatus(deviceId));
+      
       return result;
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Unknown error';
@@ -407,6 +468,10 @@ export const useBackend = () => {
       setLoading(true);
       setError(null);
       const result = await invoke('install_frida_server', { deviceId });
+      
+      // Invalidate Frida status cache after installing
+      defaultRequestCache.invalidate(CacheKeys.fridaStatus(deviceId));
+      
       return result;
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Unknown error';
@@ -422,6 +487,10 @@ export const useBackend = () => {
       setLoading(true);
       setError(null);
       const result = await invoke('remove_frida_server', { deviceId });
+      
+      // Invalidate Frida status cache after removing
+      defaultRequestCache.invalidate(CacheKeys.fridaStatus(deviceId));
+      
       return result;
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Unknown error';
@@ -437,6 +506,10 @@ export const useBackend = () => {
       setLoading(true);
       setError(null);
       const result = await invoke('activate_hook', { deviceId, processInfo, scriptId });
+      
+      // Invalidate script status cache after activation
+      defaultRequestCache.invalidate(CacheKeys.scriptStatus());
+      
       return result;
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Unknown error';
@@ -452,6 +525,10 @@ export const useBackend = () => {
       setLoading(true);
       setError(null);
       const result = await invoke('deactivate_hook', { deviceId, processInfo });
+      
+      // Invalidate script status cache after deactivation
+      defaultRequestCache.invalidate(CacheKeys.scriptStatus());
+      
       return result;
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Unknown error';
@@ -466,7 +543,16 @@ export const useBackend = () => {
     try {
       setLoading(true);
       setError(null);
-      const result = await invoke<ScriptStatus>('get_script_status');
+      
+      // Cache script status for 3 seconds (frequently changing data)
+      const result = await defaultRequestCache.get(
+        CacheKeys.scriptStatus(),
+        async () => {
+          return await invoke<ScriptStatus>('get_script_status');
+        },
+        { ttl: 3000 } // 3 seconds for script status
+      );
+      
       return result;
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Unknown error';
@@ -527,7 +613,16 @@ export const useBackend = () => {
     try {
       setLoading(true);
       setError(null);
-      const result = await invoke<AdbStatus>('get_adb_status');
+      
+      // Cache ADB status for 10 seconds
+      const result = await defaultRequestCache.get(
+        CacheKeys.adbStatus(),
+        async () => {
+          return await invoke<AdbStatus>('get_adb_status');
+        },
+        { ttl: 10000 } // 10 seconds for ADB status
+      );
+      
       return result;
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Unknown error';

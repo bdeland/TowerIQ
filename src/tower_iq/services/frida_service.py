@@ -502,6 +502,82 @@ class FridaService:
                 pass
             return False
     
+    def _log_clean_message(self, message: dict) -> None:
+        """
+        Log Frida messages in a clean, readable format.
+        
+        Args:
+            message: Message dictionary from Frida
+        """
+        if message.get('type') != 'send':
+            return
+            
+        payload = message.get('payload', {})
+        msg_type = payload.get('type', 'unknown')
+        inner_payload = payload.get('payload', {})
+        
+        # Handle different message types with clean formatting
+        if msg_type == 'hook_log':
+            event = inner_payload.get('event', '')
+            msg_text = inner_payload.get('message', '')
+            level = inner_payload.get('level', 'INFO')
+            
+            # Skip heartbeats - they're handled by the console renderer
+            if 'frida_heartbeat' in event or 'Frida script is alive' in msg_text:
+                return
+                
+            # Clean up common log messages
+            if 'Hook on' in msg_text and 'is live' in msg_text:
+                hook_name = msg_text.replace('Hook on ', '').replace(' is live.', '')
+                self.logger.info(f"🎣 Hook active: {hook_name}")
+            elif 'Il2Cpp Bridge is ready' in msg_text:
+                self.logger.info("🌉 Il2Cpp Bridge ready")
+            elif 'Handshake receiver is active' in msg_text:
+                self.logger.info("🤝 Handshake receiver active")
+            else:
+                self.logger.info(f"📋 {msg_text}")
+                
+        elif msg_type == 'game_event':
+            event_name = inner_payload.get('event', 'unknown')
+            if event_name == 'startNewRound':
+                run_id = inner_payload.get('runId', 'unknown')[:8]  # Short ID
+                seed = inner_payload.get('seed', 'unknown')
+                tier = inner_payload.get('tier', 'unknown')
+                self.logger.info(f"🎮 New round started (ID: {run_id}, Seed: {seed}, Tier: {tier})")
+            elif event_name == 'gameOver':
+                coins = inner_payload.get('coinsEarned', 0)
+                self.logger.info(f"💀 Game over (Coins earned: {coins})")
+            elif event_name == 'gamePaused':
+                self.logger.info("⏸️ Game paused")
+            elif event_name == 'gameResumed':
+                self.logger.info("▶️ Game resumed")
+            elif event_name == 'gameSpeedChanged':
+                speed = inner_payload.get('value', 'unknown')
+                self.logger.info(f"⚡ Game speed: {speed}x")
+            else:
+                self.logger.info(f"🎯 Game event: {event_name}")
+                
+        elif msg_type == 'game_metric':
+            metrics = inner_payload.get('metrics', {})
+            if metrics:
+                # Format metrics in a clean, readable way
+                metric_lines = []
+                for key, value in metrics.items():
+                    if isinstance(value, (int, float)) and value != 0:
+                        # Clean up metric names
+                        clean_key = key.replace('_', ' ').title()
+                        metric_lines.append(f"  {clean_key}: {value}")
+                
+                if metric_lines:
+                    self.logger.info("📊 Game metrics:")
+                    for line in metric_lines[:8]:  # Limit to 8 most important metrics
+                        self.logger.info(line)
+                    if len(metric_lines) > 8:
+                        self.logger.info(f"  ... and {len(metric_lines) - 8} more")
+        else:
+            # For unknown message types, just log the type
+            self.logger.debug(f"📡 Frida message: {msg_type}")
+
     def _on_message(self, message: dict, data: Any) -> None:
         """
         Handle messages from the injected Frida script.
@@ -514,13 +590,12 @@ class FridaService:
             data: Optional binary data from Frida
         """
         try:
-            self.logger.info(f"_on_message received: {message}")
-            self.logger.info(f"Message type: {message.get('type')}, Payload keys: {list(message.get('payload', {}).keys()) if isinstance(message.get('payload'), dict) else 'not_dict'}")
+            # Clean message logging - only show what's useful for debugging
+            self._log_clean_message(message)
             
             # Parse the message type
             if message['type'] == 'send':
                 payload = message['payload']
-                self.logger.debug(f"Processing 'send' message with payload: {payload}")
                 
                 # Support for bulk messages: if payload is a list, queue each one
                 if isinstance(payload, list):
@@ -531,9 +606,7 @@ class FridaService:
                             'timestamp': item.get('timestamp'),
                             'pid': (self._session_manager.frida_attached_pid if self._session_manager else None)
                         }
-                        self.logger.debug(f"Parsed bulk message: {parsed_message}")
                         self._queue_message_safely(parsed_message)
-                        self.logger.debug("Bulk message received from script", message_type=parsed_message['type'])
                 else:
                     # Add metadata
                     # Extract timestamp from nested payload if available
@@ -546,8 +619,6 @@ class FridaService:
                         'timestamp': timestamp,
                         'pid': (self._session_manager.frida_attached_pid if self._session_manager else None)
                     }
-                    
-                    self.logger.debug(f"Parsed message: {parsed_message}")
                     
                     # Handle heartbeat messages immediately if session manager is available
                     if (self._session_manager and 
@@ -565,10 +636,7 @@ class FridaService:
                             self.logger.error("Failed to update script heartbeat", error=str(e))
                     
                     # Put message on async queue - use thread-safe approach
-                    self.logger.info("Queueing message for async processing", message_type=parsed_message['type'])
                     self._queue_message_safely(parsed_message)
-                    
-                    self.logger.debug("Message received from script", message_type=parsed_message['type'])
                 
             elif message['type'] == 'error':
                 self.logger.debug(f"Processing 'error' message: {message}")

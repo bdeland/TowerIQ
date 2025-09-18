@@ -125,7 +125,7 @@ class DatabaseService:
             # Check if this is a new database BEFORE connecting
             is_new_db = not db_path.exists()
             
-            self.logger.info("Connecting to SQLite database", path=self.db_path)
+            self.logger.debug("Connecting to SQLite database", path=self.db_path)
             
             # Connect to standard SQLite database
             self.sqlite_conn = sqlite3.connect(self.db_path, check_same_thread=False)
@@ -155,7 +155,7 @@ class DatabaseService:
             # Test connection
             self.sqlite_conn.execute("SELECT 1")
             
-            self.logger.info("SQLite connection established successfully")
+            self.logger.debug("SQLite connection established successfully")
             
             # Initialize schema for new databases
             if is_new_db:
@@ -2526,7 +2526,7 @@ class DatabaseService:
                 self.logger.info("Dashboards table created successfully")
                 return True
             else:
-                self.logger.info("Dashboards table already exists")
+                self.logger.debug("Dashboards table already exists")
                 return True
                 
         except Exception as e:

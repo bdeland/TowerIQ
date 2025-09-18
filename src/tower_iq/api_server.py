@@ -266,14 +266,10 @@ async def lifespan(app: FastAPI):
     # Set up logging
     setup_logging(config)
     logger = structlog.get_logger()
-    if logger:
-        logger.info("Starting TowerIQ API Server")
     
     # Initialize database service
     db_service = DatabaseService(config, logger)
     db_service.connect()
-    if logger:
-        logger.info("Database connected successfully")
     
     # Ensure dashboards table exists
     db_service.ensure_dashboards_table_exists()
@@ -299,9 +295,6 @@ async def lifespan(app: FastAPI):
     
     # Signal that the API server is ready
     controller.signal_loading_complete()
-    
-    if logger:
-        logger.info("TowerIQ API Server started successfully")
     
     # Periodic backup task
     async def _periodic_backup_task():

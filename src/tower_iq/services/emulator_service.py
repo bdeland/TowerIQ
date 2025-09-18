@@ -231,7 +231,7 @@ class EmulatorService:
         
         # Device detector is required for device information
         if DEVICE_DETECTOR_AVAILABLE:
-            self.logger.info("Device detector library available")
+            self.logger.debug("Device detector library available")
         else:
             self.logger.error("Device detector library is required but not available")
         

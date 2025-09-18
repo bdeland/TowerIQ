@@ -207,6 +207,13 @@ export function ConnectionPage() {
     })();
   }, []);
 
+  // Auto-select first hook script when scripts change
+  useEffect(() => {
+    if (hookScripts.length > 0 && !selectedHookScript) {
+      setSelectedHookScript(hookScripts[0]);
+    }
+  }, [hookScripts, selectedHookScript]);
+
   // Load script status when connected
   useEffect(() => {
     console.log('ConnectionPage: useEffect triggered', { 
@@ -290,6 +297,10 @@ export function ConnectionPage() {
     try {
       const scriptList = await getHookScripts();
       setHookScripts(scriptList);
+      // Auto-select the first script if no script is currently selected
+      if (scriptList.length > 0 && !selectedHookScript) {
+        setSelectedHookScript(scriptList[0]);
+      }
     } catch (err) {
       console.error('Failed to load hook scripts:', err);
     }
@@ -1328,7 +1339,9 @@ export function ConnectionPage() {
                 </Tooltip>
               </Box>
               <IconButton
-                onClick={loadHookScripts}
+                onClick={async () => {
+                  await loadHookScripts();
+                }}
                 size="small"
               >
                 <RefreshIcon />

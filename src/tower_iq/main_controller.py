@@ -127,13 +127,14 @@ class LoadingManager:
     def start_loading(self):
         """Start the loading sequence."""
         self._start_time = time.time()
-        self.logger.info("Starting application loading sequence")
+        self.logger.info("🚀 Starting TowerIQ application...")
     
     def mark_step_complete(self, step_name: str):
         """Mark a loading step as complete."""
         if step_name in self._loading_steps:
             self._loading_steps[step_name] = True
-            self.logger.info(f"Loading step completed: {step_name}")
+            # Only log individual steps if there are issues
+            self.logger.debug(f"Loading step completed: {step_name}")
             self._check_completion()
     
     def add_completion_callback(self, callback):
@@ -148,13 +149,19 @@ class LoadingManager:
         """Check if all loading steps are complete."""
         if all(self._loading_steps.values()) and self._start_time is not None:
             elapsed_time = time.time() - self._start_time
-            self.logger.info(f"All loading steps completed in {elapsed_time:.2f} seconds")
+            
+            # Show a nice startup summary
+            completed_steps = [step for step, completed in self._loading_steps.items() if completed]
+            self.logger.info(
+                f"✅ TowerIQ startup complete in {elapsed_time:.2f}s",
+                components=", ".join(completed_steps)
+            )
             
             # Ensure minimum display time of 3 seconds
             min_display_time = 3.0
             if elapsed_time < min_display_time:
                 remaining_time = min_display_time - elapsed_time
-                self.logger.info(f"Waiting {remaining_time:.2f} seconds to meet minimum splash screen time")
+                self.logger.debug(f"Waiting {remaining_time:.2f} seconds to meet minimum splash screen time")
                 time.sleep(remaining_time)
             
             # Notify all callbacks

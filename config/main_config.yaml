@@ -16,6 +16,7 @@ system_defaults:
     console:
       enabled: true
       level: "INFO"
+      clean_format: true  # Use clean, readable format for console output
     file:
       enabled: true
       path: "logs/tower_iq.log"
@@ -31,6 +32,8 @@ system_defaults:
       system: false
     asyncio:
       debug_enabled: false
+    startup:
+      show_individual_steps: false  # Only show summary unless there are errors
 #TODO: add these configs to the advanced settings page
   gui:
     auto_connect_emulator: false
