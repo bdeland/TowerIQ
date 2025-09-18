@@ -46,6 +46,7 @@ import { featureFlags } from '../config/featureFlags';
 import { ConfirmationDialog } from '../components/ConfirmationDialog';
 import { defaultDashboard } from '../config/defaultDashboard';
 import { databaseHealthDashboard } from '../config/databaseHealthDashboard';
+import { liveRunTrackingDashboard } from '../config/liveRunTrackingDashboard';
 
 export function DashboardsPage() {
   const navigate = useNavigate();
@@ -72,7 +73,7 @@ export function DashboardsPage() {
   const [tagFilter, setTagFilter] = useState<string>('all');
 
   // Combine database dashboards with the hardcoded dashboards
-  const allDashboards = [defaultDashboard, databaseHealthDashboard, ...dashboards];
+  const allDashboards = [liveRunTrackingDashboard, defaultDashboard, databaseHealthDashboard, ...dashboards];
 
   // Get all unique tags from all dashboards
   const allTags = Array.from(new Set(allDashboards.flatMap(d => d.tags))).sort();
@@ -186,7 +187,7 @@ export function DashboardsPage() {
 
   const handleSetDefault = async (dashboard: Dashboard) => {
     // Prevent setting default for the hardcoded dashboards
-    if (dashboard.id === 'default-dashboard' || dashboard.id === 'database-health-dashboard') {
+    if (dashboard.id === 'default-dashboard' || dashboard.id === 'database-health-dashboard' || dashboard.id === 'live-run-tracking-dashboard') {
       console.log('System dashboards cannot be set as default');
       return;
     }

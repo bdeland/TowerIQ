@@ -14,8 +14,10 @@
     ]
 }
 */
-// tower_hook_integrated_v30.js
+// tower_hook_integrated_v31.js
 // This script is a long-running data logger.
+// v31: Updated for new database structure - proper UUID generation for run_id,
+//      scaling all currency values by 1000, preserving roundSeed as game's natural PK.
 // v30: Added heartbeat and handshake mechanism for robust communication monitoring.
 // v29: Fixed script initialization error by removing duplicated hook implementations
 //      that were causing 'already been replaced by a thunk' errors.
@@ -28,6 +30,7 @@ import "frida-il2cpp-bridge";
 Il2Cpp.perform(() => {
     log("INFO", "Il2Cpp Bridge is ready and running in the emulated realm.");
     // --- SHARED STATE ---
+    let currentRunId = null; // UUID string for database
     let currentRoundSeed = 0;
     let currentRoundStartTime = 0;
     let lastKnownGameSpeed = -1;
@@ -36,6 +39,15 @@ Il2Cpp.perform(() => {
     // --- HELPER FUNCTIONS ---
     function log(level, message) {
         send({ type: "hook_log", payload: { event: "frida_log", message, level: level.toUpperCase(), timestamp: Date.now() } });
+    }
+    
+    // Generate UUID v4 compatible with database expectations
+    function generateUUID() {
+        return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+            const r = Math.random() * 16 | 0;
+            const v = c === 'x' ? r : (r & 0x3 | 0x8);
+            return v.toString(16);
+        });
     }
     function getTypedFieldValue(instanceObject, fieldName) {
         try {
@@ -63,7 +75,8 @@ Il2Cpp.perform(() => {
             timestamp: timestamp,
             roundStartTime: currentRoundStartTime,
             gameTimestamp: getTypedFieldValue(context, "gameplayTimeThisRound"),
-            roundSeed: currentRoundSeed,
+            roundSeed: currentRoundSeed, // Game's natural primary key
+            runId: currentRunId, // Our UUID for database compatibility
             isRoundActive: getTypedFieldValue(context, "roundActiveBool"),
             currentWave: getTypedFieldValue(context, "currentWave")
         };
@@ -74,22 +87,24 @@ Il2Cpp.perform(() => {
         const gemBlocksTapped = getTypedFieldValue(context, "gemBlocksThisRound") || 0;
         const adGemsClaimed = getTypedFieldValue(context, "totalGemsEarnedFromTapjoy") || 0;
         const guardianGems = getTypedFieldValue(context, "totalGemsByGuardianThisRound") || 0;
+        
+        // Scale values by 1000 for database storage (as per schema requirements)
         const metrics = {
-            round_coins: getTypedFieldValue(context, "coinsEarnedThisRound"),
-            wave_coins: getTypedFieldValue(context, "coinsEarnedThisWave"),
-            coins: getTypedFieldValue(context, "coins"),
-            gems: getTypedFieldValue(context, "gems"),
-            round_cells: getTypedFieldValue(context, "cellsEarnedThisRound"),
-            wave_cells: getTypedFieldValue(context, "cellsEarnedThisWave"),
-            cells: getTypedFieldValue(context, "cells"),
-            round_cash: getTypedFieldValue(context, "cashEarnedThisRound"),
-            cash: getTypedFieldValue(context, "cash"),
-            stones: getTypedFieldValue(context, "stones"),
+            round_coins: Math.round((getTypedFieldValue(context, "coinsEarnedThisRound") || 0) * 1000),
+            wave_coins: Math.round((getTypedFieldValue(context, "coinsEarnedThisWave") || 0) * 1000),
+            coins: Math.round((getTypedFieldValue(context, "coins") || 0) * 1000),
+            gems: Math.round((getTypedFieldValue(context, "gems") || 0) * 1000),
+            round_cells: Math.round((getTypedFieldValue(context, "cellsEarnedThisRound") || 0) * 1000),
+            wave_cells: Math.round((getTypedFieldValue(context, "cellsEarnedThisWave") || 0) * 1000),
+            cells: Math.round((getTypedFieldValue(context, "cells") || 0) * 1000),
+            round_cash: Math.round((getTypedFieldValue(context, "cashEarnedThisRound") || 0) * 1000),
+            cash: Math.round((getTypedFieldValue(context, "cash") || 0) * 1000),
+            stones: Math.round((getTypedFieldValue(context, "stones") || 0) * 1000),
             round_gems_from_blocks_count: gemBlocksTapped,
-            round_gems_from_blocks_value: gemBlocksTapped * GEM_VALUE_BLOCK,
+            round_gems_from_blocks_value: gemBlocksTapped * GEM_VALUE_BLOCK * 1000, // Scale gem values too
             round_gems_from_ads_count: adGemsClaimed,
-            round_gems_from_ads_value: adGemsClaimed * GEM_VALUE_AD,
-            round_gems_from_guardian: guardianGems,
+            round_gems_from_ads_value: adGemsClaimed * GEM_VALUE_AD * 1000,
+            round_gems_from_guardian: guardianGems * 1000,
         };
         sendStatefulMessage(context, "game_metric", { metrics: metrics });
     }
@@ -104,15 +119,20 @@ Il2Cpp.perform(() => {
     function processRoundStart(instance, isProactiveCheck = false) {
         const seed = getTypedFieldValue(instance, "roundSeed");
         const tier = getTypedFieldValue(instance, "currentTier");
+        
+        // Generate new UUID for this run
+        currentRunId = generateUUID();
         currentRoundSeed = seed;
         currentRoundStartTime = Date.now();
+        
         const logMessage = isProactiveCheck
-            ? `Proactive check successful. Joined active round with Seed: ${seed}, Tier: ${tier}`
-            : `New round detected! Seed: ${seed}, Tier: ${tier}`;
+            ? `Proactive check successful. Joined active round with RunID: ${currentRunId}, Seed: ${seed}, Tier: ${tier}`
+            : `New round detected! RunID: ${currentRunId}, Seed: ${seed}, Tier: ${tier}`;
         log("INFO", logMessage);
         sendStatefulMessage(instance, "game_event", {
             event: "startNewRound",
-            tier: tier
+            tier: tier,
+            seed: seed // Include the game's natural seed
         });
     }
     try {
@@ -166,13 +186,19 @@ Il2Cpp.perform(() => {
         log("INFO", "Hook on Main.StartNewRound is live.");
         Main.method("GameOver", 1).implementation = function (allowSecondWind) {
             log("INFO", `Intercepted Main.GameOver(bool)!`);
-            if (currentRoundSeed !== 0) {
-                log("INFO", `Capturing final stats for round seed: ${currentRoundSeed}`);
+            if (currentRunId && currentRoundSeed !== 0) {
+                log("INFO", `Capturing final stats for run: ${currentRunId} (seed: ${currentRoundSeed})`);
+                
+                // Scale coins earned by 1000 for database storage
+                const coinsEarned = (getTypedFieldValue(this, "coinsEarnedThisRound") || 0) * 1000;
+                
                 sendStatefulMessage(this, "game_event", {
                     event: "gameOver",
-                    coinsEarned: getTypedFieldValue(this, "coinsEarnedThisRound"),
+                    coinsEarned: Math.round(coinsEarned),
+                    seed: currentRoundSeed // Include the game's natural seed
                 });
                 log("INFO", "Round over. Resetting state.");
+                currentRunId = null;
                 currentRoundSeed = 0;
                 currentRoundStartTime = 0;
                 lastKnownGameSpeed = -1;
@@ -199,7 +225,7 @@ Il2Cpp.perform(() => {
                 sendStatefulMessage(this, "game_event", { event: "gameSpeedChanged", value: gameSpeed });
                 lastKnownGameSpeed = gameSpeed;
             }
-            if (currentRoundSeed !== 0) {
+            if (currentRunId && currentRoundSeed !== 0) {
                 sendMetricsBundle(this);
             }
             return this.method("NewWave").invoke(...args);
@@ -210,7 +236,7 @@ Il2Cpp.perform(() => {
             log("INFO", "Gem Block tapped by player.");
             sendStatefulMessage(this, "game_event", {
                 event: "gemBlockTapped",
-                gemValue: GEM_VALUE_BLOCK
+                gemValue: GEM_VALUE_BLOCK * 1000 // Scale for database storage
             });
             return this.method("GemBlockTap").invoke(...args);
         };
@@ -228,7 +254,7 @@ Il2Cpp.perform(() => {
             if (mainContext && !mainContext.isNull()) {
                 sendStatefulMessage(mainContext, "game_event", {
                     event: "adGemClaimed",
-                    gemValue: GEM_VALUE_AD
+                    gemValue: GEM_VALUE_AD * 1000 // Scale for database storage
                 });
             }
             else {

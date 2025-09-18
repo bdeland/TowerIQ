@@ -10,6 +10,7 @@ import { generateUUID } from '../utils/uuid';
 import { featureFlags } from '../config/featureFlags';
 import { defaultDashboard } from '../config/defaultDashboard';
 import { databaseHealthDashboard } from '../config/databaseHealthDashboard';
+import { liveRunTrackingDashboard } from '../config/liveRunTrackingDashboard';
 import { DashboardVariableProvider, useDashboardVariable } from '../contexts/DashboardVariableContext';
 import { composeQuery } from '../utils/queryComposer';
 import { API_CONFIG } from '../config/environment';
@@ -165,7 +166,7 @@ export function DashboardViewPage() {
   // Handler functions for dashboard edit context
   const handleEditModeToggle = useCallback(() => {
     if (!featureFlags.enableAdHocDashboards) return; // Prevent entering edit mode
-    if (id === 'default-dashboard' || id === 'database-health-dashboard') return; // Prevent editing system dashboards
+    if (id === 'default-dashboard' || id === 'database-health-dashboard' || id === 'live-run-tracking-dashboard') return; // Prevent editing system dashboards
     if (isEditMode) {
       setIsEditMode(false);
       setSelectedPanelId(null);
@@ -357,6 +358,18 @@ export function DashboardViewPage() {
         if (id === 'default-dashboard') {
           console.log('DashboardViewPage - Loading hardcoded default dashboard');
           const dashboard = defaultDashboard;
+          setCurrentDashboard(dashboard);
+          setPanels(dashboard.config.panels || []);
+          setIsEditMode(false);
+          setSelectedPanelId(null);
+          setOriginalPanels(dashboard.config.panels || []);
+          return;
+        }
+        
+        // Check if this is the live run tracking dashboard
+        if (id === 'live-run-tracking-dashboard') {
+          console.log('DashboardViewPage - Loading hardcoded live run tracking dashboard');
+          const dashboard = liveRunTrackingDashboard;
           setCurrentDashboard(dashboard);
           setPanels(dashboard.config.panels || []);
           setIsEditMode(false);

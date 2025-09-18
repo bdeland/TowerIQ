@@ -603,7 +603,7 @@ class MainController:
                 return
             
             # Extract relevant data from payload
-            run_id = payload.get('roundSeed') or payload.get('run_id')
+            run_id = payload.get('runId') or payload.get('run_id')  # Use runId (UUID) not roundSeed (integer)
             wave = payload.get('currentWave')
             
             # Handle both direct field format and metrics object format
@@ -664,7 +664,7 @@ class MainController:
                            payload=payload)
             
             # Handle run lifecycle alongside writing the raw event
-            run_id = payload.get('roundSeed')
+            run_id = payload.get('runId')  # Use runId (UUID) not roundSeed (integer)
             # Normalize timestamp to ms int
             event_ts = int(timestamp or int(time.time() * 1000))
 
@@ -673,15 +673,23 @@ class MainController:
                     start_time = int(payload.get('roundStartTime') or event_ts)
                     game_version = getattr(self.session, 'selected_target_version', None)
                     tier = payload.get('tier')
+                    
+                    self.logger.info("Inserting run start", 
+                                   run_id=run_id, 
+                                   start_time=start_time, 
+                                   game_version=game_version, 
+                                   tier=tier)
+                    
                     self.db_service.insert_run_start(
                         run_id=str(run_id),
                         start_time=start_time,
                         game_version=str(game_version) if game_version else None,
                         tier=int(tier) if isinstance(tier, (int, float)) else None,
                     )
-                    # Mark round active in session
+                    # Mark round active in session using the actual roundSeed for session tracking
                     try:
-                        self.session.current_round_seed = run_id
+                        round_seed = payload.get('roundSeed') or payload.get('seed')
+                        self.session.current_round_seed = round_seed
                         self.session.is_round_active = True
                     except Exception:
                         pass
@@ -719,13 +727,19 @@ class MainController:
                                   run_id=run_id,
                                   error=str(lifecycle_err))
 
-            # Store as an event in the database using write_event method
-            self.db_service.write_event(
-                run_id=str(run_id) if run_id is not None else 'unknown',
-                timestamp=event_ts,
-                event_name=event_type,
-                data=payload
-            )
+            # Store as an event in the database using write_event method (only if we have a valid run_id)
+            if run_id is not None:
+                self.db_service.write_event(
+                    run_id=str(run_id),
+                    timestamp=event_ts,
+                    event_name=event_type,
+                    data=payload
+                )
+            else:
+                self.logger.warning("Skipping event storage - no valid run_id available", 
+                                  event_type=event_type, 
+                                  payload_runId=payload.get('runId'),
+                                  payload_roundSeed=payload.get('roundSeed'))
             
         except Exception as e:
             self.logger.error("Error storing game event", 

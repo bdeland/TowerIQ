@@ -196,6 +196,14 @@ class DatabaseService:
         """Gracefully close the database connection and clean up WAL files."""
         if self.sqlite_conn:
             try:
+                # First, try to rollback any pending transactions to avoid locks
+                try:
+                    self.sqlite_conn.rollback()
+                    self.logger.debug("Rolled back any pending transactions")
+                except sqlite3.Error:
+                    # No pending transaction, which is fine
+                    pass
+                
                 # Checkpoint the WAL file to merge changes back to main database
                 self.logger.debug("Checkpointing WAL file before closing")
                 self.sqlite_conn.execute("PRAGMA wal_checkpoint(TRUNCATE);")
@@ -203,9 +211,6 @@ class DatabaseService:
                 # Switch back to DELETE mode to clean up WAL and SHM files
                 self.logger.debug("Switching to DELETE journal mode for cleanup")
                 self.sqlite_conn.execute("PRAGMA journal_mode=DELETE;")
-                
-                # Commit any pending transactions
-                self.sqlite_conn.commit()
                 
                 # Close the connection
                 self.sqlite_conn.close()
@@ -509,10 +514,9 @@ class DatabaseService:
         # Convert string UUID to BLOB
         run_id_blob = uuid.UUID(run_id).bytes
         
-        # Get or create game version ID
-        game_version_id = None
-        if game_version:
-            game_version_id = self._get_or_create_lookup_id('game_versions', 'version_text', game_version, self._game_version_cache)
+        # Get or create game version ID (use "Unknown" as default if not provided)
+        effective_game_version = game_version or "Unknown"
+        game_version_id = self._get_or_create_lookup_id('game_versions', 'version_text', effective_game_version, self._game_version_cache)
         
         self.sqlite_conn.execute(
             "INSERT OR IGNORE INTO runs (run_id, start_time, game_version_id, tier) VALUES (?, ?, ?, ?)",
@@ -686,17 +690,21 @@ class DatabaseService:
                 'round_gems_from_ads_value',
             ]
             placeholders = ','.join(['?'] * len(metrics_of_interest))
+            # Convert run_id to BLOB for the query
+            run_id_blob = uuid.UUID(run_id).bytes
+            
             query = f"""
-                SELECT metric_name, metric_value
+                SELECT mn.name as metric_name, ranked.metric_value
                 FROM (
-                    SELECT metric_name, metric_value, real_timestamp,
-                           ROW_NUMBER() OVER (PARTITION BY metric_name ORDER BY real_timestamp DESC) as rn
-                    FROM metrics
-                    WHERE run_id = ? AND metric_name IN ({placeholders})
-                )
-                WHERE rn = 1
+                    SELECT m.metric_name_id, m.metric_value,
+                           ROW_NUMBER() OVER (PARTITION BY m.metric_name_id ORDER BY m.real_timestamp DESC) as rn
+                    FROM metrics m
+                    WHERE m.run_id = ?
+                ) ranked
+                JOIN metric_names mn ON ranked.metric_name_id = mn.id
+                WHERE ranked.rn = 1 AND mn.name IN ({placeholders})
             """
-            params = [str(run_id)] + metrics_of_interest
+            params = [run_id_blob] + metrics_of_interest
             cursor = self.sqlite_conn.execute(query, params)
             latest_values: Dict[str, float] = {}
             for name, value in cursor.fetchall():
