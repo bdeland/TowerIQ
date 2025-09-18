@@ -421,48 +421,116 @@ class MainController:
         self._background_threads.append(worker)
     
     def connect_to_device(self, device_serial: str):
-        """Connect to a specific device."""
+        """Connect to a specific device using SessionManager's connection method."""
         self.logger.info("Connecting to device", device_serial=device_serial)
         
         # Update session state
         self.session.transition_to_state(ConnectionState.CONNECTING)
         
-        # For now, just simulate connection
-        # In a real implementation, this would use the emulator service
-        time.sleep(1)  # Simulate connection time
+        # Use async connection method in a separate thread to avoid blocking
+        def _async_connect():
+            try:
+                # Create new event loop for this thread
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                
+                # Call the SessionManager's actual connection method
+                success = loop.run_until_complete(
+                    self.session.connect_to_device(device_serial, self.emulator_service)
+                )
+                
+                if success:
+                    self.session.transition_to_state(ConnectionState.CONNECTED)
+                    # Store device info in session (using available properties)
+                    self.session.connected_emulator_serial = device_serial
+                    
+                    # Notify callbacks
+                    self._notify_connection_change({
+                        "state": "connected",
+                        "device_serial": device_serial
+                    })
+                    
+                    self.logger.info("Device connected successfully", device_serial=device_serial)
+                else:
+                    self.session.transition_to_state(ConnectionState.DISCONNECTED)
+                    self._notify_connection_change({
+                        "state": "connection_failed",
+                        "device_serial": device_serial,
+                        "error": "Failed to establish connection"
+                    })
+                    self.logger.error("Failed to connect to device", device_serial=device_serial)
+                    
+            except Exception as e:
+                self.session.transition_to_state(ConnectionState.DISCONNECTED)
+                self._notify_connection_change({
+                    "state": "connection_error",
+                    "device_serial": device_serial,
+                    "error": str(e)
+                })
+                self.logger.error("Error during device connection", device_serial=device_serial, error=str(e))
+            finally:
+                loop.close()
         
-        self.session.transition_to_state(ConnectionState.CONNECTED)
-        # Store device info in session (using available properties)
-        self.session.connected_emulator_serial = device_serial
-        
-        # Notify callbacks
-        self._notify_connection_change({
-            "state": "connected",
-            "device_serial": device_serial
-        })
-        
-        self.logger.info("Device connected", device_serial=device_serial)
+        # Run connection in background thread to avoid blocking
+        connection_thread = threading.Thread(target=_async_connect, daemon=True)
+        connection_thread.start()
     
     def disconnect_from_device(self):
-        """Disconnect from the currently connected device."""
+        """Disconnect from the currently connected device using SessionManager's method."""
         self.logger.info("Disconnecting from device")
         
         # Update session state
         self.session.transition_to_state(ConnectionState.DISCONNECTING)
         
-        # Clear device info from session
-        self.session.connected_emulator_serial = None
+        # Use async disconnection method in a separate thread to avoid blocking
+        def _async_disconnect():
+            try:
+                # Create new event loop for this thread
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                
+                # Call the SessionManager's actual disconnection method
+                success = loop.run_until_complete(
+                    self.session.disconnect_from_device()
+                )
+                
+                if success:
+                    # Clear device info from session
+                    self.session.connected_emulator_serial = None
+                    
+                    # Transition to disconnected state
+                    self.session.transition_to_state(ConnectionState.DISCONNECTED)
+                    
+                    # Notify callbacks
+                    self._notify_connection_change({
+                        "state": "disconnected",
+                        "device_serial": None
+                    })
+                    
+                    self.logger.info("Device disconnected successfully")
+                else:
+                    self.logger.warning("Disconnection may not have completed cleanly")
+                    # Still transition to disconnected state
+                    self.session.transition_to_state(ConnectionState.DISCONNECTED)
+                    self._notify_connection_change({
+                        "state": "disconnected",
+                        "device_serial": None
+                    })
+                    
+            except Exception as e:
+                self.logger.error("Error during device disconnection", error=str(e))
+                # Force disconnected state even on error
+                self.session.transition_to_state(ConnectionState.DISCONNECTED)
+                self._notify_connection_change({
+                    "state": "disconnected",
+                    "device_serial": None
+                })
+            finally:
+                loop.close()
         
-        # Transition to disconnected state
-        self.session.transition_to_state(ConnectionState.DISCONNECTED)
-        
-        # Notify callbacks
-        self._notify_connection_change({
-            "state": "disconnected",
-            "device_serial": None
-        })
-        
-        self.logger.info("Device disconnected")
+        # Run disconnection in background thread to avoid blocking
+        disconnection_thread = threading.Thread(target=_async_disconnect, daemon=True)
+        disconnection_thread.start()
     
     def get_session_state(self) -> Dict[str, Any]:
         """Get current session state."""

@@ -238,8 +238,24 @@ class EmulatorService:
         # Centralized caching
         self._cache: Dict[str, CacheEntry] = {}
         self._cache_timeout = config.get('emulator.cache_timeout_seconds', 300)
+        
+        # Device discovery deduplication for Phase 1.2 of duplication fix
+        self._discovery_lock = asyncio.Lock()
+        self._last_discovery_time = None
+        self._last_discovery_result = None
+        self._discovery_cache_timeout = config.get('emulator.discovery_cache_timeout_seconds', 10)
 
     # --- Device Discovery ---
+
+    def _is_discovery_cache_valid(self) -> bool:
+        """Check if device discovery cache is valid and not expired."""
+        if (self._last_discovery_time is None or 
+            self._last_discovery_result is None):
+            return False
+        
+        now = datetime.now()
+        time_since_discovery = (now - self._last_discovery_time).total_seconds()
+        return time_since_discovery < self._discovery_cache_timeout
 
     async def discover_devices(self, timeout: float = 10.0, clear_cache: bool = False) -> List[Device]:
         """
@@ -254,50 +270,70 @@ class EmulatorService:
         """
         self.logger.info("Starting device discovery", clear_cache=clear_cache)
         
-        # Clear cache if requested
+        # Clear discovery cache if requested
         if clear_cache:
             self._cache.clear()
+            self._last_discovery_time = None
+            self._last_discovery_result = None
             self.logger.info("Device cache cleared")
         
-        try:
-            # Ensure ADB server is running before attempting discovery
-            await self._ensure_adb_server_running()
+        # Use AsyncLock to prevent concurrent discovery operations
+        async with self._discovery_lock:
+            # Double-check cache validity after acquiring lock
+            if not clear_cache and self._is_discovery_cache_valid():
+                self.logger.debug("Using cached device discovery results", 
+                                cache_age=(datetime.now() - self._last_discovery_time).total_seconds(),
+                                device_count=len(self._last_discovery_result))
+                return self._last_discovery_result.copy()  # Return a copy to prevent modification
+            
+            self.logger.debug("Cache miss or expired, performing new device discovery")
+            
+            try:
+                # Ensure ADB server is running before attempting discovery
+                await self._ensure_adb_server_running()
 
-            # Get device list with timeout
-            device_list = await asyncio.wait_for(
-                self._get_device_list(),
-                timeout=timeout
-            )
-            
-            if not device_list:
-                self.logger.info("No devices found")
+                # Get device list with timeout
+                device_list = await asyncio.wait_for(
+                    self._get_device_list(),
+                    timeout=timeout
+                )
+                
+                if not device_list:
+                    self.logger.info("No devices found")
+                    # Cache empty result
+                    self._last_discovery_result = []
+                    self._last_discovery_time = datetime.now()
+                    return []
+                
+                # Get complete info for all devices concurrently
+                device_tasks = [
+                    self._get_complete_device_info(serial, status, timeout)
+                    for serial, status in device_list
+                ]
+                
+                devices = await asyncio.gather(*device_tasks, return_exceptions=True)
+                
+                # Filter out None results and exceptions
+                valid_devices = []
+                for device in devices:
+                    if isinstance(device, Device):
+                        valid_devices.append(device)
+                    elif isinstance(device, Exception):
+                        self.logger.warning("Failed to get device info", error=str(device), error_type=type(device).__name__)
+                
+                # Cache the results
+                self._last_discovery_result = valid_devices
+                self._last_discovery_time = datetime.now()
+                
+                self.logger.info("Device discovery completed", count=len(valid_devices))
+                return valid_devices.copy()  # Return a copy to prevent modification
+                
+            except asyncio.TimeoutError:
+                self.logger.error("Device discovery timed out")
                 return []
-            
-            # Get complete info for all devices concurrently
-            device_tasks = [
-                self._get_complete_device_info(serial, status, timeout)
-                for serial, status in device_list
-            ]
-            
-            devices = await asyncio.gather(*device_tasks, return_exceptions=True)
-            
-            # Filter out None results and exceptions
-            valid_devices = []
-            for device in devices:
-                if isinstance(device, Device):
-                    valid_devices.append(device)
-                elif isinstance(device, Exception):
-                    self.logger.warning("Failed to get device info", error=str(device), error_type=type(device).__name__)
-            
-            self.logger.info("Device discovery completed", count=len(valid_devices))
-            return valid_devices
-            
-        except asyncio.TimeoutError:
-            self.logger.error("Device discovery timed out")
-            return []
-        except Exception as e:
-            self.logger.error("Device discovery failed", error=str(e), error_type=type(e).__name__)
-            return []
+            except Exception as e:
+                self.logger.error("Device discovery failed", error=str(e), error_type=type(e).__name__)
+                return []
 
     async def get_processes(self, device: Device, timeout: float = 10.0) -> List[Process]:
         """

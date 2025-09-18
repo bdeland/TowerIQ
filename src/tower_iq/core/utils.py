@@ -1,5 +1,6 @@
 import asyncio
 import subprocess
+from datetime import datetime, timedelta
 from typing import Optional, Tuple
 
 def format_currency(value: float, symbol: str = "$", pad_to_cents: bool = False) -> str:
@@ -63,6 +64,11 @@ class AdbWrapper:
     def __init__(self, logger, verbose_debug: bool = False):
         self.logger = logger.bind(source="AdbWrapper")
         self.verbose_debug = verbose_debug
+        
+        # ADB server state tracking for Phase 1.1 of duplication fix
+        self._server_running = None  # None = unknown, True = running, False = stopped
+        self._last_check = None  # datetime of last server status check
+        self._check_timeout = 30  # Cache timeout in seconds
 
     async def run_command(self, *args, timeout: float = 10.0) -> Tuple[str, str]:
         """
@@ -130,13 +136,53 @@ class AdbWrapper:
             self.logger.error(f"AdbWrapper.list_devices caught AdbError: {e}")
             return [] # Return empty list if command fails
 
-    async def start_server(self) -> None:
-        """Start the ADB server."""
+    async def _is_server_running_cached(self) -> bool:
+        """Check if ADB server is running using cached status when possible."""
+        now = datetime.now()
+        
+        # Check if we have a valid cached result
+        if (self._server_running is not None and 
+            self._last_check is not None and 
+            (now - self._last_check).total_seconds() < self._check_timeout):
+            self.logger.debug("Using cached ADB server status", cached_status=self._server_running)
+            return self._server_running
+        
+        # Cache expired or no cache, check server status
         try:
+            # Use 'adb devices' command to check if server is running
+            stdout, _ = await self.run_command("devices", timeout=5.0)
+            # If the command succeeds, server is running
+            self._server_running = True
+            self._last_check = now
+            self.logger.debug("ADB server status checked and cached", status="running")
+            return True
+        except AdbError:
+            # Command failed, server is not running
+            self._server_running = False
+            self._last_check = now
+            self.logger.debug("ADB server status checked and cached", status="not running")
+            return False
+
+    async def start_server(self) -> None:
+        """Start the ADB server only if it's not already running."""
+        try:
+            # Check cached status before attempting to start
+            if await self._is_server_running_cached():
+                self.logger.debug("ADB server already running, skipping start")
+                return
+            
             self.logger.info("Starting ADB server...")
             await self.run_command("start-server", timeout=10.0)
+            
+            # Update cache to reflect successful start
+            self._server_running = True
+            self._last_check = datetime.now()
+            
             self.logger.info("ADB server started successfully")
         except AdbError as e:
+            # Reset cache on error to force recheck next time
+            self._server_running = False
+            self._last_check = datetime.now()
             self.logger.error(f"Failed to start ADB server: {e}")
             raise
 
@@ -145,8 +191,16 @@ class AdbWrapper:
         try:
             self.logger.info("Killing ADB server...")
             await self.run_command("kill-server", timeout=10.0)
+            
+            # Update cache to reflect server being killed
+            self._server_running = False
+            self._last_check = datetime.now()
+            
             self.logger.info("ADB server killed successfully")
         except AdbError as e:
+            # Reset cache on error to force recheck next time
+            self._server_running = None
+            self._last_check = None
             self.logger.error(f"Failed to kill ADB server: {e}")
             raise
 

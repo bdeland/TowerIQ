@@ -12,6 +12,7 @@ import os
 from pathlib import Path
 from typing import Dict, Any, List, Optional
 from contextlib import asynccontextmanager
+from datetime import datetime
 
 from fastapi import FastAPI, HTTPException, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
@@ -156,6 +157,98 @@ class QueryPreviewResponse(BaseModel):
 logger: Any = structlog.get_logger()
 controller: Any = None
 db_service: Any = None
+
+# Shared device cache for Phase 1.3 of duplication fix
+_device_cache_data: Optional[List[Dict[str, Any]]] = None
+_device_cache_timestamp: Optional[datetime] = None
+_device_cache_duration = 5  # seconds
+_device_cache_lock = asyncio.Lock()
+
+async def get_cached_devices(force_refresh: bool = False) -> List[Dict[str, Any]]:
+    """Get devices with caching to reduce duplicate discovery calls."""
+    global _device_cache_data, _device_cache_timestamp, _device_cache_duration, _device_cache_lock
+    
+    async with _device_cache_lock:
+        now = datetime.now()
+        
+        # Check if cache is valid and not expired
+        cache_valid = (
+            not force_refresh and
+            _device_cache_data is not None and 
+            _device_cache_timestamp is not None and
+            (now - _device_cache_timestamp).total_seconds() < _device_cache_duration
+        )
+        
+        if cache_valid:
+            if logger:
+                logger.debug("Using cached device list", 
+                           cache_age=(now - _device_cache_timestamp).total_seconds(),
+                           device_count=len(_device_cache_data))
+            return _device_cache_data.copy()  # Return a copy to prevent modification
+        
+        # Cache miss or expired - fetch fresh data
+        if logger:
+            cache_reason = "forced refresh" if force_refresh else "cache miss/expired"
+            logger.debug("Fetching fresh device list", reason=cache_reason)
+        
+        if not controller:
+            raise HTTPException(status_code=503, detail="Backend not initialized")
+        
+        # Use the simplified device discovery method
+        devices = await controller.emulator_service.discover_devices(clear_cache=force_refresh)
+        
+        # Convert Device objects to dictionaries for JSON serialization
+        device_dicts = []
+        for device in devices:
+            device_dicts.append({
+                'id': device.serial,  # Use serial as ID for frontend compatibility
+                'name': device.device_name or device.model,  # Use device_name if available, fallback to model
+                'type': device.device_type,
+                'status': device.status,
+                'serial': device.serial,
+                'model': device.model,
+                'device_name': device.device_name,  # Include the new device_name field
+                'brand': device.brand,  # Include brand information
+                'android_version': device.android_version,
+                'api_level': device.api_level,
+                'architecture': device.architecture,
+                'is_network_device': device.is_network_device,
+                'ip_address': device.ip_address,
+                'port': device.port
+            })
+        
+        # Update cache
+        _device_cache_data = device_dicts
+        _device_cache_timestamp = now
+        
+        if logger:
+            logger.debug("Device list cached", device_count=len(device_dicts))
+        
+        return device_dicts.copy()  # Return a copy to prevent modification
+
+async def get_device_by_id(device_id: str, force_refresh: bool = False) -> Optional[Dict[str, Any]]:
+    """Get a specific device by ID using cached results when possible."""
+    device_dicts = await get_cached_devices(force_refresh=force_refresh)
+    return next((d for d in device_dicts if d['serial'] == device_id), None)
+
+def device_dict_to_device_object(device_dict: Dict[str, Any]):
+    """Convert a device dictionary back to a Device object for compatibility."""
+    # Import here to avoid circular imports
+    from .services.emulator_service import Device
+    
+    return Device(
+        serial=device_dict['serial'],
+        model=device_dict['model'],
+        android_version=device_dict['android_version'],
+        api_level=device_dict['api_level'],
+        architecture=device_dict['architecture'],
+        status=device_dict['status'],
+        is_network_device=device_dict['is_network_device'],
+        brand=device_dict.get('brand'),
+        device_name=device_dict.get('device_name'),
+        ip_address=device_dict.get('ip_address'),
+        port=device_dict.get('port')
+    )
 
 
 @asynccontextmanager
@@ -685,73 +778,25 @@ async def set_test_mode(request: TestModeRequest):
 
 @app.get("/api/devices")
 async def get_devices():
-    """Get available devices."""
-    if not controller:
-        raise HTTPException(status_code=503, detail="Backend not initialized")
-    
+    """Get available devices using cached results when possible."""
     try:
-        # Use the simplified device discovery method
-        devices = await controller.emulator_service.discover_devices()
-        
-        # Convert Device objects to dictionaries for JSON serialization
-        device_dicts = []
-        for device in devices:
-            device_dicts.append({
-                'id': device.serial,  # Use serial as ID for frontend compatibility
-                'name': device.device_name or device.model,  # Use device_name if available, fallback to model
-                'type': device.device_type,
-                'status': device.status,
-                'serial': device.serial,
-                'model': device.model,
-                'device_name': device.device_name,  # Include the new device_name field
-                'brand': device.brand,  # Include brand information
-                'android_version': device.android_version,
-                'api_level': device.api_level,
-                'architecture': device.architecture,
-                'is_network_device': device.is_network_device,
-                'ip_address': device.ip_address,
-                'port': device.port
-            })
-        
+        device_dicts = await get_cached_devices(force_refresh=False)
         return {"devices": device_dicts}
     except Exception as e:
-        logger.error("Error getting devices", error=str(e))
+        if logger:
+            logger.error("Error getting devices", error=str(e))
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.post("/api/devices/refresh")
 async def refresh_devices():
     """Refresh device list with cache clearing."""
-    if not controller:
-        raise HTTPException(status_code=503, detail="Backend not initialized")
-    
     try:
-        # Use the device discovery method with cache clearing
-        devices = await controller.emulator_service.discover_devices(clear_cache=True)
-        
-        # Convert Device objects to dictionaries for JSON serialization
-        device_dicts = []
-        for device in devices:
-            device_dicts.append({
-                'id': device.serial,  # Use serial as ID for frontend compatibility
-                'name': device.device_name or device.model,  # Use device_name if available, fallback to model
-                'type': device.device_type,
-                'status': device.status,
-                'serial': device.serial,
-                'model': device.model,
-                'device_name': device.device_name,  # Include the new device_name field
-                'brand': device.brand,  # Include brand information
-                'android_version': device.android_version,
-                'api_level': device.api_level,
-                'architecture': device.architecture,
-                'is_network_device': device.is_network_device,
-                'ip_address': device.ip_address,
-                'port': device.port
-            })
-        
+        device_dicts = await get_cached_devices(force_refresh=True)
         return {"devices": device_dicts}
     except Exception as e:
-        logger.error("Error refreshing devices", error=str(e))
+        if logger:
+            logger.error("Error refreshing devices", error=str(e))
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -765,14 +810,16 @@ async def get_processes(device_id: str):
         # First get the device to pass to the process listing method
         if not controller.emulator_service:
             raise HTTPException(status_code=503, detail="Emulator service not initialized")
-            
-        devices = await controller.emulator_service.discover_devices()
-        device = next((d for d in devices if d.serial == device_id), None)
         
-        if not device:
+        # Get device from cache to avoid redundant discovery
+        device_dict = await get_device_by_id(device_id)
+        if not device_dict:
             if logger:
                 logger.warning("Device not found", device_id=device_id)
             return {"processes": [], "message": "Device not found"}
+        
+        # Convert device dict back to Device object for compatibility
+        device = device_dict_to_device_object(device_dict)
         
         # Use the unfiltered process listing method to show all processes
         processes = await controller.emulator_service.get_all_processes_unfiltered(device)
@@ -835,10 +882,9 @@ async def get_frida_status(device_id: str):
         if not controller:
             raise HTTPException(status_code=500, detail="Controller not available")
         
-        # Get the device to check Frida status
-        devices = await controller.emulator_service.discover_devices()
-        device = next((d for d in devices if d.serial == device_id), None)
-        if not device:
+        # Get the device to check Frida status using cached results
+        device_dict = await get_device_by_id(device_id)
+        if not device_dict:
             raise HTTPException(status_code=404, detail="Device not found")
         
         # Use FridaServerManager methods for better status checking
@@ -885,7 +931,7 @@ async def get_frida_status(device_id: str):
             "is_installed": is_installed,
             "version": frida_version,
             "required_version": required_version,
-            "architecture": device.architecture,
+            "architecture": device_dict['architecture'],
             "needs_update": needs_update
         }
         
@@ -954,19 +1000,15 @@ async def provision_frida_server(device_id: str):
         if not controller.emulator_service.frida_manager:
             raise HTTPException(status_code=500, detail="Frida manager not available")
         
-        # Get the device to provision Frida server
+        # Get the device to provision Frida server using cached results
         try:
-            devices = await controller.emulator_service.discover_devices()
-            if not devices:
-                raise HTTPException(status_code=404, detail="No devices found")
-            
-            device = next((d for d in devices if d.serial == device_id), None)
-            if not device:
+            device_dict = await get_device_by_id(device_id)
+            if not device_dict:
                 raise HTTPException(status_code=404, detail=f"Device {device_id} not found")
         except Exception as e:
             if logger:
-                logger.error("Error discovering devices", error=str(e))
-            raise HTTPException(status_code=500, detail=f"Failed to discover devices: {str(e)}")
+                logger.error("Error getting device", device_id=device_id, error=str(e))
+            raise HTTPException(status_code=500, detail=f"Failed to get device: {str(e)}")
         
         # Provision Frida server
         try:
@@ -984,13 +1026,13 @@ async def provision_frida_server(device_id: str):
             if logger:
                 logger.info("Provisioning Frida server with compatible version", 
                            device_id=device_id, 
-                           architecture=device.architecture, 
+                           architecture=device_dict['architecture'], 
                            target_version=target_version)
             
             if logger:
-                logger.info("Starting frida-provision process", device_id=device_id, architecture=device.architecture, target_version=target_version)
+                logger.info("Starting frida-provision process", device_id=device_id, architecture=device_dict['architecture'], target_version=target_version)
             
-            success = await controller.emulator_service.frida_manager.provision(device_id, device.architecture, target_version)
+            success = await controller.emulator_service.frida_manager.provision(device_id, device_dict['architecture'], target_version)
             
             if logger:
                 logger.info("Frida-provision result", device_id=device_id, success=success)
@@ -1022,10 +1064,9 @@ async def start_frida_server(device_id: str):
         if not controller:
             raise HTTPException(status_code=500, detail="Controller not available")
         
-        # Get the device to start Frida server
-        devices = await controller.emulator_service.discover_devices()
-        device = next((d for d in devices if d.serial == device_id), None)
-        if not device:
+        # Get the device to start Frida server using cached results
+        device_dict = await get_device_by_id(device_id)
+        if not device_dict:
             raise HTTPException(status_code=404, detail="Device not found")
         
         # Start Frida server
