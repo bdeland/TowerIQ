@@ -85,14 +85,12 @@ export function formatCurrency(
     }
   }
   
-  // For numbers less than 1000, show as-is with appropriate decimal places
+  // For numbers less than 1000, show as-is with specified decimal places
   if (absValue < 1000) {
-    if (absValue >= 100) {
+    if (decimals === 0) {
       return Math.round(value).toString();
-    } else if (absValue >= 10) {
-      return value.toFixed(1);
     } else {
-      return value.toFixed(2);
+      return value.toFixed(decimals);
     }
   }
   

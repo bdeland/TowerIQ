@@ -844,8 +844,25 @@ const DashboardPanelViewComponent: React.FC<DashboardPanelViewProps> = ({
             // If it's already formatted (like "15.2 MB"), use as-is
             formattedValue = value;
           } else if (isDatabaseHealth && typeof value === 'number') {
-            // Format numbers with K/M/B notation for database stats
-            formattedValue = formatNumber(value, 1);
+            // Check if this is a count-based stat that should be shown as integer
+            const isCountStat = panel.title.toLowerCase().includes('total runs') ||
+                               panel.title.toLowerCase().includes('total metrics') ||
+                               panel.title.toLowerCase().includes('total events') ||
+                               mapping.yAxis?.includes('total_runs') ||
+                               mapping.yAxis?.includes('total_metrics') ||
+                               mapping.yAxis?.includes('total_events') ||
+                               mapping.yAxis?.includes('total_count');
+            
+            if (isCountStat) {
+              // Format as integer for count stats
+              formattedValue = formatNumber(value, 0);
+            } else if (panel.title.toLowerCase().includes('avg')) {
+              // Format with exactly 1 decimal for averages
+              formattedValue = formatNumber(value, 1);
+            } else {
+              // Default formatting for other database stats
+              formattedValue = formatNumber(value, 1);
+            }
           } else if (typeof value === 'number') {
             // Use currency formatting for game-related stats
             formattedValue = formatCurrency(value, 1);

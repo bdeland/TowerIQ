@@ -26,9 +26,11 @@ export const databaseHealthDashboard: Dashboard = {
           FROM (
             SELECT 
               COALESCE(
-                (SELECT metric_value FROM db_metrics 
-                 WHERE metric_name = 'database_size' 
-                 ORDER BY timestamp DESC LIMIT 1),
+                (SELECT dm.value 
+                 FROM db_metrics dm 
+                 JOIN db_metric_names dmn ON dm.metric_id = dmn.id 
+                 WHERE dmn.name = 'database_size' 
+                 ORDER BY dm.timestamp DESC LIMIT 1),
                 (SELECT page_count FROM pragma_page_count()) * 
                 (SELECT page_size FROM pragma_page_size())
               ) as size_bytes
@@ -157,19 +159,79 @@ export const databaseHealthDashboard: Dashboard = {
         query: `
           SELECT 
             'Metrics Table' as table_name,
-            (SELECT COUNT(*) FROM metrics) * 64 as actual_bytes
+            dm.value as actual_bytes
+          FROM db_metrics dm
+          JOIN db_metric_names dmn ON dm.metric_id = dmn.id
+          JOIN db_monitored_objects dmo ON dm.object_id = dmo.id
+          WHERE dmn.name = 'table_size_bytes' 
+            AND dmo.name = 'metrics'
+            AND dm.timestamp = (
+              SELECT MAX(dm2.timestamp) 
+              FROM db_metrics dm2 
+              JOIN db_metric_names dmn2 ON dm2.metric_id = dmn2.id
+              JOIN db_monitored_objects dmo2 ON dm2.object_id = dmo2.id
+              WHERE dmn2.name = 'table_size_bytes' 
+                AND dmo2.name = 'metrics'
+            )
           UNION ALL
           SELECT 
             'Events Table' as table_name,
-            (SELECT COUNT(*) FROM events) * 48 as actual_bytes
+            dm.value as actual_bytes
+          FROM db_metrics dm
+          JOIN db_metric_names dmn ON dm.metric_id = dmn.id
+          JOIN db_monitored_objects dmo ON dm.object_id = dmo.id
+          WHERE dmn.name = 'table_size_bytes' 
+            AND dmo.name = 'events'
+            AND dm.timestamp = (
+              SELECT MAX(dm2.timestamp) 
+              FROM db_metrics dm2 
+              JOIN db_metric_names dmn2 ON dm2.metric_id = dmn2.id
+              JOIN db_monitored_objects dmo2 ON dm2.object_id = dmo2.id
+              WHERE dmn2.name = 'table_size_bytes' 
+                AND dmo2.name = 'events'
+            )
           UNION ALL
           SELECT 
             'Runs Table' as table_name,
-            (SELECT COUNT(*) FROM runs) * 128 as actual_bytes
+            dm.value as actual_bytes
+          FROM db_metrics dm
+          JOIN db_metric_names dmn ON dm.metric_id = dmn.id
+          JOIN db_monitored_objects dmo ON dm.object_id = dmo.id
+          WHERE dmn.name = 'table_size_bytes' 
+            AND dmo.name = 'runs'
+            AND dm.timestamp = (
+              SELECT MAX(dm2.timestamp) 
+              FROM db_metrics dm2 
+              JOIN db_metric_names dmn2 ON dm2.metric_id = dmn2.id
+              JOIN db_monitored_objects dmo2 ON dm2.object_id = dmo2.id
+              WHERE dmn2.name = 'table_size_bytes' 
+                AND dmo2.name = 'runs'
+            )
           UNION ALL
           SELECT 
-            'System Tables' as table_name,
-            1024 as actual_bytes
+            'System & Indexes' as table_name,
+            (
+              SELECT dm.value 
+              FROM db_metrics dm 
+              JOIN db_metric_names dmn ON dm.metric_id = dmn.id 
+              WHERE dmn.name = 'database_size' 
+              ORDER BY dm.timestamp DESC LIMIT 1
+            ) - 
+            (
+              SELECT SUM(dm.value)
+              FROM db_metrics dm
+              JOIN db_metric_names dmn ON dm.metric_id = dmn.id
+              JOIN db_monitored_objects dmo ON dm.object_id = dmo.id
+              WHERE dmn.name = 'table_size_bytes' 
+                AND dmo.name IN ('metrics', 'events', 'runs')
+                AND dm.timestamp = (
+                  SELECT MAX(dm2.timestamp) 
+                  FROM db_metrics dm2 
+                  JOIN db_metric_names dmn2 ON dm2.metric_id = dmn2.id
+                  WHERE dmn2.name = 'table_size_bytes' 
+                    AND dm2.object_id = dm.object_id
+                )
+            ) as actual_bytes
           ORDER BY actual_bytes DESC
         `,
         echartsOption: {
@@ -304,10 +366,11 @@ export const databaseHealthDashboard: Dashboard = {
         gridPos: { x: 6, y: 1, w: 6, h: 4 },
         query: `
           SELECT
-            metric_name,
-            COUNT(id) as total_count
-          FROM metrics
-          GROUP BY metric_name
+            mn.name as metric_name,
+            COUNT(m.id) as total_count
+          FROM metrics m
+          JOIN metric_names mn ON m.metric_name_id = mn.id
+          GROUP BY mn.name
           ORDER BY total_count DESC
           LIMIT 10
         `,
@@ -358,10 +421,11 @@ export const databaseHealthDashboard: Dashboard = {
         gridPos: { x: 0, y: 9, w: 6, h: 4 },
         query: `
           SELECT
-            event_name,
-            COUNT(id) as total_count
-          FROM events
-          GROUP BY event_name
+            en.name as event_name,
+            COUNT(e.id) as total_count
+          FROM events e
+          JOIN event_names en ON e.event_name_id = en.id
+          GROUP BY en.name
           ORDER BY total_count DESC
           LIMIT 10
         `,

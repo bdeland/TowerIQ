@@ -46,6 +46,10 @@ function DefaultDashboardContent({ panels, currentDashboard, isEditMode, selecte
     selectedValues = {};
   }
 
+  // Create a ref to track if we should force refresh
+  const [forceRefresh, setForceRefresh] = useState(0);
+  const [lastForceRefresh, setLastForceRefresh] = useState(0);
+
   useEffect(() => {
     const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
     
@@ -54,13 +58,17 @@ function DefaultDashboardContent({ panels, currentDashboard, isEditMode, selecte
     const selectedValuesString = JSON.stringify(selectedValues);
     
     // Only fetch if panels have changed or selectedValues have changed, and we're not already loading
-    if (isLoading || currentPanelIds === lastPanelIds) {
+    // Or if forceRefresh has been triggered
+    if (isLoading || (currentPanelIds === lastPanelIds && forceRefresh === lastForceRefresh)) {
       return;
     }
     
     const fetchAllPanelData = async () => {
       setIsLoading(true);
       setLastPanelIds(currentPanelIds);
+      
+      // Update lastForceRefresh to prevent infinite loops
+      setLastForceRefresh(forceRefresh);
       
       // Reset panel data when starting fresh fetch
       setPanelData({});
@@ -114,7 +122,22 @@ function DefaultDashboardContent({ panels, currentDashboard, isEditMode, selecte
     };
 
     fetchAllPanelData();
-  }, [selectedValues, panels, isLoading, lastPanelIds]);
+  }, [selectedValues, panels, isLoading, lastPanelIds, forceRefresh, lastForceRefresh]);
+
+  // Add event listener for database metrics updates
+  useEffect(() => {
+    const handleDatabaseMetricsUpdate = () => {
+      console.log('Database metrics updated, refreshing dashboard panels...');
+      // Use a timestamp to ensure uniqueness and avoid infinite loops
+      setForceRefresh(Date.now());
+    };
+
+    window.addEventListener('database-metrics-updated', handleDatabaseMetricsUpdate);
+    
+    return () => {
+      window.removeEventListener('database-metrics-updated', handleDatabaseMetricsUpdate);
+    };
+  }, []);
 
   return (
     <Box sx={{ padding: '8px 8px 8px 8px', border: isDevMode ? '2px solid red' : 'none' }} data-content-container="true">

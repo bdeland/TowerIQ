@@ -1,5 +1,5 @@
 import React from 'react';
-import { AppBar, Toolbar, Box, IconButton, Button, Menu, MenuItem, ListItemIcon, ListItemText, Tooltip, FormControl, Select, Checkbox, Chip } from '@mui/material';
+import { AppBar, Toolbar, Box, IconButton, Button, Menu, MenuItem, ListItemIcon, ListItemText, Tooltip, FormControl, Select, Checkbox, Chip, Typography, CircularProgress } from '@mui/material';
 import { 
   Menu as MenuIcon,
   KeyboardArrowDown as ArrowDownIcon,
@@ -10,13 +10,15 @@ import {
   SaveAs as SaveAsIcon,
   ArrowBack as ArrowBackIcon,
   Undo as UndoIcon,
-  Close as CloseIcon
+  Close as CloseIcon,
+  Refresh as RefreshIcon
 } from '@mui/icons-material';
 import { Breadcrumbs } from './Breadcrumbs';
 import { SearchBar } from './SearchBar';
 import { useDashboardEdit } from '../contexts/DashboardEditContext';
 import { useDashboard } from '../contexts/DashboardContext';
 import { useDashboardVariable } from '../contexts/DashboardVariableContext';
+import { API_CONFIG } from '../config/environment';
 
 interface HeaderProps {
   sidebarDocked: boolean;
@@ -103,6 +105,10 @@ export function Header({
   
   const [addMenuAnchor, setAddMenuAnchor] = React.useState<null | HTMLElement>(null);
   const [saveMenuAnchor, setSaveMenuAnchor] = React.useState<null | HTMLElement>(null);
+  
+  // Database refresh state
+  const [isRefreshingDb, setIsRefreshingDb] = React.useState(false);
+  const [lastDbUpdate, setLastDbUpdate] = React.useState<string | null>(null);
 
   const handleAddMenuClick = (event: React.MouseEvent<HTMLElement>) => {
     setAddMenuAnchor(event.currentTarget);
@@ -154,6 +160,102 @@ export function Header({
     }
     handleSaveMenuClose();
   };
+
+  // Database refresh functionality
+  const fetchLastDbUpdate = React.useCallback(async () => {
+    try {
+      // Add cache-busting parameter to ensure fresh data
+      const response = await fetch(`${API_CONFIG.BASE_URL}/v1/database/statistics?t=${Date.now()}`, {
+        cache: 'no-cache',
+        headers: {
+          'Cache-Control': 'no-cache',
+          'Pragma': 'no-cache'
+        }
+      });
+      if (response.ok) {
+        const stats = await response.json();
+        // Use modified_date from file system, but if that's not updating,
+        // we'll fall back to using the current time when metrics are collected
+        if (stats.modified_date) {
+          setLastDbUpdate(stats.modified_date);
+        }
+      }
+    } catch (error) {
+      console.error('Failed to fetch database stats:', error);
+    }
+  }, []);
+
+  // Alternative: Get the latest db_metrics timestamp directly
+  const fetchLastMetricsTimestamp = React.useCallback(async () => {
+    try {
+      const response = await fetch(`${API_CONFIG.BASE_URL}/api/query`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Cache-Control': 'no-cache',
+          'Pragma': 'no-cache'
+        },
+        body: JSON.stringify({
+          query: `SELECT MAX(timestamp) as latest_timestamp FROM db_metrics LIMIT 1`
+        })
+      });
+      if (response.ok) {
+        const result = await response.json();
+        console.log('Metrics timestamp query result:', result);
+        if (result.data && result.data.length > 0 && result.data[0].latest_timestamp) {
+          // Convert Unix timestamp to ISO string
+          const timestamp = new Date(result.data[0].latest_timestamp * 1000).toISOString();
+          setLastDbUpdate(timestamp);
+        } else {
+          console.log('No db_metrics found, using current time');
+          setLastDbUpdate(new Date().toISOString());
+        }
+      } else {
+        console.error('Query failed with status:', response.status);
+        const errorText = await response.text();
+        console.error('Error response:', errorText);
+      }
+    } catch (error) {
+      console.error('Failed to fetch metrics timestamp:', error);
+    }
+  }, []);
+
+  const handleRefreshDbStats = async () => {
+    try {
+      setIsRefreshingDb(true);
+      
+      // First, trigger metrics collection
+      const metricsResponse = await fetch(`${API_CONFIG.BASE_URL}/v1/database/collect-metrics`, {
+        method: 'POST',
+      });
+      
+      if (!metricsResponse.ok) {
+        throw new Error(`Failed to collect metrics: HTTP ${metricsResponse.status}`);
+      }
+      
+      // Wait a moment for the database to be updated, then fetch the new timestamp
+      await new Promise(resolve => setTimeout(resolve, 500));
+      // Use the more reliable metrics timestamp instead of file modification time
+      await fetchLastMetricsTimestamp();
+      
+      // Dispatch a custom event to notify dashboard components to refresh
+      if (currentDashboard?.id === 'database-health-dashboard') {
+        window.dispatchEvent(new CustomEvent('database-metrics-updated'));
+      }
+      
+    } catch (error) {
+      console.error('Failed to refresh database stats:', error);
+    } finally {
+      setIsRefreshingDb(false);
+    }
+  };
+
+  // Fetch initial last update timestamp for database health dashboard
+  React.useEffect(() => {
+    if (currentDashboard?.id === 'database-health-dashboard') {
+      fetchLastMetricsTimestamp();
+    }
+  }, [currentDashboard?.id, fetchLastMetricsTimestamp]);
 
   return (
     <AppBar position="fixed" sx={{ ...layoutStyles.appBar, backgroundColor: 'background.paper' }}>
@@ -207,8 +309,45 @@ export function Header({
         maxHeight: `${layout.appBarHeight}px !important`,
         padding: '0px 16px 0 16px',
         }}>
-        {/* Dashboard Variables - Grafana Style */}
+        {/* Dashboard Variables and Database Controls - Grafana Style */}
         <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
+          {/* Database Health Dashboard Controls */}
+          {currentDashboard?.id === 'database-health-dashboard' && (
+            <>
+              <Typography 
+                variant="body2" 
+                sx={{ 
+                  color: 'text.secondary',
+                  fontSize: '0.75rem',
+                  mr: 1
+                }}
+              >
+                Last Updated: {lastDbUpdate ? new Date(lastDbUpdate).toLocaleString() : 'Never'}
+              </Typography>
+              <Button
+                variant="outlined"
+                size="small"
+                startIcon={isRefreshingDb ? <CircularProgress size={14} /> : <RefreshIcon sx={{ fontSize: '16px' }} />}
+                onClick={handleRefreshDbStats}
+                disabled={isRefreshingDb}
+                sx={{
+                  color: 'text.primary',
+                  borderColor: 'divider',
+                  height: '30px',
+                  fontSize: '0.75rem',
+                  padding: '0 12px',
+                  '&:hover': {
+                    borderColor: 'text.primary',
+                    backgroundColor: 'action.hover'
+                  }
+                }}
+              >
+                {isRefreshingDb ? 'Refreshing...' : 'Refresh DB Stats'}
+              </Button>
+            </>
+          )}
+          
+          {/* Dashboard Variables */}
           {currentDashboard?.is_default && currentDashboard.variables && dashboardVariableContext && 
             currentDashboard.variables.map(variable => {
               const selectedValue = dashboardVariableContext.selectedValues[variable.name];

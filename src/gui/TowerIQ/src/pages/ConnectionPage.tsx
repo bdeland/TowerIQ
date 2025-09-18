@@ -240,16 +240,51 @@ export function ConnectionPage() {
     loadScriptStatus();
   }, [status?.session.is_connected]);
 
-  // Update connection status based on backend status
+  // Update connection status and flow state based on backend status
   useEffect(() => {
+    console.log('ConnectionPage: Status change detected', { 
+      isConnected: status?.session.is_connected,
+      currentDevice: status?.session.current_device,
+      connectionStage: status?.session.connection_stage,
+      flowState
+    });
+    
     if (status?.session.is_connected) {
       setConnectionStatus('connected');
+      // If we're connected but flowState is not MONITORING_ACTIVE, sync it
+      if (flowState !== 'MONITORING_ACTIVE') {
+        console.log('ConnectionPage: Syncing flowState to MONITORING_ACTIVE');
+        setFlowState('MONITORING_ACTIVE');
+        setStatusMessage('Monitoring is active!');
+      }
     } else if (status?.session.connection_stage) {
       setConnectionStatus('connecting');
     } else {
       setConnectionStatus('idle');
+      // If we're not connected but flowState suggests we are, reset it
+      if (flowState === 'MONITORING_ACTIVE') {
+        console.log('ConnectionPage: Resetting flowState to IDLE');
+        setFlowState('IDLE');
+        setStatusMessage('');
+        setErrorMessage(null);
+      }
     }
-  }, [status]);
+  }, [status, flowState]);
+
+  // Sync selected device with globally connected device
+  useEffect(() => {
+    if (status?.session.is_connected && status?.session.current_device && devices.length > 0) {
+      // If there's a connected device but no selected device, or if the selected device doesn't match
+      if (!selectedDevice || selectedDevice.id !== status.session.current_device) {
+        // Find the connected device in our devices list and select it
+        const connectedDevice = devices.find(d => d.id === status.session.current_device);
+        if (connectedDevice) {
+          console.log('ConnectionPage: Syncing selected device with connected device:', connectedDevice.id);
+          setSelectedDevice(connectedDevice);
+        }
+      }
+    }
+  }, [status?.session.is_connected, status?.session.current_device, devices, selectedDevice]);
 
   // Load processes when device becomes connected
   useEffect(() => {

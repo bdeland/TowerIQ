@@ -16,6 +16,8 @@ function DatabaseHealthDashboardContent() {
   const [panelData, setPanelData] = useState<Record<string, any[]>>({});
   const [isLoading, setIsLoading] = useState(false);
   const [lastPanelIds, setLastPanelIds] = useState<string>('');
+  const [forceRefresh, setForceRefresh] = useState(0);
+  const [lastForceRefresh, setLastForceRefresh] = useState(0);
 
   useEffect(() => {
     const d = databaseHealthDashboard;
@@ -31,9 +33,11 @@ function DatabaseHealthDashboardContent() {
     
     // Create a stable identifier for the current panels to prevent infinite loops
     const currentPanelIds = panels.map(p => p.id).sort().join(',');
+    const selectedValuesString = JSON.stringify(selectedValues);
     
     // Only fetch if panels have changed or selectedValues have changed, and we're not already loading
-    if (isLoading || currentPanelIds === lastPanelIds) {
+    // Or if forceRefresh has been triggered
+    if (isLoading || (currentPanelIds === lastPanelIds && forceRefresh === lastForceRefresh)) {
       return;
     }
 
@@ -41,8 +45,10 @@ function DatabaseHealthDashboardContent() {
       setIsLoading(true);
       setLastPanelIds(currentPanelIds);
       
-      // Reset panel data when starting fresh fetch
-      setPanelData({});
+      // Update lastForceRefresh to prevent infinite loops
+      setLastForceRefresh(forceRefresh);
+      
+      // Don't reset panel data to avoid flickering - update incrementally instead
       
       // Process panels in batches to avoid overwhelming the server
       const BATCH_SIZE = 2; // Reduced batch size to be more conservative
@@ -93,7 +99,22 @@ function DatabaseHealthDashboardContent() {
     };
 
     fetchAllPanelData();
-  }, [selectedValues, dashboard, panels, isLoading, lastPanelIds]);
+  }, [selectedValues, dashboard, panels, isLoading, lastPanelIds, forceRefresh, lastForceRefresh]);
+
+  // Add event listener for database metrics updates
+  useEffect(() => {
+    const handleDatabaseMetricsUpdate = () => {
+      console.log('Database metrics updated, refreshing database health dashboard panels...');
+      // Use a timestamp to ensure uniqueness and avoid infinite loops
+      setForceRefresh(Date.now());
+    };
+
+    window.addEventListener('database-metrics-updated', handleDatabaseMetricsUpdate);
+    
+    return () => {
+      window.removeEventListener('database-metrics-updated', handleDatabaseMetricsUpdate);
+    };
+  }, []);
 
   if (!dashboard) {
     return <Typography sx={{ padding: 3 }}>Loading Database Health Dashboard...</Typography>;
