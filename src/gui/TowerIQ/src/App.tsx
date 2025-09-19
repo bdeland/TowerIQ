@@ -283,6 +283,7 @@ const navigationItems = [
 // Main layout component with navigation
 function DashboardLayout() {
   // Updated state management according to requirements
+  //TODO fix the stupid sidebar transition when undocking
   const [sidebarHidden, setSidebarHidden] = useState(true); // Manages the hidden state - default to hidden
   const [sidebarDocked, setSidebarDocked] = useState(false); // Manages the docked state
   const location = useLocation();
@@ -296,8 +297,8 @@ function DashboardLayout() {
 
 
   // Shared transition configuration for synchronized animations
-  const transitionDuration = 250; // Slowed down to 5 seconds for inspection
-  const sharedTransition = (theme: any) => theme.transitions.create(['margin', 'width', 'margin-left'], {
+  const transitionDuration = 300; // Synchronized transition duration for all sidebar animations
+  const sharedTransition = (theme: any) => theme.transitions.create(['margin', 'width', 'margin-left', 'transform'], {
     easing: theme.transitions.easing.sharp,
     duration: transitionDuration,
   });
@@ -370,13 +371,20 @@ function DashboardLayout() {
   // Dock toggle function according to requirements
   const handleDockToggle = () => {
     const newDockedState = !sidebarDocked;
-    setSidebarDocked(newDockedState);
     
-    // When undocking, close the sidebar after a brief delay to allow transition
+    // When undocking, start the layout transition, then hide sidebar after it slides out
     if (!newDockedState) {
+      // First change docked state to start header/content expansion
+      setSidebarDocked(newDockedState);
+      // Then hide sidebar to trigger its slide-out transition
+      // Small delay to ensure state changes are processed in order
       setTimeout(() => {
         setSidebarHidden(true);
-      }, 0); // Small delay to allow state change to propagate
+      }, 0); // Just enough delay to ensure proper state sequencing
+    } else {
+      // When docking, show sidebar first, then change dock state
+      setSidebarHidden(false);
+      setSidebarDocked(newDockedState);
     }
   };
 

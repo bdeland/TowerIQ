@@ -90,25 +90,30 @@ export function Sidebar({
           }
         }}
         transitionDuration={{
-          enter: transitionDuration,
-          exit: transitionDuration,
+          enter: transitionDuration, // Exact same timing as header/content
+          exit: transitionDuration,  // Exact same timing as header/content
         }}
         SlideProps={{
           timeout: {
             enter: transitionDuration,
             exit: transitionDuration,
           },
+          easing: {
+            enter: 'cubic-bezier(0.4, 0, 0.2, 1)', // Material-UI sharp easing to match sharedTransition
+            exit: 'cubic-bezier(0.4, 0, 0.2, 1)',
+          },
         }}
         PaperProps={{
           sx: {
-            transition: sharedTransition, // Use our shared transition for paper
+            // Remove custom transition to prevent conflicts with MUI's slide transition
+            // The drawer's built-in slide transition will handle the timing
           },
         }}
         ModalProps={{
           keepMounted: true,
-          // Add backdrop for overlay mode
+          // Always hide backdrop to prevent dimming during transitions
           BackdropProps: {
-            invisible: sidebarDocked, // Hide backdrop when docked
+            invisible: true, // Always hide backdrop to prevent screen dimming
           },
         }}
         sx={{
@@ -124,12 +129,7 @@ export function Sidebar({
               // Add borders to define sidebar boundaries
               borderLeft: layout.border,
               borderRight: layout.border,
-              // Remove MUI's default transition and use our shared one
-              transition: (theme) => `${sharedTransition(theme)} !important`,
-              // Override any default MUI transitions
-              '&.MuiDrawer-paperAnchorLeft': {
-                transition: (theme) => `${sharedTransition(theme)} !important`,
-              },
+              // Let MUI handle the slide transition timing - don't override with custom transitions
             },
         }}
       >
