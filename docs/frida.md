@@ -89,22 +89,11 @@ Native injection does:
 ```173:193:src/tower_iq/services/frida_service.py
 session = device.attach(pid, realm='emulated')
 ```
-- Injects content after “sanitizing”:
+- Injects content exactly as provided:
 ```374:381:src/tower_iq/services/frida_service.py
-script_to_load = self._sanitize_script_content(script_content)
-script = session.create_script(script_to_load)
+script = session.create_script(script_content)
 script.on('message', self._on_message)
 script.load()
-```
-
-Sanitizer trims packager header:
-```440:467:src/tower_iq/services/frida_service.py
-header_markers = ("📦", "↻", "✄")
-has_header_marker = any(m in content[:200] for m in header_markers)
-meta_idx = content.find("/** TOWERIQ_HOOK_METADATA")
-if meta_idx != -1 and has_header_marker:
-    trimmed = content[meta_idx:]
-    return trimmed
 ```
 
 CLI fallback (if native fails) runs:
@@ -127,39 +116,36 @@ The actual compiled script is packaged:
 ### 3) Discrepancy and Root Cause
 
 - Manual success uses the fully packaged `tower_hook_compiled.js` (packager prelude + inlined `frida-il2cpp-bridge`) and attaches correctly. This produces the expected Il2Cpp log, heartbeat, and game data.
-- Automated flow diverges at injection:
-  - The sanitizer removes the packager prelude when it detects 📦/↻/✄ before metadata.
-  - That trimmed content starts at the metadata block and contains:
+- Automated flow previously diverged at injection:
+  - A sanitization step removed the packager prelude when it detected 📦/↻/✄ before metadata.
+  - That trimmed content started at the metadata block and contained:
     - The statement: `import "frida-il2cpp-bridge";`
     - But the inlined module and packager runtime (before metadata) were just removed.
   - Result: The injected script cannot resolve `frida-il2cpp-bridge` and fails to run, yielding no initialization logs, no heartbeat, and no game data.
 
 Why this only shows up in automation:
 - The CLI in manual mode loads the full bundled file and understands the packager format.
-- The automated native injection feeds sanitized, broken content into `create_script`, stripping the packager runtime needed by the compiled script.
+- The automated native injection fed sanitized, broken content into `create_script`, stripping the packager runtime needed by the compiled script.
 - If native injection returns True (script.load succeeded), the script can still crash at runtime (import unresolved), producing no usable messages.
 - Even if it falls back to CLI, the backend currently starts the CLI runner but returns success immediately; if the script is malformed (or using mismatched content), it yields no useful messages for the backend to parse and store.
 
-Conclusion: The sanitizer is the point of divergence; it removes the necessary packager prelude, breaking the compiled script’s module resolution. This explains no Il2Cpp init, no heartbeat, and no game data in automated runs.
+Conclusion: The sanitization step was the point of divergence; it removed the necessary packager prelude, breaking the compiled script’s module resolution. This explains no Il2Cpp init, no heartbeat, and no game data in automated runs. Removing that step ensures the packaged script loads intact.
 
 ---
 
 ### 4) Actionable Recommendations (Edits)
 
 Minimal, safe fix: Preserve packaged scripts intact.
-- Detect frida-compile packaging markers and do not sanitize.
-- This preserves the inlined `frida-il2cpp-bridge` module and matches the manual behavior.
+- Remove the sanitization step so packaged scripts remain unchanged.
+- Ensure the Python API receives the same bundled content that works with the CLI.
 
-Edit 1: Only sanitize non-packaged scripts
+Edit 1: (Implemented) Load scripts verbatim in native injection
 ```python
 # src/tower_iq/services/frida_service.py
 
-# In inject_script(), replace:
-script_to_load = self._sanitize_script_content(script_content)
-
-# With:
-has_packaging = any(m in script_content[:200] for m in ("📦", "↻", "✄"))
-script_to_load = script_content if has_packaging else self._sanitize_script_content(script_content)
+script = session.create_script(script_content)
+script.on('message', self._on_message)
+script.load()
 ```
 
 Optional Edit 2: Harden fallback for packaged scripts (forces exact manual parity)
