@@ -989,10 +989,10 @@ class ConnectionFlowController(QObject):
             if not self.emulator_service:
                 self._logger.error("Neither stage manager nor emulator service available")
                 return False
-            
+
             try:
                 # Use emulator service directly
-                await self.emulator_service.ensure_frida_server_is_running()
+                await self.emulator_service.ensure_frida_server_is_running(device_identifier=device_id)
                 return True
             except Exception as e:
                 self._logger.error("Frida server setup failed", error=str(e))
