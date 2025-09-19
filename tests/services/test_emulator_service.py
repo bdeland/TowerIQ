@@ -87,6 +87,8 @@ class _DummyClientSession:
 
 sys.modules.setdefault("aiohttp", types.SimpleNamespace(ClientSession=_DummyClientSession))
 
+from tower_iq.core.errors import DeviceConnectionError
+from tower_iq.core.utils import AdbError
 from tower_iq.services.emulator_service import EmulatorService, Device  # noqa: E402
 import tower_iq.services.emulator_service as emulator_service_module  # noqa: E402
 
@@ -191,3 +193,39 @@ def test_ensure_frida_server_errors_when_identifier_missing(monkeypatch):
 
     assert result is False
     assert recorder.calls == []
+
+
+def test_test_device_connection_reports_offline(monkeypatch):
+    service = EmulatorService(DummyConfig(), DummyLogger())
+
+    monkeypatch.setattr(
+        service,
+        "_get_device_list",
+        AsyncMock(return_value=[("emulator-5554", "offline")]),
+    )
+    service.adb.run_command = AsyncMock()
+
+    with pytest.raises(DeviceConnectionError) as exc_info:
+        asyncio.run(service._test_device_connection("emulator-5554"))
+
+    assert exc_info.value.reason == "abnormal_status"
+    assert exc_info.value.status == "offline"
+    service.adb.run_command.assert_not_awaited()
+
+
+def test_test_device_connection_handles_adb_failure(monkeypatch):
+    service = EmulatorService(DummyConfig(), DummyLogger())
+
+    monkeypatch.setattr(
+        service,
+        "_get_device_list",
+        AsyncMock(return_value=[("emulator-5554", "device")]),
+    )
+    adb_error = AdbError("command failed")
+    service.adb.run_command = AsyncMock(side_effect=adb_error)
+
+    with pytest.raises(DeviceConnectionError) as exc_info:
+        asyncio.run(service._test_device_connection("emulator-5554"))
+
+    assert exc_info.value.reason == "adb_command_failed"
+    assert exc_info.value.status == "device"

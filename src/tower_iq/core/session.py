@@ -6,6 +6,7 @@ management of application volatile state.
 """
 
 import structlog
+import asyncio
 from typing import Optional, List, Dict, Any, Union
 from dataclasses import dataclass
 from datetime import datetime
@@ -13,6 +14,13 @@ from enum import Enum
 from PyQt6.QtCore import QObject, pyqtSignal, QMutex, QMutexLocker
 import threading
 import time
+
+from .errors import DeviceConnectionError
+
+
+_DEVICE_CONNECTION_MAX_ATTEMPTS = 3
+_DEVICE_CONNECTION_RETRY_INITIAL_DELAY = 1.0
+_DEVICE_CONNECTION_RETRY_MAX_DELAY = 5.0
 
 
 @dataclass
@@ -882,38 +890,86 @@ class SessionManager(QObject):
     async def connect_to_device(self, device_serial: str, emulator_service) -> bool:
         """
         Establish a connection to a specific device.
-        
+
         Args:
             device_serial: The serial ID of the device to connect to
             emulator_service: EmulatorService instance for device operations
-            
+
         Returns:
             True if connection was successful, False otherwise
         """
         self.logger.info("Attempting to connect to device", device=device_serial)
-        
+
+        last_error: Optional[Exception] = None
+        delay = _DEVICE_CONNECTION_RETRY_INITIAL_DELAY
+
+        for attempt in range(1, _DEVICE_CONNECTION_MAX_ATTEMPTS + 1):
+            try:
+                await emulator_service._test_device_connection(device_serial)
+                last_error = None
+                break
+            except DeviceConnectionError as connection_error:
+                last_error = connection_error
+                self.logger.warning(
+                    "Device connection attempt failed",
+                    device=device_serial,
+                    attempt=attempt,
+                    reason=connection_error.reason,
+                    status=connection_error.status,
+                )
+            except Exception as error:  # pragma: no cover - unexpected but logged
+                last_error = error
+                self.logger.error(
+                    "Unexpected error testing device connection",
+                    device=device_serial,
+                    attempt=attempt,
+                    error=str(error),
+                )
+
+            if attempt < _DEVICE_CONNECTION_MAX_ATTEMPTS:
+                self.logger.info(
+                    "Retrying device connection",
+                    device=device_serial,
+                    next_attempt=attempt + 1,
+                    delay_seconds=delay,
+                )
+                await asyncio.sleep(delay)
+                delay = min(delay * 2, _DEVICE_CONNECTION_RETRY_MAX_DELAY)
+
+        if last_error is not None:
+            self.logger.error(
+                "Device is not reachable after retries",
+                device=device_serial,
+                attempts=_DEVICE_CONNECTION_MAX_ATTEMPTS,
+                error=str(last_error),
+            )
+            return False
+
         try:
-            # Test device connection using the private method
-            if not await emulator_service._test_device_connection(device_serial):
-                self.logger.error("Device is not reachable", device=device_serial)
-                return False
-            
             # Get device architecture
-            properties = await emulator_service._get_device_properties(device_serial, ['ro.product.cpu.abi'])
+            properties = await emulator_service._get_device_properties(
+                device_serial, ['ro.product.cpu.abi']
+            )
             architecture = properties.get('ro.product.cpu.abi', 'unknown')
-            
+
             # Update session state
             with QMutexLocker(self._mutex):
                 self._connected_device_serial = device_serial
                 self._device_architecture = architecture
-            
-            self.logger.info("Successfully connected to device", 
-                            device=device_serial, architecture=architecture)
+
+            self.logger.info(
+                "Successfully connected to device",
+                device=device_serial,
+                architecture=architecture,
+            )
             return True
-            
+
         except Exception as e:
-            self.logger.error("Failed to connect to device", 
-                             device=device_serial, error=str(e))
+            self.logger.error(
+                "Failed to finalize device connection",
+                device=device_serial,
+                error=str(e),
+            )
             return False
     
     async def disconnect_from_device(self) -> bool:
