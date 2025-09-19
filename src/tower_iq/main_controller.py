@@ -200,6 +200,12 @@ class MainController:
         self.session = SessionManager()
         self.emulator_service = EmulatorService(config, logger)
         
+        # Link session manager with emulator service for device monitoring
+        self.session.set_emulator_service(self.emulator_service)
+        
+        # Connect to session manager signals for cleanup
+        self.session.connection_main_state_changed.connect(self._on_connection_state_changed)
+        
         # Initialize FridaService with event loop and session manager
         import asyncio
         try:
@@ -451,6 +457,12 @@ class MainController:
                     # Store device info in session (using available properties)
                     self.session.connected_emulator_serial = device_serial
                     
+                    # Get device info and set for monitoring
+                    devices = loop.run_until_complete(self.emulator_service.discover_devices())
+                    device = next((d for d in devices if d.serial == device_serial), None)
+                    if device:
+                        self.session.set_connected_device(device_serial, device.architecture)
+                    
                     # Notify callbacks
                     self._notify_connection_change({
                         "state": "connected",
@@ -541,17 +553,41 @@ class MainController:
     
     def get_session_state(self) -> Dict[str, Any]:
         """Get current session state."""
-        return {
-            "is_connected": self.session.connection_main_state in [ConnectionState.CONNECTED, ConnectionState.ACTIVE],
-            "current_device": getattr(self.session, 'connected_emulator_serial', None),
-            "current_process": {
-                "package": getattr(self.session, 'selected_target_package', None),
-                "pid": getattr(self.session, 'selected_target_pid', None),
-                "version": getattr(self.session, 'selected_target_version', None)
-            },
-            "connection_state": self.session.connection_main_state.value,
-            "connection_sub_state": self.session.connection_sub_state.value if self.session.connection_sub_state else None
-        }
+        try:
+            last_error = None
+            if hasattr(self.session, '_last_error_info') and self.session._last_error_info:
+                last_error = {
+                    "message": self.session._last_error_info.user_message,
+                    "code": self.session._last_error_info.error_code,
+                    "recovery_suggestions": self.session._last_error_info.recovery_suggestions,
+                    "timestamp": self.session._last_error_info.timestamp.isoformat()
+                }
+            
+            return {
+                "is_connected": self.session.connection_main_state in [ConnectionState.CONNECTED, ConnectionState.ACTIVE],
+                "current_device": getattr(self.session, 'connected_emulator_serial', None),
+                "current_process": {
+                    "package": getattr(self.session, 'selected_target_package', None),
+                    "pid": getattr(self.session, 'selected_target_pid', None),
+                    "version": getattr(self.session, 'selected_target_version', None)
+                },
+                "connection_state": self.session.connection_main_state.value,
+                "connection_sub_state": self.session.connection_sub_state.value if self.session.connection_sub_state else None,
+                "device_monitoring_active": getattr(self.session, '_device_monitor_running', False),
+                "last_error": last_error
+            }
+        except Exception as e:
+            self.logger.error("Error getting session state", error=str(e))
+            # Return basic state if there's an error
+            return {
+                "is_connected": False,
+                "current_device": None,
+                "current_process": {"package": None, "pid": None, "version": None},
+                "connection_state": "disconnected",
+                "connection_sub_state": None,
+                "device_monitoring_active": False,
+                "last_error": None
+            }
 
     def get_script_status(self) -> Dict[str, Any]:
         """Get current script status for API."""
@@ -575,6 +611,37 @@ class MainController:
             status_data["last_error"] = script_status.last_error
         
         return status_data
+    
+    def _on_connection_state_changed(self, new_state):
+        """Handle connection state changes from SessionManager."""
+        from .core.session import ConnectionState
+        
+        if new_state == ConnectionState.DISCONNECTED:
+            # Ensure Frida service is properly detached on disconnection
+            try:
+                if self.frida_service:
+                    # Run detach in a separate thread to avoid blocking
+                    def _async_detach():
+                        try:
+                            loop = asyncio.new_event_loop()
+                            asyncio.set_event_loop(loop)
+                            try:
+                                loop.run_until_complete(self.frida_service.detach())
+                            finally:
+                                loop.close()
+                        except Exception as e:
+                            self.logger.warning("Error during Frida cleanup after disconnection", error=str(e))
+                    
+                    cleanup_thread = threading.Thread(target=_async_detach, daemon=True)
+                    cleanup_thread.start()
+                    
+                # Stop background operations
+                self.stop_background_operations()
+                
+                self.logger.info("Cleanup completed after device disconnection")
+                
+            except Exception as e:
+                self.logger.error("Error during disconnection cleanup", error=str(e))
 
     def handle_heartbeat_message(self, message_data: Dict[str, Any]) -> None:
         """Handle incoming heartbeat message from hook script."""

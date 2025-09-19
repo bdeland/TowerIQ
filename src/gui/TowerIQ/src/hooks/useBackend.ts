@@ -7,8 +7,10 @@ export interface SessionState {
   current_device?: string;
   current_process?: any;
   test_mode: boolean;
-  connection_stage?: string;
-  connection_message?: string;
+  connection_state?: string;
+  connection_sub_state?: string;
+  device_monitoring_active?: boolean;
+  last_error?: any;
 }
 
 export interface Device {
@@ -112,8 +114,8 @@ const startGlobalPolling = () => {
   // Initial status check
   pollStatus();
 
-  // Poll every 30 seconds instead of 5 seconds (much less frequent)
-  globalPollingInterval = setInterval(pollStatus, 30000);
+  // Poll every 5 seconds for faster detection of device disconnections
+  globalPollingInterval = setInterval(pollStatus, 5000);
 };
 
 const stopGlobalPolling = () => {

@@ -25,6 +25,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from tower_iq.core.config import ConfigurationManager
 from tower_iq.core.logging_config import setup_logging
+from tower_iq.core.session import ConnectionState
 from tower_iq.main_controller import MainController
 from tower_iq.services.database_service import DatabaseService
 
@@ -82,6 +83,10 @@ class SessionState(BaseModel):
     current_device: Optional[str] = None
     current_process: Optional[Dict[str, Any]] = None
     test_mode: bool = False
+    connection_state: Optional[str] = None
+    connection_sub_state: Optional[str] = None
+    device_monitoring_active: bool = False
+    last_error: Optional[Dict[str, Any]] = None
 
 # Dashboard API models
 class DashboardCreateRequest(BaseModel):
@@ -151,6 +156,14 @@ class QueryPreviewResponse(BaseModel):
     status: str
     message: str
     plan: Optional[List[Dict[str, Any]]] = None
+
+# Settings models
+class SettingValue(BaseModel):
+    value: Any
+
+class SettingUpdate(BaseModel):
+    key: str
+    value: Any
 
 # Global variables for the backend services
 # Use broad types and sane defaults to satisfy static type checks across the file
@@ -459,7 +472,11 @@ async def get_status():
                 is_connected=session_state.get("is_connected", False),
                 current_device=session_state.get("current_device"),
                 current_process=session_state.get("current_process"),
-                test_mode=controller._test_mode
+                test_mode=controller._test_mode,
+                connection_state=session_state.get("connection_state"),
+                connection_sub_state=session_state.get("connection_sub_state"),
+                device_monitoring_active=session_state.get("device_monitoring_active", False),
+                last_error=session_state.get("last_error")
             ),
             "loading_complete": controller.loading_manager.is_loading_complete()
         }
@@ -1255,6 +1272,35 @@ async def receive_heartbeat(request: dict):
             logger.error("Error processing heartbeat", error=str(e))
         raise HTTPException(status_code=500, detail=f"Failed to process heartbeat: {str(e)}")
 
+@app.post("/api/test/simulate-device-disconnection")
+async def simulate_device_disconnection():
+    """Simulate device disconnection for testing purposes."""
+    try:
+        if not controller:
+            raise HTTPException(status_code=500, detail="Controller not available")
+        
+        if not controller.session:
+            raise HTTPException(status_code=500, detail="Session manager not available")
+            
+        # Check if we're connected to a device
+        if controller.session.connection_main_state not in [ConnectionState.CONNECTED, ConnectionState.ACTIVE]:
+            raise HTTPException(status_code=400, detail="No device connected to simulate disconnection")
+        
+        # Trigger the simulation
+        controller.session.simulate_device_disconnection()
+        
+        if logger:
+            logger.info("Device disconnection simulation triggered via API")
+        
+        return {"message": "Device disconnection simulation triggered"}
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        if logger:
+            logger.error("Error simulating device disconnection", error=str(e))
+        raise HTTPException(status_code=500, detail=f"Failed to simulate device disconnection: {str(e)}")
+
 # --- ADB Server Management Endpoints ---
 
 @app.post("/api/adb/start")
@@ -1648,6 +1694,48 @@ async def update_database_path(update: DatabasePathUpdate):
         if logger:
             logger.error("Error updating database path", error=str(e))
         raise HTTPException(status_code=500, detail=f"Failed to update database path: {str(e)}")
+
+@app.get("/api/settings/get/{setting_key:path}", response_model=SettingValue)
+async def get_setting(setting_key: str):
+    """Get a specific setting value by key."""
+    try:
+        if not config:
+            raise HTTPException(status_code=503, detail="Configuration not available")
+        
+        # Get the setting value, defaulting to False for boolean settings
+        value = config.get(setting_key, False if 'enabled' in setting_key else None)
+        
+        if logger:
+            logger.debug("Retrieved setting", key=setting_key, value=value)
+        
+        return SettingValue(value=value)
+    except Exception as e:
+        if logger:
+            logger.error("Error getting setting", key=setting_key, error=str(e))
+        raise HTTPException(status_code=500, detail=f"Failed to get setting: {str(e)}")
+
+@app.post("/api/settings/set", response_model=SettingValue)
+async def set_setting(update: SettingUpdate):
+    """Set a specific setting value."""
+    try:
+        if not config:
+            raise HTTPException(status_code=503, detail="Configuration not available")
+        
+        # Set the setting with appropriate description
+        description = f"User setting for {update.key}"
+        if update.key == 'developer.mode.enabled':
+            description = "Enable developer mode features and debugging tools"
+        
+        config.set(update.key, update.value, description=description)
+        
+        if logger:
+            logger.info("Updated setting", key=update.key, value=update.value)
+        
+        return SettingValue(value=update.value)
+    except Exception as e:
+        if logger:
+            logger.error("Error setting value", key=update.key, value=update.value, error=str(e))
+        raise HTTPException(status_code=500, detail=f"Failed to set setting: {str(e)}")
 @app.post("/api/query/preview", response_model=QueryPreviewResponse)
 async def preview_query(request: QueryPreviewRequest):
     """Preview a SQL query to validate syntax and get execution plan without executing it."""

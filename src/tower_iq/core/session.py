@@ -269,6 +269,15 @@ class SessionManager(QObject):
         self._heartbeat_running = False
         self._heartbeat_interval = 30  # seconds
         
+        # Device connectivity monitoring
+        self._device_monitor_thread = None
+        self._device_monitor_running = False
+        self._device_monitor_interval = 10  # seconds - check device connectivity every 10 seconds
+        self._emulator_service = None  # Will be set by MainController
+        
+        # Testing support - simulate device disconnection
+        self._simulate_disconnection = False
+        
         # Valid state transitions
         self._valid_transitions = {
             ConnectionState.DISCONNECTED: [ConnectionState.CONNECTING, ConnectionState.ERROR],
@@ -525,6 +534,15 @@ class SessionManager(QObject):
                 # Clear error info when leaving error state
                 self._last_error_info = None
             
+            # Start/stop device monitoring based on state
+            if new_state in [ConnectionState.CONNECTED, ConnectionState.ACTIVE]:
+                # Start device monitoring when connected
+                if not self._device_monitor_running:
+                    self._start_device_monitoring()
+            elif new_state in [ConnectionState.DISCONNECTED, ConnectionState.ERROR]:
+                # Stop device monitoring when disconnected or in error
+                if self._device_monitor_running:
+                    self._stop_device_monitoring()
 
         
         # Emit signals outside of mutex lock
@@ -748,6 +766,148 @@ class SessionManager(QObject):
         if self._heartbeat_thread and self._heartbeat_thread.is_alive():
             self._heartbeat_thread.join(timeout=2)
         self.logger.info("Stopped heartbeat monitoring")
+        
+    def set_emulator_service(self, emulator_service) -> None:
+        """Set the emulator service reference for device monitoring."""
+        self._emulator_service = emulator_service
+        
+    def set_connected_device(self, device_serial: str, device_architecture: Optional[str] = None) -> None:
+        """Set the connected device information for monitoring."""
+        with QMutexLocker(self._mutex):
+            self._connected_device_serial = device_serial
+            self._device_architecture = device_architecture
+            self.logger.info("Connected device set", device=device_serial, architecture=device_architecture)
+    
+    def simulate_device_disconnection(self) -> None:
+        """Simulate device disconnection for testing purposes."""
+        self.logger.info("Triggering simulated device disconnection")
+        self._simulate_disconnection = True
+        
+    def _start_device_monitoring(self):
+        """Start device connectivity monitoring in a separate thread."""
+        if self._device_monitor_running:
+            return
+            
+        self._device_monitor_running = True
+        self._device_monitor_thread = threading.Thread(target=self._device_monitor_loop, daemon=True)
+        self._device_monitor_thread.start()
+        self.logger.info("Started device connectivity monitoring")
+        
+    def _stop_device_monitoring(self):
+        """Stop the device connectivity monitoring thread."""
+        self._device_monitor_running = False
+        if self._device_monitor_thread and self._device_monitor_thread.is_alive():
+            self._device_monitor_thread.join(timeout=2)
+        self.logger.info("Stopped device connectivity monitoring")
+        
+    def _device_monitor_loop(self):
+        """Monitor device connectivity and detect disconnections."""
+        while self._device_monitor_running:
+            try:
+                device_serial = None
+                with QMutexLocker(self._mutex):
+                    # Only monitor if we have a connected device
+                    if (self._connection_main_state in [ConnectionState.CONNECTED, ConnectionState.ACTIVE] and 
+                        self._connected_device_serial and self._emulator_service):
+                        
+                        device_serial = self._connected_device_serial
+                        
+                # Check device connectivity outside of mutex to avoid blocking
+                if device_serial and self._emulator_service:
+                    try:
+                        # Check for simulated disconnection first (for testing)
+                        if self._simulate_disconnection:
+                            self.logger.info("Simulating device disconnection for testing", device=device_serial)
+                            self._handle_device_disconnection(device_serial)
+                            break  # Stop monitoring after disconnection
+                        
+                        # Use asyncio.run to call the async method from sync context
+                        import asyncio
+                        loop = asyncio.new_event_loop()
+                        asyncio.set_event_loop(loop)
+                        try:
+                            is_connected = loop.run_until_complete(
+                                self._emulator_service._test_device_connection(device_serial)
+                            )
+                        finally:
+                            loop.close()
+                            
+                        if not is_connected:
+                            self.logger.warning("Device connectivity lost", device=device_serial)
+                            self._handle_device_disconnection(device_serial)
+                            break  # Stop monitoring after disconnection
+                            
+                    except Exception as e:
+                        # Device connection test failed - likely disconnected
+                        self.logger.warning("Device connectivity check failed", 
+                                          device=device_serial, 
+                                          error=str(e))
+                        self._handle_device_disconnection(device_serial)
+                        break  # Stop monitoring after disconnection
+                
+                # Sleep for monitoring interval
+                time.sleep(self._device_monitor_interval)
+                
+            except Exception as e:
+                self.logger.error("Error in device monitor loop", error=str(e))
+                time.sleep(self._device_monitor_interval)  # Continue monitoring even on error
+                
+    def _handle_device_disconnection(self, device_serial: str):
+        """Handle device disconnection by cleaning up state and notifying."""
+        self.logger.warning("Handling device disconnection", device=device_serial)
+        
+        with QMutexLocker(self._mutex):
+            # Reset simulation flag
+            self._simulate_disconnection = False
+            
+            # Transition to disconnected state
+            old_state = self._connection_main_state
+            self._connection_main_state = ConnectionState.DISCONNECTED
+            self._connection_sub_state = None
+            
+            # Create error info for the disconnection
+            self._last_error_info = ErrorInfo(
+                error_type=ErrorType.NETWORK,
+                error_code="device_disconnected",
+                user_message=f"Device {device_serial} has disconnected or become unresponsive",
+                technical_details=f"Device connectivity monitoring detected that {device_serial} is no longer accessible",
+                recovery_suggestions=[
+                    "Check device connection and ensure it's powered on",
+                    "Restart the device if it appears frozen",
+                    "Try reconnecting the device",
+                    "Restart ADB server if connection issues persist"
+                ],
+                is_recoverable=True,
+                retry_count=0,
+                timestamp=datetime.now()
+            )
+            
+            # Clear device connection info
+            self._connected_device_serial = None
+            self._device_architecture = None
+            
+            # Clear Frida connection objects
+            self._frida_device = None
+            self._frida_session = None
+            self._frida_script = None
+            self._frida_attached_pid = None
+            
+            # Mark script as inactive
+            if self._script_status:
+                self._script_status.is_active = False
+                self._script_status.last_error = f"Device {device_serial} disconnected"
+        
+        # Stop monitoring threads
+        self._stop_heartbeat_monitoring()
+        self._stop_device_monitoring()
+        
+        # Emit signals to notify UI
+        self.connection_main_state_changed.emit(self._connection_main_state)
+        if self._script_status:
+            self.script_status_changed.emit(self._script_status)
+            self.script_health_changed.emit(False)
+        
+        self.logger.info("Device disconnection handling completed", device=device_serial)
 
     def _heartbeat_monitor_loop(self):
         """Monitor script heartbeats and detect timeouts."""

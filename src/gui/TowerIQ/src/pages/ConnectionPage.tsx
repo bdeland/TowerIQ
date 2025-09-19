@@ -193,6 +193,7 @@ export function ConnectionPage() {
 
   // Load initial data
   useEffect(() => {
+    console.log('ConnectionPage: Component mounted');
     loadDevices();
     loadHookScripts();
     loadScriptStatus();
@@ -206,6 +207,40 @@ export function ConnectionPage() {
       }
     })();
   }, []);
+
+  // Initial sync when component mounts and status is already available
+  useEffect(() => {
+    if (status?.session) {
+      console.log('ConnectionPage: Initial sync on mount', {
+        isConnected: status.session.is_connected,
+        currentDevice: status.session.current_device,
+        connectionState: status.session.connection_state
+      });
+      
+      // Force an immediate sync of connection state on mount
+      // This ensures that if we navigate back to a page where the backend is already connected,
+      // the UI shows the correct state immediately
+      const backendState = status.session.connection_state;
+      const isConnected = status.session.is_connected;
+      
+      if (backendState === 'active' && isConnected) {
+        setConnectionStatus('connected');
+        setFlowState('MONITORING_ACTIVE');
+        setStatusMessage('Monitoring is active!');
+        setErrorMessage(null);
+      } else if (backendState === 'connected' && isConnected) {
+        setConnectionStatus('connected');
+        setFlowState('IDLE');
+        setStatusMessage('Device connected');
+        setErrorMessage(null);
+      } else if (backendState === 'connecting') {
+        setConnectionStatus('connecting');
+        setFlowState('CONNECTING_DEVICE');
+        setStatusMessage('Connecting to device...');
+        setErrorMessage(null);
+      }
+    }
+  }, []); // Only run once on mount
 
   // Auto-select first hook script when scripts change
   useEffect(() => {
@@ -245,46 +280,127 @@ export function ConnectionPage() {
     console.log('ConnectionPage: Status change detected', { 
       isConnected: status?.session.is_connected,
       currentDevice: status?.session.current_device,
-      connectionStage: status?.session.connection_stage,
-      flowState
+      connectionState: status?.session.connection_state,
+      connectionSubState: status?.session.connection_sub_state,
+      lastError: status?.session.last_error,
+      currentFlowState: flowState,
+      backendState: status?.session.connection_state
     });
     
-    if (status?.session.is_connected) {
-      setConnectionStatus('connected');
-      // If we're connected but flowState is not MONITORING_ACTIVE, sync it
-      if (flowState !== 'MONITORING_ACTIVE') {
-        console.log('ConnectionPage: Syncing flowState to MONITORING_ACTIVE');
-        setFlowState('MONITORING_ACTIVE');
-        setStatusMessage('Monitoring is active!');
-      }
-    } else if (status?.session.connection_stage) {
-      setConnectionStatus('connecting');
-    } else {
-      setConnectionStatus('idle');
-      // If we're not connected but flowState suggests we are, reset it
-      if (flowState === 'MONITORING_ACTIVE') {
-        console.log('ConnectionPage: Resetting flowState to IDLE');
-        setFlowState('IDLE');
-        setStatusMessage('');
-        setErrorMessage(null);
-      }
+    if (!status?.session) {
+      console.log('ConnectionPage: No session data, skipping sync');
+      return;
     }
-  }, [status, flowState]);
+    
+    const backendState = status.session.connection_state;
+    const isConnected = status.session.is_connected;
+    const lastError = status.session.last_error;
+    
+    // Handle device disconnection errors
+    if (lastError && lastError.code === 'device_disconnected') {
+      console.log('ConnectionPage: Device disconnection detected');
+      setFlowState('ERROR');
+      setErrorMessage(`Device disconnected: ${lastError.message}`);
+      setStatusMessage('');
+      setScriptStatus(null);
+      setConnectionStatus('idle');
+    }
+    // Sync with backend connection state - this handles page navigation sync
+    else if (backendState === 'active') {
+      // Backend says we're active (monitoring)
+      console.log('ConnectionPage: Backend is ACTIVE, syncing to MONITORING_ACTIVE');
+      setConnectionStatus('connected');
+      setFlowState('MONITORING_ACTIVE');
+      setStatusMessage('Monitoring is active!');
+      setErrorMessage(null);
+    }
+    else if (backendState === 'connected' && isConnected) {
+      // Backend says we're connected but not yet active
+      console.log('ConnectionPage: Backend is CONNECTED, syncing to IDLE');
+      setConnectionStatus('connected');
+      setFlowState('IDLE');
+      setStatusMessage('Device connected');
+      setErrorMessage(null);
+    }
+    else if (backendState === 'connecting') {
+      console.log('ConnectionPage: Backend is CONNECTING, syncing to CONNECTING_DEVICE');
+      setConnectionStatus('connecting');
+      setFlowState('CONNECTING_DEVICE');
+      setStatusMessage('Connecting to device...');
+      setErrorMessage(null);
+    }
+    else if (backendState === 'disconnected' || !isConnected) {
+      // Backend says we're disconnected
+      console.log('ConnectionPage: Backend is DISCONNECTED, syncing to IDLE');
+      setConnectionStatus('idle');
+      setFlowState('IDLE');
+      setStatusMessage('');
+      setErrorMessage(null);
+    }
+  }, [status]);
 
   // Sync selected device with globally connected device
   useEffect(() => {
-    if (status?.session.is_connected && status?.session.current_device && devices.length > 0) {
-      // If there's a connected device but no selected device, or if the selected device doesn't match
-      if (!selectedDevice || selectedDevice.id !== status.session.current_device) {
-        // Find the connected device in our devices list and select it
-        const connectedDevice = devices.find(d => d.id === status.session.current_device);
-        if (connectedDevice) {
-          console.log('ConnectionPage: Syncing selected device with connected device:', connectedDevice.id);
-          setSelectedDevice(connectedDevice);
+    console.log('ConnectionPage: Device sync useEffect triggered', {
+      backendConnected: status?.session.is_connected,
+      backendDevice: status?.session.current_device,
+      devicesCount: devices.length,
+      selectedDeviceId: selectedDevice?.id
+    });
+    
+    // Handle connection state sync - only sync when backend is connected
+    if (status?.session.is_connected && status?.session.current_device) {
+      // Only sync if no device is selected, or if selected device doesn't match backend
+      // and the backend is actually connected (to avoid overriding manual selection)
+      if (!selectedDevice || (selectedDevice.id !== status.session.current_device)) {
+        if (devices.length > 0) {
+          // Find the connected device in our devices list and select it
+          const connectedDevice = devices.find(d => d.id === status.session.current_device);
+          if (connectedDevice) {
+            console.log('ConnectionPage: Syncing selected device with connected device:', connectedDevice.id);
+            setSelectedDevice(connectedDevice);
+          } else {
+            console.log('ConnectionPage: Backend device not found in devices list', {
+              backendDevice: status.session.current_device,
+              availableDevices: devices.map(d => d.id)
+            });
+          }
+        } else {
+          // Devices not loaded yet, but we know which device should be selected
+          // Create a minimal device object to maintain state until full device list loads
+          console.log('ConnectionPage: Devices not loaded yet, creating placeholder for connected device:', status.session.current_device);
+          setSelectedDevice({
+            id: status.session.current_device,
+            name: status.session.current_device,
+            serial: status.session.current_device,
+            type: 'unknown',
+            status: 'device',
+            model: 'Loading...',
+            android_version: 'Unknown',
+            api_level: 0,
+            architecture: 'unknown',
+            is_network_device: status.session.current_device.includes(':')
+          });
         }
       }
     }
-  }, [status?.session.is_connected, status?.session.current_device, devices, selectedDevice]);
+    // Clear selected device if backend shows disconnected (only when transitioning from connected to disconnected)
+    else if (!status?.session.is_connected && !status?.session.current_device && selectedDevice) {
+      console.log('ConnectionPage: Clearing selected device due to disconnection');
+      setSelectedDevice(null);
+    }
+  }, [status?.session.is_connected, status?.session.current_device, devices]);
+
+  // Update selected device with full details when devices list becomes available
+  useEffect(() => {
+    if (selectedDevice && devices.length > 0 && selectedDevice.model === 'Loading...') {
+      const fullDevice = devices.find(d => d.id === selectedDevice.id);
+      if (fullDevice) {
+        console.log('ConnectionPage: Updating placeholder device with full details:', fullDevice.id);
+        setSelectedDevice(fullDevice);
+      }
+    }
+  }, [devices, selectedDevice]);
 
   // Load processes when device becomes connected
   useEffect(() => {
@@ -1430,3 +1546,4 @@ export function ConnectionPage() {
     </Box>
   );
 }
+
