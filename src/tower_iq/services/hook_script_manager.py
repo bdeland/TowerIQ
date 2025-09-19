@@ -49,7 +49,11 @@ class HookScriptManager:
             except Exception:
                 continue
 
-            match = re.search(r"/\*\* TOWERIQ_HOOK_METADATA\n(.*?)\n\*/", file_content, re.DOTALL)
+            match = re.search(
+                r"/\*\* TOWERIQ_HOOK_METADATA\r?\n(.*?)\r?\n\*/",
+                file_content,
+                re.DOTALL,
+            )
             if not match:
                 continue
 
