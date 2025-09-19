@@ -920,32 +920,35 @@ class ConnectionFlowController(QObject):
         if not self.emulator_service:
             self._logger.warning("Emulator service not available, skipping device validation")
             return True  # Skip validation if service not available
-        
+
+        if not hasattr(self.session_manager, "connect_to_device"):
+            self._logger.error("Session manager missing connect_to_device API")
+            return False
+
         try:
-            # Use the new two-phase API: first list devices, then connect
-            devices = await self.emulator_service.list_devices_with_details()
-            
-            # Check if the target device is in the list
-            target_device = None
-            for device in devices:
-                if device.get('serial') == device_id:
-                    target_device = device
-                    break
-            
+            devices = await self.emulator_service.discover_devices()
+
+            target_device = next(
+                (device for device in devices if getattr(device, "serial", None) == device_id),
+                None
+            )
+
             if not target_device:
-                self._logger.error("Target device not found in available devices", 
-                                 device_id=device_id, available_devices=[d.get('serial') for d in devices])
+                self._logger.error(
+                    "Target device not found in available devices",
+                    device_id=device_id,
+                    available_devices=[getattr(device, "serial", None) for device in devices]
+                )
                 return False
-            
-            # Connect to the device using the new stateful connection method
-            success = await self.emulator_service.connect_to_device(device_id)
+
+            success = await self.session_manager.connect_to_device(device_id, self.emulator_service)
             if not success:
                 self._logger.error("Failed to connect to specified device", device_id=device_id)
                 return False
-            
+
             self._logger.info("Device connection validated", device_id=device_id)
             return True
-            
+
         except Exception as e:
             self._logger.error("Device validation failed", device_id=device_id, error=str(e))
             return False
