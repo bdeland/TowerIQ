@@ -296,9 +296,10 @@ function DashboardLayout() {
 
 
   // Shared transition configuration for synchronized animations
-  const sharedTransition = (theme: any) => theme.transitions.create(['margin', 'width'], {
+  const transitionDuration = 250; // Slowed down to 5 seconds for inspection
+  const sharedTransition = (theme: any) => theme.transitions.create(['margin', 'width', 'margin-left'], {
     easing: theme.transitions.easing.sharp,
-    duration: theme.transitions.duration.enteringScreen,
+    duration: transitionDuration,
   });
 
   // Dynamic layout calculations - single source of truth
@@ -311,7 +312,7 @@ function DashboardLayout() {
     return {
       appBar: {
         ...baseStyles,
-        zIndex: (theme: any) => sidebarDocked ? theme.zIndex.drawer + 1 : 1,
+        zIndex: (theme: any) => sidebarDocked ? theme.zIndex.drawer - 1 : 1,
         transition: sharedTransition,
       },
       mainContent: {
@@ -404,6 +405,8 @@ function DashboardLayout() {
             listItemIconStyles={listItemIconStyles}
             listItemTextStyles={listItemTextStyles}
             sidebarHeaderStyles={sidebarHeaderStyles}
+            sharedTransition={sharedTransition}
+            transitionDuration={transitionDuration}
           />
           {/* Main content - Grafana Style */}
           <Box

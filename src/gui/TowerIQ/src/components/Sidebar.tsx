@@ -7,14 +7,14 @@ import {
   ListItemButton, 
   ListItemIcon, 
   ListItemText, 
-  Tooltip 
+  Tooltip
 } from '@mui/material';
 import {
-  Menu as MenuIcon,
   ViewSidebar as ViewSidebarIcon,
   ViewSidebarOutlined as ViewSidebarOutlinedIcon,
 } from '@mui/icons-material';
 import { useLocation, useNavigate } from 'react-router-dom';
+import { TowerIQLogo } from './TowerIQLogo';
 
 interface NavigationItem {
   text: string;
@@ -38,6 +38,8 @@ interface SidebarProps {
   listItemIconStyles: any;
   listItemTextStyles: any;
   sidebarHeaderStyles: any;
+  sharedTransition: (theme: any) => any;
+  transitionDuration: number;
 }
 
 export function Sidebar({
@@ -50,7 +52,9 @@ export function Sidebar({
   listItemButtonStyles,
   listItemIconStyles,
   listItemTextStyles,
-  sidebarHeaderStyles
+  sidebarHeaderStyles,
+  sharedTransition,
+  transitionDuration
 }: SidebarProps) {
   const navigate = useNavigate();
   const location = useLocation();
@@ -78,18 +82,33 @@ export function Sidebar({
     >
       {/* Desktop drawer - Grafana Style */}
       <Drawer
-        variant={sidebarDocked ? "permanent" : "temporary"}
+        variant="temporary" // Always use temporary to ensure slide transitions work
         open={!sidebarHidden}
         onClose={() => {
           if (!sidebarDocked) {
             onSidebarToggle();
           }
         }}
+        transitionDuration={{
+          enter: transitionDuration,
+          exit: transitionDuration,
+        }}
+        SlideProps={{
+          timeout: {
+            enter: transitionDuration,
+            exit: transitionDuration,
+          },
+        }}
+        PaperProps={{
+          sx: {
+            transition: sharedTransition, // Use our shared transition for paper
+          },
+        }}
         ModalProps={{
           keepMounted: true,
           // Add backdrop for overlay mode
           BackdropProps: {
-            invisible: sidebarDocked,
+            invisible: sidebarDocked, // Hide backdrop when docked
           },
         }}
         sx={{
@@ -97,36 +116,47 @@ export function Sidebar({
               boxSizing: 'border-box', 
               width: sidebarHidden ? 0 : layout.drawerWidth,
               overflowX: 'hidden',
-              // When not docked, ensure it overlays content and spans full height
-              position: sidebarDocked ? 'relative' : 'fixed',
-              top: sidebarDocked ? 'auto' : 0,
-              height: sidebarDocked ? '100vh' : '100vh',
-              zIndex: sidebarDocked ? 'auto' : 9999,
-              // Add right border to separate sidebar from main content
+              // Position and height settings
+              position: 'fixed',
+              top: 0,
+              height: '100vh',
+              zIndex: sidebarDocked ? (theme) => theme.zIndex.drawer : 9999,
+              // Add borders to define sidebar boundaries
+              borderLeft: layout.border,
               borderRight: layout.border,
-              transition: (theme) => theme.transitions.create(['width'], {
-                easing: theme.transitions.easing.sharp,
-                duration: theme.transitions.duration.enteringScreen,
-              }),
+              // Remove MUI's default transition and use our shared one
+              transition: (theme) => `${sharedTransition(theme)} !important`,
+              // Override any default MUI transitions
+              '&.MuiDrawer-paperAnchorLeft': {
+                transition: (theme) => `${sharedTransition(theme)} !important`,
+              },
             },
         }}
       >
         {/* Sidebar Header */}
-        <Box sx={sidebarHeaderStyles}>
+        <Box sx={{
+          ...sidebarHeaderStyles,
+          paddingLeft: '12px', // Override left padding - adjust this value as needed
+          paddingRight: '0px', // Override right padding to allow button closer to edge
+        }}>
           {/* Hamburger Menu Toggle - Always show in sidebar when visible */}
           <IconButton
             color="inherit"
             aria-label="toggle sidebar"
             onClick={onSidebarToggle}
             sx={{ 
-              ...listItemIconStyles,
               color: 'text.primary',
+              width: 28,
+              height: 28,
+              alignSelf: 'center',
+              padding: 0, // Remove default IconButton padding
+              marginRight: '12px', // Add spacing between logo and text
               '&:hover': {
                 backgroundColor: 'rgba(255, 255, 255, 0.04)',
               },
             }}
           >
-            <MenuIcon />
+            <TowerIQLogo sx={{ fontSize: 28 }} />
           </IconButton>
           
           {/* TowerIQ Text */}
@@ -142,7 +172,7 @@ export function Sidebar({
                 ...listItemIconStyles,
                 color: sidebarDocked ? 'primary.main' : 'text.primary',
                 marginLeft: 'auto', // Push to the right
-                marginRight: 0, // Ensure no right margin
+                marginRight: '0px !important', // Override inherited margin-right from listItemIconStyles
                 '&:hover': {
                   backgroundColor: 'rgba(255, 255, 255, 0.04)',
                 },
