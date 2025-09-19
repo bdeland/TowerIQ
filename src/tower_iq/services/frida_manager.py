@@ -2,7 +2,7 @@ import asyncio
 import hashlib
 import lzma
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional
 import aiohttp
 
 from ..core.utils import AdbWrapper, AdbError
@@ -54,9 +54,10 @@ class FridaServerManager:
 
             # 4. Verify it's responsive
             try:
-                if not await self._wait_for_responsive(device_id):
-                    self.logger.error("Server was started but failed to become responsive.")
-                    return False
+                await self._wait_for_responsive(device_id, target_version=target_version)
+            except FridaServerSetupError as e:
+                self.logger.error(f"Server verification failed: {e}")
+                return False
             except Exception as e:
                 self.logger.error(f"Failed to verify frida-server responsiveness: {e}")
                 return False
@@ -171,25 +172,133 @@ class FridaServerManager:
             self.logger.error(f"Error in _start_server: {e}")
             raise
 
-    async def _wait_for_responsive(self, device_id: str, frida_instance=None, timeout: int = 15) -> bool:
-        self.logger.info("Waiting for frida-server to become responsive...")
-        for _ in range(timeout):
+    async def _wait_for_responsive(
+        self,
+        device_id: str,
+        target_version: str,
+        frida_instance=None,
+        timeout: int = 15,
+    ) -> bool:
+        self.logger.info(
+            f"Waiting for frida-server to become responsive on {device_id}"
+            f" (expecting version {target_version})"
+        )
+
+        last_error: Optional[FridaServerSetupError] = None
+
+        for attempt in range(1, timeout + 1):
             try:
-                if frida_instance is None:
-                    # If no frida instance provided, we can't test responsiveness
-                    # This is a limitation of the decoupled design
-                    self.logger.warning("No frida instance provided for responsiveness test")
-                    return True
-                
-                device = await asyncio.get_running_loop().run_in_executor(
-                    None, lambda: frida_instance.get_device(id=device_id, timeout=1)
+                await self._verify_installation(device_id)
+                await self._verify_running_state(device_id)
+                await self._verify_version(device_id, target_version)
+
+                if frida_instance is not None:
+                    try:
+                        loop = asyncio.get_running_loop()
+                        device = await loop.run_in_executor(
+                            None, lambda: frida_instance.get_device(id=device_id, timeout=1)
+                        )
+                        await loop.run_in_executor(None, device.enumerate_processes)
+                    except Exception as e:
+                        message = f"Failed to communicate with frida-server API: {e}"
+                        self.logger.error(
+                            f"Frida-server API responsiveness check failed on {device_id}: {e}"
+                        )
+                        raise FridaServerSetupError(message) from e
+
+                self.logger.info(
+                    f"Frida-server passed verification checks on {device_id}."
                 )
-                await asyncio.get_running_loop().run_in_executor(None, device.enumerate_processes)
-                self.logger.info("Frida-server is responsive.")
                 return True
-            except Exception:
-                await asyncio.sleep(1)
-        return False
+
+            except FridaServerSetupError as e:
+                last_error = e
+                if attempt < timeout:
+                    self.logger.debug(
+                        f"Frida-server verification attempt {attempt} failed for {device_id}: {e}."
+                        " Retrying..."
+                    )
+                    await asyncio.sleep(1)
+            except Exception as e:
+                message = f"Unexpected error while verifying frida-server on {device_id}: {e}"
+                self.logger.error(message)
+                last_error = FridaServerSetupError(message)
+                if attempt < timeout:
+                    await asyncio.sleep(1)
+
+        if last_error is not None:
+            self.logger.error(
+                f"Frida-server failed verification after retries on {device_id}: {last_error}"
+            )
+            raise last_error
+
+        message = "Frida-server verification failed for unknown reasons."
+        self.logger.error(f"{message} (device {device_id})")
+        raise FridaServerSetupError(message)
+
+    async def _verify_installation(self, device_id: str) -> None:
+        self.logger.debug(
+            f"Checking frida-server installation at {self.DEVICE_PATH} on {device_id}."
+        )
+        try:
+            await self.adb.shell(device_id, f"ls {self.DEVICE_PATH}")
+        except AdbError as e:
+            message = f"Frida-server binary not found at {self.DEVICE_PATH}"
+            self.logger.error(
+                f"Frida-server installation check failed on {device_id}: {e}"
+            )
+            raise FridaServerSetupError(message) from e
+
+    async def _verify_running_state(self, device_id: str) -> None:
+        self.logger.debug(f"Checking frida-server running state on {device_id}.")
+        try:
+            pid_output = await self.adb.shell(device_id, "pidof frida-server")
+        except AdbError as e:
+            message = "Failed to query frida-server process list"
+            self.logger.error(
+                f"Frida-server running-state check failed on {device_id}: {e}"
+            )
+            raise FridaServerSetupError(message) from e
+
+        if not pid_output.strip():
+            message = "Frida-server process not running on device"
+            self.logger.error(f"{message} {device_id}")
+            raise FridaServerSetupError(message)
+
+    async def _verify_version(self, device_id: str, expected_version: str) -> None:
+        self.logger.debug(
+            f"Checking frida-server version on {device_id} (expected {expected_version})."
+        )
+        try:
+            version_output = await self.adb.shell(
+                device_id, f"{self.DEVICE_PATH} --version"
+            )
+        except AdbError as e:
+            message = "Failed to execute frida-server for version check"
+            self.logger.error(
+                f"Frida-server version check failed on {device_id}: {e}"
+            )
+            raise FridaServerSetupError(message) from e
+
+        actual_version = ""
+        for line in version_output.splitlines():
+            stripped = line.strip()
+            if stripped:
+                actual_version = stripped
+                break
+
+        if not actual_version:
+            message = "Could not determine frida-server version"
+            self.logger.error(f"{message} on {device_id}")
+            raise FridaServerSetupError(message)
+
+        if actual_version != expected_version:
+            message = (
+                "Frida-server version mismatch: "
+                f"expected {expected_version}, got {actual_version}"
+            )
+            self.logger.error(f"{message} on {device_id}")
+            raise FridaServerSetupError(message)
 
     async def start_server(self, device_id: str) -> bool:
         """
