@@ -304,7 +304,7 @@ async def lifespan(app: FastAPI):
                     if config and db_service and bool(config.get('database.backup.enabled', True)):
                         interval = int(config.get('database.backup.interval_seconds', 86400))
                         await asyncio.sleep(max(60, interval))
-                        db_service.backup_database()
+                        await asyncio.to_thread(db_service.backup_database)
                     else:
                         # Sleep a default period if disabled to avoid tight loop
                         await asyncio.sleep(600)
@@ -331,7 +331,7 @@ async def lifespan(app: FastAPI):
                     if db_service:
                         if logger:
                             logger.info("Starting scheduled database metrics collection")
-                        success = db_service.collect_and_store_db_metrics()
+                        success = await asyncio.to_thread(db_service.collect_and_store_db_metrics)
                         if success:
                             if logger:
                                 logger.info("Scheduled database metrics collection completed successfully")
@@ -1630,22 +1630,7 @@ async def preview_query(request: QueryPreviewRequest):
                 raise HTTPException(status_code=400, detail=f"Query contains forbidden keyword: {keyword}")
         
         # Use EXPLAIN QUERY PLAN to validate syntax and get execution plan
-        explain_query = f"EXPLAIN QUERY PLAN {request.query}"
-        cursor = db_service.sqlite_conn.cursor()
-        cursor.execute(explain_query)
-        
-        # Fetch the execution plan
-        plan_rows = cursor.fetchall()
-        
-        # Convert plan to list of dictionaries
-        plan = []
-        for row in plan_rows:
-            plan.append({
-                "selectid": row[0],
-                "order": row[1],
-                "from": row[2],
-                "detail": row[3]
-            })
+        plan = await asyncio.to_thread(db_service.explain_query_plan, request.query)
         
         if logger:
             logger.info("Query preview successful", 
@@ -1681,7 +1666,7 @@ async def get_database_statistics():
             logger.info("Database statistics request received")
         
         # Get database statistics using the existing service method
-        stats = db_service.get_database_statistics()
+        stats = await asyncio.to_thread(db_service.get_database_statistics)
         
         if logger:
             logger.info("Database statistics retrieved successfully", 
@@ -1710,7 +1695,7 @@ async def collect_database_metrics():
             logger.info("Database metrics collection request received")
         
         # Trigger metrics collection using the new service method
-        success = db_service.collect_and_store_db_metrics()
+        success = await asyncio.to_thread(db_service.collect_and_store_db_metrics)
         
         if success:
             if logger:
@@ -1758,24 +1743,8 @@ async def execute_query(request: QueryRequest):
             else:
                 query = query + ' LIMIT 500'
         
-        # Execute the query
-        cursor = db_service.sqlite_conn.cursor()
-        cursor.execute(query)
-        
-        # Fetch all results
-        rows = cursor.fetchall()
-        
-        # Get column names
-        column_names = [description[0] for description in cursor.description] if cursor.description else []
-        
-        # Convert rows to list of dictionaries
-        data = []
-        for row in rows:
-            row_dict = {}
-            for i, value in enumerate(row):
-                column_name = column_names[i] if i < len(column_names) else f"column_{i}"
-                row_dict[column_name] = value
-            data.append(row_dict)
+        # Execute the query off the event loop thread
+        data = await asyncio.to_thread(db_service.execute_select_query, query)
         
         if logger:
             logger.info("Query executed successfully", 
