@@ -78,6 +78,15 @@ def db_operation(default_return_value: Any = None):
                         return func(self, *args, **kwargs)
                 return func(self, *args, **kwargs)
             except Exception as e:
+                if self.sqlite_conn:
+                    try:
+                        self.sqlite_conn.rollback()
+                    except Exception as rollback_error:
+                        self.logger.error(
+                            "Database rollback failed",
+                            operation=func.__name__,
+                            error=str(rollback_error)
+                        )
                 self.logger.error(
                     "Database operation failed",
                     operation=func.__name__,
@@ -85,7 +94,7 @@ def db_operation(default_return_value: Any = None):
                     args=args,
                     kwargs=kwargs
                 )
-                return default_return_value
+                raise
         return wrapper
     return decorator
 
