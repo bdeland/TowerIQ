@@ -18,6 +18,7 @@ import functools
 import tempfile
 import zipfile
 import uuid
+import threading
 
 from ..core.config import ConfigurationManager
 
@@ -71,6 +72,10 @@ def db_operation(default_return_value: Any = None):
                 )
                 return default_return_value
             try:
+                lock = getattr(self, "_connection_lock", None)
+                if lock:
+                    with lock:
+                        return func(self, *args, **kwargs)
                 return func(self, *args, **kwargs)
             except Exception as e:
                 self.logger.error(
@@ -108,6 +113,7 @@ class DatabaseService:
             self.db_path = config.get('database.sqlite_path', 'data/toweriq.sqlite')
         self.logger.debug("Database path resolved", db_path=self.db_path, db_path_type=str(type(self.db_path)))
         self.sqlite_conn: Optional[sqlite3.Connection] = None
+        self._connection_lock = threading.RLock()
         self._metric_name_cache: Dict[str, int] = {}
         self._event_name_cache: Dict[str, int] = {}
         self._game_version_cache: Dict[str, int] = {}
@@ -1188,14 +1194,54 @@ class DatabaseService:
                     stats['table_rows'][table] = 'N/A'
 
             stats['total_rows'] = total_rows
-        
+
         return stats
+
+    def explain_query_plan(self, query: str) -> List[Dict[str, Any]]:
+        """Return the SQLite execution plan for a query."""
+        if not self.sqlite_conn:
+            raise RuntimeError("Database connection not available")
+
+        with self._connection_lock:
+            cursor = self.sqlite_conn.cursor()
+            cursor.execute(f"EXPLAIN QUERY PLAN {query}")
+            plan_rows = cursor.fetchall()
+
+        plan: List[Dict[str, Any]] = []
+        for row in plan_rows:
+            plan.append({
+                "selectid": row[0],
+                "order": row[1],
+                "from": row[2],
+                "detail": row[3],
+            })
+        return plan
+
+    def execute_select_query(self, query: str) -> List[Dict[str, Any]]:
+        """Execute a SELECT query and return the results as dictionaries."""
+        if not self.sqlite_conn:
+            raise RuntimeError("Database connection not available")
+
+        with self._connection_lock:
+            cursor = self.sqlite_conn.cursor()
+            cursor.execute(query)
+            rows = cursor.fetchall()
+            column_names = [description[0] for description in cursor.description] if cursor.description else []
+
+        data: List[Dict[str, Any]] = []
+        for row in rows:
+            row_dict: Dict[str, Any] = {}
+            for i, value in enumerate(row):
+                column_name = column_names[i] if i < len(column_names) else f"column_{i}"
+                row_dict[column_name] = value
+            data.append(row_dict)
+        return data
 
     def _get_or_create_metric_name_id_for_db(self, name: str, description: Optional[str] = None) -> int:
         """Get or create a metric name ID for database metrics."""
         if not self.sqlite_conn:
             return 0
-        
+
         # Use description from schema config if not provided
         if description is None and name in DB_METRIC_METADATA:
             description = DB_METRIC_METADATA[name].get('description')
