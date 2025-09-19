@@ -382,9 +382,9 @@ function DashboardLayout() {
         setSidebarHidden(true);
       }, 0); // Just enough delay to ensure proper state sequencing
     } else {
-      // When docking, show sidebar first, then change dock state
-      setSidebarHidden(false);
-      setSidebarDocked(newDockedState);
+      // When docking, set layout state immediately to prevent content overlap, then show sidebar
+      setSidebarDocked(newDockedState); // Set layout immediately to reserve space
+      setSidebarHidden(false); // Then show sidebar in the reserved space
     }
   };
 

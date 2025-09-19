@@ -82,7 +82,7 @@ export function Sidebar({
     >
       {/* Desktop drawer - Grafana Style */}
       <Drawer
-        variant="temporary" // Always use temporary to ensure slide transitions work
+        variant={sidebarDocked ? "persistent" : "temporary"} // Use persistent when docked to avoid overlay
         open={!sidebarHidden}
         onClose={() => {
           if (!sidebarDocked) {
@@ -90,12 +90,12 @@ export function Sidebar({
           }
         }}
         transitionDuration={{
-          enter: transitionDuration, // Exact same timing as header/content
-          exit: transitionDuration,  // Exact same timing as header/content
+          enter: sidebarDocked ? 0 : transitionDuration, // No transition when docked (persistent), normal when undocked (temporary)
+          exit: transitionDuration,  // Always use transition when closing/undocking
         }}
         SlideProps={{
           timeout: {
-            enter: transitionDuration,
+            enter: sidebarDocked ? 0 : transitionDuration, // No transition when docked
             exit: transitionDuration,
           },
           easing: {
