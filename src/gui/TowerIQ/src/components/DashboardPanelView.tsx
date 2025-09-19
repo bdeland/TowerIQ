@@ -17,7 +17,8 @@ import {
   DialogTitle,
   DialogContent,
   DialogActions,
-  Button
+  Button,
+  Tooltip
 } from '@mui/material';
 // Material-UI icons for various actions (menu, fullscreen, edit, etc.)
 import { 
@@ -1460,20 +1461,26 @@ const DashboardPanelViewComponent: React.FC<DashboardPanelViewProps> = ({
       
       {/* Breadcrumb navigation for calendar hierarchical drilldowns */}
       {isDrilldown && panel.echartsOption.drilldown?.type === 'calendar_hierarchical' ? (
-        <Box sx={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 0.5 }}>
-          <Typography 
-            variant="subtitle2" 
-            sx={{ 
-              fontWeight: 500, 
-              color: 'text.primary',
-              fontSize: '0.875rem',
-              cursor: 'pointer',
-              '&:hover': { textDecoration: 'underline' }
-            }}
-            onClick={handleBackToOriginal}
-          >
-            {panel.title}
-          </Typography>
+        <Box sx={{ display: 'flex', alignItems: 'center', flexWrap: 'nowrap', gap: 0.5, overflow: 'hidden' }}>
+          <Tooltip title={panel.title} arrow placement="top">
+            <Typography 
+              variant="subtitle2" 
+              sx={{ 
+                fontWeight: 500, 
+                color: 'text.primary',
+                fontSize: '0.875rem',
+                cursor: 'pointer',
+                whiteSpace: 'nowrap',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                maxWidth: '200px',
+                '&:hover': { textDecoration: 'underline' }
+              }}
+              onClick={handleBackToOriginal}
+            >
+              {panel.title}
+            </Typography>
+          </Tooltip>
           {calendarDrilldownStack.map((stackItem, index) => {
             const drilldownConfig = panel.echartsOption.drilldown;
             const level = drilldownConfig.levels[stackItem.level + 1];
@@ -1490,27 +1497,33 @@ const DashboardPanelViewComponent: React.FC<DashboardPanelViewProps> = ({
                 <Typography variant="subtitle2" sx={{ color: 'text.secondary', fontSize: '0.875rem' }}>
                   →
                 </Typography>
-                <Typography 
-                  variant="subtitle2" 
-                  sx={{ 
-                    fontWeight: index === calendarDrilldownStack.length - 1 ? 500 : 400,
-                    color: index === calendarDrilldownStack.length - 1 ? 'text.primary' : 'text.secondary',
-                    fontSize: '0.875rem',
-                    cursor: index === calendarDrilldownStack.length - 1 ? 'default' : 'pointer',
-                    '&:hover': index !== calendarDrilldownStack.length - 1 ? { textDecoration: 'underline' } : {}
-                  }}
-                  onClick={() => {
-                    if (index !== calendarDrilldownStack.length - 1) {
-                      // Navigate back to this level
-                      const targetLevel = index + 1;
-                      setCalendarDrilldownStack(prev => prev.slice(0, targetLevel));
-                      setCalendarDrilldownLevel(stackItem.level + 1);
-                      setDrilldownData(stackItem.data);
-                    }
-                  }}
-                >
-                  {breadcrumbText}
-                </Typography>
+                <Tooltip title={breadcrumbText} arrow placement="top">
+                  <Typography 
+                    variant="subtitle2" 
+                    sx={{ 
+                      fontWeight: index === calendarDrilldownStack.length - 1 ? 500 : 400,
+                      color: index === calendarDrilldownStack.length - 1 ? 'text.primary' : 'text.secondary',
+                      fontSize: '0.875rem',
+                      cursor: index === calendarDrilldownStack.length - 1 ? 'default' : 'pointer',
+                      whiteSpace: 'nowrap',
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      maxWidth: '150px',
+                      '&:hover': index !== calendarDrilldownStack.length - 1 ? { textDecoration: 'underline' } : {}
+                    }}
+                    onClick={() => {
+                      if (index !== calendarDrilldownStack.length - 1) {
+                        // Navigate back to this level
+                        const targetLevel = index + 1;
+                        setCalendarDrilldownStack(prev => prev.slice(0, targetLevel));
+                        setCalendarDrilldownLevel(stackItem.level + 1);
+                        setDrilldownData(stackItem.data);
+                      }
+                    }}
+                  >
+                    {breadcrumbText}
+                  </Typography>
+                </Tooltip>
               </React.Fragment>
             );
           })}
@@ -1519,15 +1532,8 @@ const DashboardPanelViewComponent: React.FC<DashboardPanelViewProps> = ({
               <Typography variant="subtitle2" sx={{ color: 'text.secondary', fontSize: '0.875rem' }}>
                 →
               </Typography>
-              <Typography 
-                variant="subtitle2" 
-                sx={{ 
-                  fontWeight: 500, 
-                  color: 'text.primary',
-                  fontSize: '0.875rem'
-                }}
-              >
-                {(() => {
+              <Tooltip 
+                title={(() => {
                   const currentLevel = panel.echartsOption.drilldown.levels[calendarDrilldownLevel];
                   const lastStack = calendarDrilldownStack[calendarDrilldownStack.length - 1];
                   let currentTitle = currentLevel?.title || 'Current Level';
@@ -1541,24 +1547,68 @@ const DashboardPanelViewComponent: React.FC<DashboardPanelViewProps> = ({
                   
                   return currentTitle;
                 })()}
-              </Typography>
+                arrow
+                placement="top"
+              >
+                <Typography 
+                  variant="subtitle2" 
+                  sx={{ 
+                    fontWeight: 500, 
+                    color: 'text.primary',
+                    fontSize: '0.875rem',
+                    whiteSpace: 'nowrap',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    maxWidth: '150px'
+                  }}
+                >
+                  {(() => {
+                    const currentLevel = panel.echartsOption.drilldown.levels[calendarDrilldownLevel];
+                    const lastStack = calendarDrilldownStack[calendarDrilldownStack.length - 1];
+                    let currentTitle = currentLevel?.title || 'Current Level';
+                    
+                    if (lastStack?.params) {
+                      Object.keys(lastStack.params).forEach(key => {
+                        const regex = new RegExp(`{${key}}`, 'g');
+                        currentTitle = currentTitle.replace(regex, lastStack.params[key]);
+                      });
+                    }
+                    
+                    return currentTitle;
+                  })()}
+                </Typography>
+              </Tooltip>
             </>
           )}
         </Box>
       ) : (
-        <Typography 
-          variant="subtitle2" 
-          sx={{ 
-            fontWeight: 500, 
-            color: 'text.primary',
-            fontSize: '0.875rem'
-          }}
-        >
-          {isDrilldown && panel.echartsOption.drilldown 
+        <Tooltip 
+          title={isDrilldown && panel.echartsOption.drilldown 
             ? panel.echartsOption.drilldown.title.replace('{run_number}', 'Selected Run')
             : panel.title
           }
-        </Typography>
+          arrow
+          placement="top"
+        >
+          <Typography 
+            variant="subtitle2" 
+            sx={{ 
+              fontWeight: 500, 
+              color: 'text.primary',
+              fontSize: '0.875rem',
+              whiteSpace: 'nowrap',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              maxWidth: '100%',
+              display: 'block'
+            }}
+          >
+            {isDrilldown && panel.echartsOption.drilldown 
+              ? panel.echartsOption.drilldown.title.replace('{run_number}', 'Selected Run')
+              : panel.title
+            }
+          </Typography>
+        </Tooltip>
       )}
       
       {/* Reset button - only show when chart is modified and in drilldown mode */}

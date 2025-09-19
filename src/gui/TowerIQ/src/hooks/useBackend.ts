@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { defaultRequestCache, CacheKeys } from '../utils/requestCache';
 
@@ -85,9 +85,39 @@ export interface AdbStatus {
   error?: string;
 }
 
+const SESSION_STORAGE_KEY = 'toweriq.backendStatus';
+
+function loadPersistedStatus(): BackendStatus | null {
+  if (typeof window === 'undefined') {
+    return null;
+  }
+  try {
+    const stored = window.sessionStorage.getItem(SESSION_STORAGE_KEY);
+    return stored ? JSON.parse(stored) as BackendStatus : null;
+  } catch (err) {
+    console.warn('Failed to load persisted backend status', err);
+    return null;
+  }
+}
+
+function persistStatus(status: BackendStatus | null): void {
+  if (typeof window === 'undefined') {
+    return;
+  }
+  try {
+    if (status) {
+      window.sessionStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(status));
+    } else {
+      window.sessionStorage.removeItem(SESSION_STORAGE_KEY);
+    }
+  } catch (err) {
+    console.warn('Failed to persist backend status', err);
+  }
+}
+
 // Shared polling state to prevent multiple components from polling simultaneously
 let globalPollingInterval: NodeJS.Timeout | null = null;
-let globalStatus: BackendStatus | null = null;
+let globalStatus: BackendStatus | null = loadPersistedStatus();
 let globalStatusListeners: Set<(status: BackendStatus | null) => void> = new Set();
 
 // Development option to disable polling (set to true to disable)
@@ -102,6 +132,7 @@ const startGlobalPolling = () => {
     try {
       const result = await invoke<BackendStatus>('get_backend_status');
       globalStatus = result;
+      persistStatus(result);
       // Notify all listeners
       globalStatusListeners.forEach(listener => listener(result));
     } catch (err) {
@@ -131,13 +162,18 @@ export const useBackend = () => {
   const [error, setError] = useState<string | null>(null);
   const isInitialized = useRef(false);
 
-  const getStatus = async (): Promise<BackendStatus> => {
+  const updateStatusState = useCallback((nextStatus: BackendStatus | null) => {
+    setStatus(nextStatus);
+    globalStatus = nextStatus;
+    persistStatus(nextStatus);
+  }, []);
+
+  const getStatus = useCallback(async (): Promise<BackendStatus> => {
     try {
       setLoading(true);
       setError(null);
       const result = await invoke<BackendStatus>('get_backend_status');
-      setStatus(result);
-      globalStatus = result; // Update global status
+      updateStatusState(result);
       return result;
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Unknown error';
@@ -146,7 +182,7 @@ export const useBackend = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [updateStatusState]);
 
   const connectDevice = async (deviceSerial: string): Promise<any> => {
     try {
@@ -214,7 +250,7 @@ export const useBackend = () => {
       
       // Add this component as a listener
       const statusListener = (newStatus: BackendStatus | null) => {
-        setStatus(newStatus);
+        updateStatusState(newStatus);
       };
       globalStatusListeners.add(statusListener);
       

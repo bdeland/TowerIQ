@@ -53,7 +53,7 @@ import {
   Settings as SettingsIcon,
 } from '@mui/icons-material';
 import RefreshIcon from '@mui/icons-material/Refresh';
-import { useBackend, Device, Process, HookScript, FridaStatus, ScriptStatus, AdbStatus } from '../hooks/useBackend';
+import { useBackend, Device, Process, HookScript, FridaStatus, ScriptStatus, AdbStatus, BackendStatus } from '../hooks/useBackend';
 import { ScriptStatusWidget } from '../components/ScriptStatusWidget';
 import { HookScriptCard } from '../components/HookScriptCard';
 
@@ -118,6 +118,7 @@ export function ConnectionPage() {
     status, 
     loading, 
     error, 
+    getStatus,
     scanDevices, 
     refreshDevices,
     getProcesses, 
@@ -184,6 +185,80 @@ export function ConnectionPage() {
   }, [getAdbStatus, refreshDevices]);
 
   // Frida server status state
+  const applyBackendStatus = useCallback((nextStatus: BackendStatus | null) => {
+    console.log('ConnectionPage: Applying backend status', {
+      hasSession: Boolean(nextStatus?.session),
+      backendState: nextStatus?.session?.connection_state,
+      isConnected: nextStatus?.session?.is_connected,
+      deviceMonitoringActive: nextStatus?.session?.device_monitoring_active,
+      lastError: nextStatus?.session?.last_error
+    });
+
+    if (!nextStatus?.session) {
+      console.log('ConnectionPage: No session data available in backend status');
+      return;
+    }
+
+    const backendState = nextStatus.session.connection_state;
+    const isConnected = nextStatus.session.is_connected;
+    const lastError = nextStatus.session.last_error;
+    const monitoringActive = Boolean(nextStatus.session.device_monitoring_active);
+
+    if (lastError && lastError.code === 'device_disconnected') {
+      console.log('ConnectionPage: Device disconnection detected in backend status');
+      setFlowState('ERROR');
+      setErrorMessage(`Device disconnected: ${lastError.message}`);
+      setStatusMessage('');
+      setScriptStatus(null);
+      setConnectionStatus('idle');
+      return;
+    }
+
+    if ((backendState === 'active' && isConnected) || monitoringActive) {
+      console.log('ConnectionPage: Backend indicates monitoring is active');
+      setConnectionStatus('connected');
+      setFlowState('MONITORING_ACTIVE');
+      setStatusMessage('Monitoring is active!');
+      setErrorMessage(null);
+      return;
+    }
+
+    if (backendState === 'connected' && isConnected) {
+      console.log('ConnectionPage: Backend indicates device is connected');
+      setConnectionStatus('connected');
+      setFlowState('IDLE');
+      setStatusMessage('Device connected');
+      setErrorMessage(null);
+      return;
+    }
+
+    if (backendState === 'connecting') {
+      console.log('ConnectionPage: Backend indicates connection in progress');
+      setConnectionStatus('connecting');
+      setFlowState('CONNECTING_DEVICE');
+      setStatusMessage('Connecting to device...');
+      setErrorMessage(null);
+      return;
+    }
+
+    if (backendState === 'error') {
+      console.log('ConnectionPage: Backend reports an error state');
+      setConnectionStatus('error');
+      setFlowState('ERROR');
+      setStatusMessage('');
+      setErrorMessage(lastError?.message ?? 'An unknown error occurred while connecting.');
+      return;
+    }
+
+    if (backendState === 'disconnected' || !isConnected) {
+      console.log('ConnectionPage: Backend indicates device is disconnected');
+      setConnectionStatus('idle');
+      setFlowState('IDLE');
+      setStatusMessage('');
+      setErrorMessage(null);
+    }
+  }, []);
+
   const [fridaStatus, setFridaStatus] = useState<FridaStatus | null>(null);
   const [fridaStatusLoading, setFridaStatusLoading] = useState(false);
   const [fridaError, setFridaError] = useState<string | null>(null);
@@ -208,39 +283,48 @@ export function ConnectionPage() {
     })();
   }, []);
 
-  // Initial sync when component mounts and status is already available
   useEffect(() => {
-    if (status?.session) {
-      console.log('ConnectionPage: Initial sync on mount', {
-        isConnected: status.session.is_connected,
-        currentDevice: status.session.current_device,
-        connectionState: status.session.connection_state
-      });
-      
-      // Force an immediate sync of connection state on mount
-      // This ensures that if we navigate back to a page where the backend is already connected,
-      // the UI shows the correct state immediately
-      const backendState = status.session.connection_state;
-      const isConnected = status.session.is_connected;
-      
-      if (backendState === 'active' && isConnected) {
-        setConnectionStatus('connected');
-        setFlowState('MONITORING_ACTIVE');
-        setStatusMessage('Monitoring is active!');
-        setErrorMessage(null);
-      } else if (backendState === 'connected' && isConnected) {
-        setConnectionStatus('connected');
-        setFlowState('IDLE');
-        setStatusMessage('Device connected');
-        setErrorMessage(null);
-      } else if (backendState === 'connecting') {
-        setConnectionStatus('connecting');
-        setFlowState('CONNECTING_DEVICE');
-        setStatusMessage('Connecting to device...');
-        setErrorMessage(null);
-      }
+    if (typeof window === 'undefined') {
+      return;
     }
-  }, []); // Only run once on mount
+
+    let isSyncing = false;
+
+    const syncStatus = async () => {
+      if (isSyncing) {
+        return;
+      }
+      isSyncing = true;
+      try {
+        const latest = await getStatus();
+        applyBackendStatus(latest);
+      } catch (err) {
+        console.error('ConnectionPage: Failed to refresh backend status', err);
+      } finally {
+        isSyncing = false;
+      }
+    };
+
+    void syncStatus();
+
+    const handleWindowFocus = () => {
+      void syncStatus();
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        void syncStatus();
+      }
+    };
+
+    window.addEventListener('focus', handleWindowFocus);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    return () => {
+      window.removeEventListener('focus', handleWindowFocus);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [applyBackendStatus, getStatus]);
 
   // Auto-select first hook script when scripts change
   useEffect(() => {
@@ -248,6 +332,16 @@ export function ConnectionPage() {
       setSelectedHookScript(hookScripts[0]);
     }
   }, [hookScripts, selectedHookScript]);
+
+  // Ensure UI reflects script activity even if backend state lags
+  useEffect(() => {
+    if (scriptStatus?.is_active) {
+      setFlowState('MONITORING_ACTIVE');
+      setConnectionStatus('connected');
+      setStatusMessage('Monitoring is active!');
+      setErrorMessage(null);
+    }
+  }, [scriptStatus?.is_active]);
 
   // Load script status when connected
   useEffect(() => {
@@ -275,69 +369,10 @@ export function ConnectionPage() {
     loadScriptStatus();
   }, [status?.session.is_connected]);
 
-  // Update connection status and flow state based on backend status
+  // Update connection state whenever backend status changes
   useEffect(() => {
-    console.log('ConnectionPage: Status change detected', { 
-      isConnected: status?.session.is_connected,
-      currentDevice: status?.session.current_device,
-      connectionState: status?.session.connection_state,
-      connectionSubState: status?.session.connection_sub_state,
-      lastError: status?.session.last_error,
-      currentFlowState: flowState,
-      backendState: status?.session.connection_state
-    });
-    
-    if (!status?.session) {
-      console.log('ConnectionPage: No session data, skipping sync');
-      return;
-    }
-    
-    const backendState = status.session.connection_state;
-    const isConnected = status.session.is_connected;
-    const lastError = status.session.last_error;
-    
-    // Handle device disconnection errors
-    if (lastError && lastError.code === 'device_disconnected') {
-      console.log('ConnectionPage: Device disconnection detected');
-      setFlowState('ERROR');
-      setErrorMessage(`Device disconnected: ${lastError.message}`);
-      setStatusMessage('');
-      setScriptStatus(null);
-      setConnectionStatus('idle');
-    }
-    // Sync with backend connection state - this handles page navigation sync
-    else if (backendState === 'active') {
-      // Backend says we're active (monitoring)
-      console.log('ConnectionPage: Backend is ACTIVE, syncing to MONITORING_ACTIVE');
-      setConnectionStatus('connected');
-      setFlowState('MONITORING_ACTIVE');
-      setStatusMessage('Monitoring is active!');
-      setErrorMessage(null);
-    }
-    else if (backendState === 'connected' && isConnected) {
-      // Backend says we're connected but not yet active
-      console.log('ConnectionPage: Backend is CONNECTED, syncing to IDLE');
-      setConnectionStatus('connected');
-      setFlowState('IDLE');
-      setStatusMessage('Device connected');
-      setErrorMessage(null);
-    }
-    else if (backendState === 'connecting') {
-      console.log('ConnectionPage: Backend is CONNECTING, syncing to CONNECTING_DEVICE');
-      setConnectionStatus('connecting');
-      setFlowState('CONNECTING_DEVICE');
-      setStatusMessage('Connecting to device...');
-      setErrorMessage(null);
-    }
-    else if (backendState === 'disconnected' || !isConnected) {
-      // Backend says we're disconnected
-      console.log('ConnectionPage: Backend is DISCONNECTED, syncing to IDLE');
-      setConnectionStatus('idle');
-      setFlowState('IDLE');
-      setStatusMessage('');
-      setErrorMessage(null);
-    }
-  }, [status]);
+    applyBackendStatus(status ?? null);
+  }, [applyBackendStatus, status]);
 
   // Sync selected device with globally connected device
   useEffect(() => {
