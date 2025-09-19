@@ -17,11 +17,12 @@ import { API_CONFIG } from '../config/environment';
 import { useDeveloper } from '../contexts/DeveloperContext';
 
 // Component that handles default dashboard with dynamic data fetching
-function DefaultDashboardContent({ panels, currentDashboard, isEditMode, selectedPanelId, onLayoutChange, onPanelClick, onPanelDelete, onUpdatePanel, onDeletePanel, getSelectedPanel }: {
+function DefaultDashboardContent({ panels, currentDashboard, isEditMode, selectedPanelId, setSelectedPanelId, onLayoutChange, onPanelClick, onPanelDelete, onUpdatePanel, onDeletePanel, getSelectedPanel }: {
   panels: DashboardPanel[];
   currentDashboard: any;
   isEditMode: boolean;
   selectedPanelId: string | null;
+  setSelectedPanelId: (id: string | null) => void;
   onLayoutChange: (panels: DashboardPanel[]) => void;
   onPanelClick: (panelId: string) => void;
   onPanelDelete: (panelId: string) => void;
@@ -535,6 +536,7 @@ export function DashboardViewPage() {
         currentDashboard={currentDashboard}
         isEditMode={isEditMode}
         selectedPanelId={selectedPanelId}
+        setSelectedPanelId={setSelectedPanelId}
         onLayoutChange={onLayoutChange}
         onPanelClick={handlePanelClick}
         onPanelDelete={handleDeletePanel}

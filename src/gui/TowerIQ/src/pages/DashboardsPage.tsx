@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { 
   Box, 
   Typography, 
@@ -24,7 +24,6 @@ import {
   InputLabel,
   Select,
   MenuItem,
-  OutlinedInput,
   Alert,
   CircularProgress
 } from '@mui/material';
@@ -95,6 +94,8 @@ export function DashboardsPage() {
               type: 'stat',
               title: 'Quick Stats',
               gridPos: { x: 0, y: 0, w: 4, h: 2 },
+              query: 'SELECT COUNT(*) as count FROM system_stats',
+              echartsOption: {},
               options: {}
             },
             {
@@ -102,6 +103,8 @@ export function DashboardsPage() {
               type: 'timeseries',
               title: 'Recent Activity',
               gridPos: { x: 4, y: 0, w: 4, h: 2 },
+              query: 'SELECT timestamp, value FROM activity_log ORDER BY timestamp DESC LIMIT 100',
+              echartsOption: {},
               options: {}
             },
             {
@@ -109,6 +112,8 @@ export function DashboardsPage() {
               type: 'table',
               title: 'System Status',
               gridPos: { x: 8, y: 0, w: 4, h: 2 },
+              query: 'SELECT * FROM system_status',
+              echartsOption: {},
               options: {}
             }
           ]

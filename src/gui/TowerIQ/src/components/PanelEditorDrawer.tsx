@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import {
   Drawer,
   Box,
@@ -8,13 +8,10 @@ import {
   MenuItem,
   FormControl,
   InputLabel,
-  Button,
   Divider,
   Accordion,
   AccordionSummary,
   AccordionDetails,
-  Grid,
-  Alert,
   IconButton,
 } from '@mui/material';
 import {
@@ -182,16 +179,16 @@ const PanelEditorDrawer: React.FC<PanelEditorDrawerProps> = ({
           <Typography variant="subtitle1">Basic Settings</Typography>
         </AccordionSummary>
         <AccordionDetails>
-          <Grid container spacing={2}>
-            <Grid item xs={12}>
+          <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2 }}>
+            <Box sx={{ width: '100%', mb: 2 }}>
               <TextField
                 fullWidth
                 label="Panel Title"
                 value={localPanel.title}
                 onChange={(e) => handleFieldChange('title', e.target.value)}
               />
-            </Grid>
-            <Grid item xs={12}>
+            </Box>
+            <Box sx={{ width: '100%', mb: 2 }}>
               <FormControl fullWidth>
                 <InputLabel>Panel Type</InputLabel>
                 <Select
@@ -206,9 +203,9 @@ const PanelEditorDrawer: React.FC<PanelEditorDrawerProps> = ({
                   <MenuItem value="table">Table</MenuItem>
                 </Select>
               </FormControl>
-            </Grid>
+            </Box>
             
-          </Grid>
+                </Box>
         </AccordionDetails>
       </Accordion>
 
@@ -218,65 +215,65 @@ const PanelEditorDrawer: React.FC<PanelEditorDrawerProps> = ({
           <Typography variant="subtitle1">Visual Settings</Typography>
         </AccordionSummary>
         <AccordionDetails>
-          <Grid container spacing={2}>
+          <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2 }}>
             {localPanel.type === 'stat' && (
               <>
-                <Grid item xs={12}>
+                <Box sx={{ width: '100%', mb: 2 }}>
                   <TextField
                     fullWidth
                     label="Font Size"
                     type="number"
                     value={localPanel.echartsOption?.graphic?.[0]?.style?.fontSize || 24}
                     onChange={(e) => handleEChartsOptionChange(
-                      ['graphic', 0, 'style', 'fontSize'],
+                      ['graphic', '0', 'style', 'fontSize'],
                       parseInt(e.target.value)
                     )}
                   />
-                </Grid>
-                <Grid item xs={12}>
+                </Box>
+                <Box sx={{ width: '100%', mb: 2 }}>
                   <TextField
                     fullWidth
                     label="Text Color"
                     value={localPanel.echartsOption?.graphic?.[0]?.style?.fill || '#333'}
                     onChange={(e) => handleEChartsOptionChange(
-                      ['graphic', 0, 'style', 'fill'],
+                      ['graphic', '0', 'style', 'fill'],
                       e.target.value
                     )}
                   />
-                </Grid>
+                </Box>
               </>
             )}
             
             {(localPanel.type === 'timeseries' || localPanel.type === 'bar') && (
               <>
-                <Grid item xs={12}>
+                <Box sx={{ width: '100%', mb: 2 }}>
                   <TextField
                     fullWidth
                     label="Y-Axis Label"
                     value={localPanel.echartsOption?.yAxis?.name || ''}
                     onChange={(e) => handleEChartsOptionChange(['yAxis', 'name'], e.target.value)}
                   />
-                </Grid>
+                </Box>
               </>
             )}
 
             {localPanel.type === 'timeseries' && (
               <>
-                <Grid item xs={12}>
+                <Box sx={{ width: '100%', mb: 2 }}>
                   <TextField
                     fullWidth
                     label="Line Width"
                     type="number"
                     value={localPanel.echartsOption?.series?.[0]?.lineStyle?.width || 2}
                     onChange={(e) => handleEChartsOptionChange(
-                      ['series', 0, 'lineStyle', 'width'],
+                      ['series', '0', 'lineStyle', 'width'],
                       parseInt(e.target.value)
                     )}
                   />
-                </Grid>
+                </Box>
               </>
             )}
-          </Grid>
+                </Box>
         </AccordionDetails>
       </Accordion>
 
@@ -286,8 +283,8 @@ const PanelEditorDrawer: React.FC<PanelEditorDrawerProps> = ({
           <Typography variant="subtitle1">Position & Size</Typography>
         </AccordionSummary>
         <AccordionDetails>
-          <Grid container spacing={2}>
-            <Grid item xs={6}>
+          <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2 }}>
+            <Box sx={{ width: '50%', mb: 2, pr: 1 }}>
               <TextField
                 fullWidth
                 label="X Position"
@@ -298,8 +295,8 @@ const PanelEditorDrawer: React.FC<PanelEditorDrawerProps> = ({
                   x: parseInt(e.target.value)
                 })}
               />
-            </Grid>
-            <Grid item xs={6}>
+            </Box>
+            <Box sx={{ width: '50%', mb: 2, pr: 1 }}>
               <TextField
                 fullWidth
                 label="Y Position"
@@ -310,8 +307,8 @@ const PanelEditorDrawer: React.FC<PanelEditorDrawerProps> = ({
                   y: parseInt(e.target.value)
                 })}
               />
-            </Grid>
-            <Grid item xs={6}>
+            </Box>
+            <Box sx={{ width: '50%', mb: 2, pr: 1 }}>
               <TextField
                 fullWidth
                 label="Width"
@@ -322,8 +319,8 @@ const PanelEditorDrawer: React.FC<PanelEditorDrawerProps> = ({
                   w: parseInt(e.target.value)
                 })}
               />
-            </Grid>
-            <Grid item xs={6}>
+            </Box>
+            <Box sx={{ width: '50%', mb: 2, pr: 1 }}>
               <TextField
                 fullWidth
                 label="Height"
@@ -334,8 +331,8 @@ const PanelEditorDrawer: React.FC<PanelEditorDrawerProps> = ({
                   h: parseInt(e.target.value)
                 })}
               />
-            </Grid>
-          </Grid>
+            </Box>
+                </Box>
         </AccordionDetails>
       </Accordion>
     </Box>

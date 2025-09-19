@@ -1,11 +1,11 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { Box, Button, Typography, Paper, Switch, FormControlLabel } from '@mui/material';
 import { DashboardGrid } from './DashboardGrid';
 import { DashboardPanel } from '../contexts/DashboardContext';
 import { useResponsiveGrid } from '../hooks/useResponsiveGrid';
 
 // Example component demonstrating responsive dashboard usage
-export const ResponsiveDashboardExample: React.FC = () => {
+export const ResponsiveDashboardExample = () => {
   const { breakpoint, columns } = useResponsiveGrid();
   const [enableResponsive, setEnableResponsive] = useState(true);
   
@@ -14,7 +14,7 @@ export const ResponsiveDashboardExample: React.FC = () => {
     {
       id: 'panel-1',
       title: 'Revenue Chart',
-      type: 'chart',
+      type: 'timeseries',
       gridPos: { x: 0, y: 0, w: 6, h: 3 },
       query: 'SELECT * FROM revenue',
       echartsOption: {}
@@ -38,7 +38,7 @@ export const ResponsiveDashboardExample: React.FC = () => {
     {
       id: 'panel-4',
       title: 'Performance Metrics',
-      type: 'chart',
+      type: 'timeseries',
       gridPos: { x: 0, y: 3, w: 9, h: 3 },
       query: 'SELECT * FROM performance',
       echartsOption: {}

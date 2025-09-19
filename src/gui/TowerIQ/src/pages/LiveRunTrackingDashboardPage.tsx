@@ -98,15 +98,15 @@ function LiveRunTrackingDashboardContent() {
     <Box sx={{ padding: '8px' }} data-content-container="true">
       <DashboardGrid
         panels={panels}
-        data={panelData}
+        panelData={panelData}
         isEditMode={false}
-        selectedPanelId={null}
+        isEditable={false}
+        showMenu={false}
+        showFullscreen={false}
         onLayoutChange={() => {}}
         onPanelClick={() => {}}
         onPanelDelete={() => {}}
-        onUpdatePanel={() => {}}
-        onDeletePanel={() => {}}
-        isLoading={isLoading}
+        onPanelFullscreenToggle={() => {}}
       />
     </Box>
   );

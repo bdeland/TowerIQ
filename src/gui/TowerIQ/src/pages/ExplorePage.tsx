@@ -1,4 +1,4 @@
-import { Box, Typography, Card, CardContent, Grid, Button } from '@mui/material';
+import { Box, Typography, Card, CardContent, Button } from '@mui/material';
 import { Explore as ExploreIcon, Search, TrendingUp } from '@mui/icons-material';
 
 export function ExplorePage() {
@@ -15,8 +15,8 @@ export function ExplorePage() {
         Discover new features and explore your data.
       </Typography>
       
-      <Grid container spacing={3} sx={{ mt: 2 }}>
-        <Grid item xs={12} md={6}>
+      <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 3, mt: 2 }}>
+        <Box sx={{ width: { xs: '100%', md: '50%' }, mb: 2 }}>
           <Card>
             <CardContent>
               <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
@@ -33,9 +33,9 @@ export function ExplorePage() {
               </Button>
             </CardContent>
           </Card>
-        </Grid>
+        </Box>
         
-        <Grid item xs={12} md={6}>
+        <Box sx={{ width: { xs: '100%', md: '50%' }, mb: 2 }}>
           <Card>
             <CardContent>
               <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
@@ -52,8 +52,8 @@ export function ExplorePage() {
               </Button>
             </CardContent>
           </Card>
-        </Grid>
-      </Grid>
+        </Box>
+      </Box>
     </Box>
   );
 }

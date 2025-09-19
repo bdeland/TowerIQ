@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import {
   Box,
   Card,
@@ -7,7 +7,6 @@ import {
   Chip,
   Alert,
   CircularProgress,
-  Tooltip,
   IconButton,
 } from '@mui/material';
 import {
@@ -47,7 +46,7 @@ export function ScriptStatusWidget({ scriptStatus, isLoading = false, onRefresh 
     }
 
     const updateTime = () => {
-      const lastHeartbeat = new Date(scriptStatus.last_heartbeat);
+      const lastHeartbeat = new Date(scriptStatus.last_heartbeat!);
       const now = new Date();
       const diffMs = now.getTime() - lastHeartbeat.getTime();
       setTimeSinceHeartbeat(Math.floor(diffMs / 1000));

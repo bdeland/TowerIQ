@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+﻿import { useState, useEffect } from 'react';
 import { BrowserRouter as Router, Routes, Route, useLocation } from 'react-router-dom';
 import {
   Box,
@@ -36,6 +36,7 @@ import { DashboardProvider } from './contexts/DashboardContext';
 import { DashboardEditProvider } from './contexts/DashboardEditContext';
 import { DashboardVariableProvider } from './contexts/DashboardVariableContext';
 import { DeveloperProvider } from './contexts/DeveloperContext';
+import { HeaderToolbarProvider } from './contexts/HeaderToolbarContext';
 
 import './App.css';
 
@@ -382,64 +383,62 @@ function DashboardLayout() {
 
   const layoutContent = (
     <ThemeProvider theme={theme}>
-      <Box sx={{ display: 'flex' }}>
-        <CssBaseline />
-        
-        <Header 
-          sidebarDocked={sidebarDocked}
-          sidebarHidden={sidebarHidden}
-          onSidebarToggle={handleSidebarToggle}
-          layoutStyles={layoutStyles}
-          layout={layout}
-        />
-
-        <Sidebar
-          sidebarDocked={sidebarDocked}
-          sidebarHidden={sidebarHidden}
-          onSidebarToggle={handleSidebarToggle}
-          onDockToggle={handleDockToggle}
-          navigationItems={navigationItems}
-          layout={layout}
-          listItemButtonStyles={listItemButtonStyles}
-          listItemIconStyles={listItemIconStyles}
-          listItemTextStyles={listItemTextStyles}
-          sidebarHeaderStyles={sidebarHeaderStyles}
-        />
-
-        {/* Main content - Grafana Style */}
-        <Box
-          component="main"
-          sx={{
-            flexGrow: 1,
-            pt: `${layout.appBarHeight * 2 + 1}px`, // Add top padding to account for combined AppBar height (80px) plus borders (2px)
-            pb: isPanelEditPage ? 0 : 2, // Remove bottom padding for PanelEditPage
-            px: 0,
-            height: '100vh',
-            overflowY: 'auto',
-            display: 'flex',
-            flexDirection: 'column',
-            ...layoutStyles.mainContent,
-          }}
-        >
-
-          <Routes>
-            <Route path="/" element={<HomePage />} />
-            <Route path="/dashboards" element={<DashboardsPage />} />
-            <Route path="/dashboard/:id" element={<DashboardViewPage />} />
-            <Route path="/dashboards/:id" element={<DashboardViewPage />} />
-            <Route path="/dashboard/:dashboardId/panels/:panelId/view" element={<PanelViewPage />} />
-            <Route path="/dashboard/:dashboardId/panels/:panelId/edit" element={<PanelEditPage />} />
-            <Route path="/database-health" element={<DatabaseHealthDashboardPage />} />
-            <Route path="/connection" element={<ConnectionPage />} />
-            <Route path="/explore" element={<ExplorePage />} />
-            <Route path="/history" element={<HistoryPage />} />
-            <Route path="/settings" element={<SettingsPage />} />
-            <Route path="/settings/database" element={<DatabaseSettings />} />
-            <Route path="/settings/appearance" element={<AppearanceSettings />} />
-            <Route path="/settings/other" element={<OtherSettings />} />
-          </Routes>
+      <HeaderToolbarProvider>
+        <Box sx={{ display: 'flex' }}>
+          <CssBaseline />
+          <Header 
+            sidebarDocked={sidebarDocked}
+            sidebarHidden={sidebarHidden}
+            onSidebarToggle={handleSidebarToggle}
+            layoutStyles={layoutStyles}
+            layout={layout}
+          />
+          <Sidebar
+            sidebarDocked={sidebarDocked}
+            sidebarHidden={sidebarHidden}
+            onSidebarToggle={handleSidebarToggle}
+            onDockToggle={handleDockToggle}
+            navigationItems={navigationItems}
+            layout={layout}
+            listItemButtonStyles={listItemButtonStyles}
+            listItemIconStyles={listItemIconStyles}
+            listItemTextStyles={listItemTextStyles}
+            sidebarHeaderStyles={sidebarHeaderStyles}
+          />
+          {/* Main content - Grafana Style */}
+          <Box
+            component="main"
+            sx={{
+              flexGrow: 1,
+              pt: `${layout.appBarHeight * 2 + 1}px`, // Add top padding to account for combined AppBar height (80px) plus borders (2px)
+              pb: isPanelEditPage ? 0 : 2, // Remove bottom padding for PanelEditPage
+              px: 0,
+              height: '100vh',
+              overflowY: 'auto',
+              display: 'flex',
+              flexDirection: 'column',
+              ...layoutStyles.mainContent,
+            }}
+          >
+            <Routes>
+              <Route path="/" element={<HomePage />} />
+              <Route path="/dashboards" element={<DashboardsPage />} />
+              <Route path="/dashboard/:id" element={<DashboardViewPage />} />
+              <Route path="/dashboards/:id" element={<DashboardViewPage />} />
+              <Route path="/dashboard/:dashboardId/panels/:panelId/view" element={<PanelViewPage />} />
+              <Route path="/dashboard/:dashboardId/panels/:panelId/edit" element={<PanelEditPage />} />
+              <Route path="/database-health" element={<DatabaseHealthDashboardPage />} />
+              <Route path="/connection" element={<ConnectionPage />} />
+              <Route path="/explore" element={<ExplorePage />} />
+              <Route path="/history" element={<HistoryPage />} />
+              <Route path="/settings" element={<SettingsPage />} />
+              <Route path="/settings/database" element={<DatabaseSettings />} />
+              <Route path="/settings/appearance" element={<AppearanceSettings />} />
+              <Route path="/settings/other" element={<OtherSettings />} />
+            </Routes>
+          </Box>
         </Box>
-      </Box>
+      </HeaderToolbarProvider>
     </ThemeProvider>
   );
 
@@ -551,3 +550,5 @@ function App() {
 }
 
 export default App;
+
+

@@ -2,7 +2,6 @@ import { useState } from 'react';
 import { 
   Box, 
   InputBase, 
-  IconButton, 
   alpha 
 } from '@mui/material';
 import { Search as SearchIcon } from '@mui/icons-material';

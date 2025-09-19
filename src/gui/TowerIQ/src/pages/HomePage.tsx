@@ -1,4 +1,4 @@
-import { Box, Typography, Card, CardContent, Grid, Button, Switch, FormControlLabel, Alert, CircularProgress } from '@mui/material';
+import { Box, Typography, Card, CardContent, Button, Switch, FormControlLabel, Alert, CircularProgress } from '@mui/material';
 import { Home as HomeIcon, PlayArrow as PlayIcon, Stop as StopIcon } from '@mui/icons-material';
 import { useBackend } from '../hooks/useBackend';
 
@@ -49,9 +49,9 @@ export function HomePage() {
         </Box>
       )}
       
-      <Grid container spacing={3} sx={{ mt: 2 }}>
+      <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 3, mt: 2 }}>
         {/* Backend Status Card */}
-        <Grid item xs={12} md={6}>
+        <Box sx={{ width: { xs: '100%', md: '50%' }, mb: 2 }}>
           <Card>
             <CardContent>
               <Typography variant="h6" gutterBottom>
@@ -81,10 +81,10 @@ export function HomePage() {
               )}
             </CardContent>
           </Card>
-        </Grid>
+        </Box>
 
         {/* Test Mode Controls */}
-        <Grid item xs={12} md={6}>
+        <Box sx={{ width: { xs: '100%', md: '50%' }, mb: 2 }}>
           <Card>
             <CardContent>
               <Typography variant="h6" gutterBottom>
@@ -105,10 +105,10 @@ export function HomePage() {
               </Typography>
             </CardContent>
           </Card>
-        </Grid>
+        </Box>
 
         {/* Device Connection */}
-        <Grid item xs={12} md={6}>
+        <Box sx={{ width: { xs: '100%', md: '50%' }, mb: 2 }}>
           <Card>
             <CardContent>
               <Typography variant="h6" gutterBottom>
@@ -128,9 +128,9 @@ export function HomePage() {
               </Typography>
             </CardContent>
           </Card>
-        </Grid>
+        </Box>
         
-        <Grid item xs={12} md={6}>
+        <Box sx={{ width: { xs: '100%', md: '50%' }, mb: 2 }}>
           <Card>
             <CardContent>
               <Typography variant="h6" gutterBottom>
@@ -141,8 +141,8 @@ export function HomePage() {
               </Typography>
             </CardContent>
           </Card>
-        </Grid>
-      </Grid>
+        </Box>
+      </Box>
     </Box>
   );
 }

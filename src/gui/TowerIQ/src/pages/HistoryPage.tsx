@@ -1,7 +1,8 @@
-import { Box, Typography, Card, CardContent, Grid, List, ListItem, ListItemText, ListItemIcon } from '@mui/material';
+import { Box, Typography, Card, CardContent, List, ListItem, ListItemText, ListItemIcon } from '@mui/material';
 import { History as HistoryIcon, Schedule, Event } from '@mui/icons-material';
 
 export function HistoryPage() {
+
   const historyItems = [
     { id: 1, title: 'System Update', description: 'Updated to version 2.1.0', time: '2 hours ago' },
     { id: 2, title: 'Data Backup', description: 'Completed daily backup', time: '1 day ago' },
@@ -22,8 +23,8 @@ export function HistoryPage() {
         View your system activity and historical data.
       </Typography>
       
-      <Grid container spacing={3} sx={{ mt: 2 }}>
-        <Grid item xs={12} md={8}>
+      <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 3, mt: 2 }}>
+        <Box sx={{ width: { xs: '100%', md: '66.67%' }, mb: 2 }}>
           <Card>
             <CardContent>
               <Typography variant="h6" gutterBottom>
@@ -44,9 +45,9 @@ export function HistoryPage() {
               </List>
             </CardContent>
           </Card>
-        </Grid>
+        </Box>
         
-        <Grid item xs={12} md={4}>
+        <Box sx={{ width: { xs: '100%', md: '33.33%' }, mb: 2 }}>
           <Card>
             <CardContent>
               <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
@@ -66,8 +67,8 @@ export function HistoryPage() {
               </Typography>
             </CardContent>
           </Card>
-        </Grid>
-      </Grid>
+        </Box>
+      </Box>
     </Box>
   );
 }
