@@ -40,6 +40,7 @@ except ImportError:
     DEVICE_DETECTOR_AVAILABLE = False
 
 from ..core.config import ConfigurationManager
+from ..core.errors import DeviceConnectionError
 from ..core.utils import AdbWrapper, AdbError
 from .frida_manager import FridaServerManager, FridaServerSetupError
 from ..core.session import AdbStatus
@@ -348,11 +349,18 @@ class EmulatorService:
         """
         try:
             # Test device connectivity first
-            if not await asyncio.wait_for(
-                self._test_device_connection(device.serial),
-                timeout=timeout
-            ):
-                self.logger.warning("Device not accessible", device=device.serial)
+            try:
+                await asyncio.wait_for(
+                    self._test_device_connection(device.serial),
+                    timeout=timeout
+                )
+            except DeviceConnectionError as connection_error:
+                self.logger.warning(
+                    "Device not accessible",
+                    device=device.serial,
+                    reason=connection_error.reason,
+                    status=connection_error.status,
+                )
                 return []
             
             # Get all processes with complete information
@@ -384,11 +392,18 @@ class EmulatorService:
         """
         try:
             # Test device connectivity first
-            if not await asyncio.wait_for(
-                self._test_device_connection(device.serial),
-                timeout=timeout
-            ):
-                self.logger.warning("Device not accessible", device=device.serial)
+            try:
+                await asyncio.wait_for(
+                    self._test_device_connection(device.serial),
+                    timeout=timeout
+                )
+            except DeviceConnectionError as connection_error:
+                self.logger.warning(
+                    "Device not accessible",
+                    device=device.serial,
+                    reason=connection_error.reason,
+                    status=connection_error.status,
+                )
                 return []
             
             # Get all processes without any filtering
@@ -808,15 +823,68 @@ class EmulatorService:
             self.logger.warning("Failed to get device properties", device=device_serial, error=str(e))
             return {}
 
+    async def _get_device_status(self, device_serial: str) -> Optional[str]:
+        """Return the raw ADB status for a device serial if available."""
+
+        devices = await self._get_device_list()
+        for serial, status in devices:
+            if serial == device_serial:
+                return status
+        return None
+
     async def _test_device_connection(self, device_serial: str) -> bool:
         """Test if device is accessible and responsive."""
+
+        status = await self._get_device_status(device_serial)
+
+        if status is None:
+            self.logger.warning("Device not present in adb device list", device=device_serial)
+            raise DeviceConnectionError(device_serial, "not_found")
+
+        normalized_status = status.lower()
+        if normalized_status not in {"device", "online"}:
+            self.logger.warning(
+                "Device reported abnormal status",
+                device=device_serial,
+                status=normalized_status,
+            )
+            raise DeviceConnectionError(
+                device_serial,
+                "abnormal_status",
+                status=normalized_status,
+            )
+
         try:
             # Try a simple command to test connectivity
             stdout, _ = await self.adb.run_command("-s", device_serial, "shell", "echo", "test")
-            return stdout.strip() == "test"
-        except AdbError as e:
-            self.logger.debug("Device connection test failed", device=device_serial, error=str(e))
-            return False
+        except AdbError as error:
+            self.logger.warning(
+                "Device shell command failed",
+                device=device_serial,
+                error=str(error),
+            )
+            raise DeviceConnectionError(
+                device_serial,
+                "adb_command_failed",
+                status=normalized_status,
+                details=str(error),
+            ) from error
+
+        if stdout.strip() != "test":
+            self.logger.warning(
+                "Unexpected device echo response",
+                device=device_serial,
+                stdout=stdout.strip(),
+            )
+            raise DeviceConnectionError(
+                device_serial,
+                "unexpected_response",
+                status=normalized_status,
+                details=stdout.strip(),
+            )
+
+        self.logger.debug("Device connection test succeeded", device=device_serial)
+        return True
 
     async def _get_device_info_with_detector(self, model: str, brand: str, manufacturer: str, product_name: str, product_device: str, android_version: str) -> Dict[str, Optional[str]]:
         """Get enhanced device information using DeviceDetector library."""
