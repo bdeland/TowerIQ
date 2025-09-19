@@ -190,11 +190,14 @@ class FridaService:
                     # Non-fatal; continue
                     pass
 
-            # Get the device
-            device = frida.get_device(device_id) if device_id else frida.get_local_device()
-            
-            # Attach to the process
-            session = device.attach(pid, realm='emulated')
+            # Get the device in a worker thread (Frida call is blocking)
+            def _get_device() -> Any:
+                return frida.get_device(device_id) if device_id else frida.get_local_device()
+
+            device = await asyncio.to_thread(_get_device)
+
+            # Attach to the process in a worker thread (Frida call is blocking)
+            session = await asyncio.to_thread(lambda: device.attach(pid, realm='emulated'))
             
             # Store in session manager
             if self._session_manager:
@@ -391,10 +394,14 @@ class FridaService:
         self.logger.info("Injecting script content")
         
         try:
-            # Create and load the script via Frida API without any sanitization
-            script = session.create_script(script_content)
+            # Create the script using a worker thread since Frida calls are blocking
+            script = await asyncio.to_thread(lambda: session.create_script(script_content))
+
+            # Register the message handler on the main thread (non-blocking)
             script.on('message', self._on_message)
-            script.load()
+
+            # Load the script via worker thread to avoid blocking the event loop
+            await asyncio.to_thread(script.load)
             if self._session_manager:
                 try:
                     self._session_manager.frida_script = script
