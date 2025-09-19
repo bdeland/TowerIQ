@@ -134,8 +134,12 @@ class ConfigurationManager(QObject):
     def _load_all_user_settings(self):
         """Loads all settings from the 'settings' table."""
         if not self._db_service: return
-        
-        settings_list = self._db_service.get_all_settings()
+
+        try:
+            settings_list = self._db_service.get_all_settings()
+        except Exception as e:
+            self.logger.error("Failed to load settings from database", error=str(e))
+            settings_list = []
         if settings_list is None:
             settings_list = []
         
@@ -277,23 +281,35 @@ class ConfigurationManager(QObject):
 
         # Serialize the value
         serialized_value, value_type = self._serialize_value(value)
-        
+
         # Determine category
         category = self._get_setting_category(key)
-        
-        # Update local cache
+
+        previous_marker = object()
+        previous_value = self._user_settings.get(key, previous_marker)
+
+        try:
+            # Save to database with metadata
+            self._db_service.set_setting_with_metadata(
+                key=key,
+                value=serialized_value,
+                value_type=value_type,
+                description=description,
+                category=category,
+                is_sensitive=is_sensitive
+            )
+        except Exception as e:
+            # Restore previous cached value if the database write failed
+            if previous_value is previous_marker:
+                self._user_settings.pop(key, None)
+            else:
+                self._user_settings[key] = previous_value
+            self.logger.error("Failed to save setting to database", key=key, error=str(e))
+            return
+
+        # Update local cache after successful persistence
         self._user_settings[key] = value
-        
-        # Save to database with metadata
-        self._db_service.set_setting_with_metadata(
-            key=key,
-            value=serialized_value,
-            value_type=value_type,
-            description=description,
-            category=category,
-            is_sensitive=is_sensitive
-        )
-        
+
         self.logger.debug("Setting saved to database", key=key, value=value, value_type=value_type)
         self.settingChanged.emit(key, value)
 
@@ -309,13 +325,17 @@ class ConfigurationManager(QObject):
     def reset_setting(self, key: str):
         """Reset a setting to its file-based default value."""
         if key in self._user_settings:
+            if self._db_service:
+                try:
+                    self._db_service.delete_setting(key)
+                except Exception as e:
+                    self.logger.error("Failed to delete setting from database", key=key, error=str(e))
+                    return
+
             del self._user_settings[key]
             if key in self._setting_metadata:
                 del self._setting_metadata[key]
-            
-            if self._db_service:
-                self._db_service.delete_setting(key)
-            
+
             self.settingChanged.emit(key, self.get(key))
 
     def export_settings(self, include_sensitive: bool = False) -> Dict[str, Any]:
@@ -361,7 +381,11 @@ class ConfigurationManager(QObject):
         self.logger.info("Checking for settings with incorrect value types")
         
         # Get all settings from database
-        settings_list = self._db_service.get_all_settings()
+        try:
+            settings_list = self._db_service.get_all_settings()
+        except Exception as e:
+            self.logger.error("Failed to fetch settings for value type check", error=str(e))
+            return
         if not settings_list:
             return
             
