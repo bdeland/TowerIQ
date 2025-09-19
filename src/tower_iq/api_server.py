@@ -620,22 +620,62 @@ async def activate_hook(request: HookActivationRequest, background_tasks: Backgr
                        script_name=script_name,
                        content_length=len(script_content))
         
-        # Use the Frida service to attach and inject the script (no fallbacks)
-        attached = await controller.frida_service.attach(pid, device_id)
-        if not attached:
-            raise HTTPException(status_code=500, detail="Failed to attach to process")
+        frida_service = controller.frida_service
+        session_manager = getattr(controller, "session", None)
+        activation_successful = False
+        attach_attempted = False
 
-        success = await controller.frida_service.inject_script(script_content)
-        
-        if not success:
-            raise HTTPException(status_code=500, detail="Failed to inject hook script")
-        
+        try:
+            # Use the Frida service to attach and inject the script (no fallbacks)
+            attach_attempted = True
+            attached = await frida_service.attach(pid, device_id)
+            if not attached:
+                raise HTTPException(status_code=500, detail="Failed to attach to process")
+
+            success = await frida_service.inject_script(script_content)
+
+            if not success:
+                raise HTTPException(status_code=500, detail="Failed to inject hook script")
+
+            activation_successful = True
+        except HTTPException:
+            raise
+        except Exception as frida_error:
+            raise HTTPException(status_code=500, detail=str(frida_error))
+        finally:
+            if attach_attempted and not activation_successful:
+                try:
+                    await frida_service.detach()
+                except Exception as detach_error:
+                    if logger:
+                        logger.warning("Failed to detach after unsuccessful activation", error=str(detach_error))
+
+                if session_manager:
+                    try:
+                        session_manager.set_script_inactive()
+                    except Exception as session_error:
+                        if logger:
+                            logger.warning("Failed to mark script inactive after activation failure", error=str(session_error))
+
+                    try:
+                        session_manager.frida_script = None
+                        session_manager.frida_session = None
+                        session_manager.frida_device = None
+                        session_manager.frida_attached_pid = None
+                    except Exception as session_error:
+                        if logger:
+                            logger.warning("Failed to reset session manager Frida state", error=str(session_error))
+
         # Start background message processing only after successful injection
         controller.start_background_operations()
         if logger:
             logger.info("Hook script injected successfully", device_id=device_id, pid=pid)
-        
+
         return {"message": "Hook script injected successfully"}
+    except HTTPException as e:
+        if logger:
+            logger.error("Error initiating hook activation", error=str(e))
+        raise
     except Exception as e:
         if logger:
             logger.error("Error initiating hook activation", error=str(e))
