@@ -451,34 +451,6 @@ class FridaService:
             self.logger.error("Error injecting script", error=str(e))
             return False
 
-    def _sanitize_script_content(self, content: str) -> str:
-        """
-        Some distributed hook files include a packager header (e.g., lines with special
-        glyphs like '📦', '↻', '✄') before the real script. Frida's Python API may reject
-        such inputs with 'malformed package'. This method trims any header and returns
-        the actual JavaScript.
-
-        Strategy:
-        - If a TOWERIQ_HOOK_METADATA block exists and there are non-code header markers
-          before it, slice from the metadata block onward.
-        - Otherwise, return content unchanged.
-        """
-        try:
-            header_markers = ("📦", "↻", "✄")
-            has_header_marker = any(m in content[:200] for m in header_markers)
-            meta_idx = content.find("/** TOWERIQ_HOOK_METADATA")
-            if meta_idx != -1 and has_header_marker:
-                trimmed = content[meta_idx:]
-                self.logger.warning(
-                    "Sanitized hook script by removing package header",
-                    removed_prefix_length=meta_idx
-                )
-                return trimmed
-            return content
-        except Exception:
-            # On any error, fall back to original content
-            return content
-    
     async def inject_and_run_script(self, device_id: str, pid: int, script_content: str) -> bool:
         """
         Attach to the process and inject the script using the Frida API only.
