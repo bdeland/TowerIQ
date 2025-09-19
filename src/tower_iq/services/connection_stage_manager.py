@@ -310,7 +310,7 @@ class ConnectionStageManager:
         """Install Frida server on the device."""
         try:
             # This will download and push the server if needed
-            await self.emulator_service.ensure_frida_server_is_running()
+            await self.emulator_service.ensure_frida_server_is_running(device_identifier=device_id)
             return True
         except Exception as e:
             self.logger.error("Error installing Frida server", error=str(e))
@@ -321,7 +321,7 @@ class ConnectionStageManager:
         try:
             # Frida server management is now handled by FridaServerManager
             # The ensure_frida_server_is_running method handles starting the server
-            await self.emulator_service.ensure_frida_server_is_running()
+            await self.emulator_service.ensure_frida_server_is_running(device_identifier=device_id)
             return True
         except Exception as e:
             self.logger.error("Error starting Frida server", error=str(e))
@@ -332,7 +332,7 @@ class ConnectionStageManager:
         try:
             # Frida server verification is now handled by FridaServerManager
             # The ensure_frida_server_is_running method includes verification
-            await self.emulator_service.ensure_frida_server_is_running()
+            await self.emulator_service.ensure_frida_server_is_running(device_identifier=device_id)
             return True
         except Exception as e:
             self.logger.error("Error verifying Frida server", error=str(e))

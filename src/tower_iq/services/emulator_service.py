@@ -881,39 +881,77 @@ class EmulatorService:
 
     # --- Frida Server Management ---
 
-    async def ensure_frida_server_is_running(self, device: Optional[Device] = None) -> bool:
+    async def ensure_frida_server_is_running(
+        self,
+        device: Optional[Device] = None,
+        device_identifier: Optional[str] = None,
+    ) -> bool:
         """
         Ensure frida-server is running on the connected device.
-        
+
         Args:
-            device: Device to provision frida-server on. If None, uses the first available device.
-            
+            device: Device to provision frida-server on.
+            device_identifier: Device serial/identifier to resolve when a Device object
+                isn't provided. If neither device nor identifier are provided, the first
+                available device will be used (legacy behaviour).
+
         Returns:
             True if frida-server is ready, False otherwise
         """
         if not frida:
             self.logger.error("Frida library not available")
             return False
-        
+
         try:
-            # If no device provided, try to get the first available device
+            device = await self._resolve_device_for_frida(device, device_identifier)
             if device is None:
-                devices = await self.discover_devices(timeout=5.0)
-                if not devices:
-                    self.logger.error("No devices available for frida-server setup")
-                    return False
-                device = devices[0]
-            
+                return False
+
             # Use the frida manager to provision the server for the specific device
             target_version = frida.__version__
             await self.frida_manager.provision(device.serial, device.architecture, target_version)
-            
+
             self.logger.info("Frida server setup completed", device=device.serial)
             return True
-            
+
         except Exception as e:
             self.logger.error("Frida server setup failed", error=str(e), error_type=type(e).__name__)
             return False
+
+    async def _resolve_device_for_frida(
+        self,
+        device: Optional[Device],
+        device_identifier: Optional[str],
+    ) -> Optional[Device]:
+        """Resolve a device object for frida provisioning based on provided inputs."""
+
+        if device:
+            if device_identifier and device.serial != device_identifier:
+                self.logger.warning(
+                    "Provided device does not match specified identifier",
+                    provided=device.serial,
+                    requested=device_identifier,
+                )
+            return device
+
+        if device_identifier:
+            devices = await self.discover_devices(timeout=5.0)
+            for candidate in devices:
+                if candidate.serial == device_identifier:
+                    return candidate
+
+            self.logger.error(
+                "Specified device not found for frida-server setup",
+                device=device_identifier,
+            )
+            return None
+
+        devices = await self.discover_devices(timeout=5.0)
+        if not devices:
+            self.logger.error("No devices available for frida-server setup")
+            return None
+
+        return devices[0]
 
     # --- Caching ---
 
