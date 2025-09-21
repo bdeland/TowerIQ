@@ -67,7 +67,7 @@ export function Header({
               height: 'auto',
               minHeight: 'auto',
               '&:hover': {
-                backgroundColor: 'rgba(255, 255, 255, 0.04)',
+                backgroundColor: 'transparent !important', // Completely remove any hover background
               },
             }}
           >
@@ -75,13 +75,13 @@ export function Header({
               sx={{ 
                 fontSize: 28,
                 color: '#39b5e0', // Use the blue color for brand consistency
-                filter: 'brightness(1.1)', // Slightly brighten for better visibility
-                transition: 'all 0.2s ease-in-out',
+                filter: 'brightness(1.0) drop-shadow(0 0 0px transparent)', // Base state with no glow
+                transition: 'filter 0.1s ease-in-out',
                 display: 'flex',
                 alignItems: 'center',
                 verticalAlign: 'middle',
                 '&:hover': {
-                  filter: 'brightness(1.3)',
+                  filter: 'brightness(1.2) drop-shadow(0 0 2px #39b5e0) drop-shadow(0 0 4px rgba(57, 181, 224, 0.6))',
                 },
               }} 
             />

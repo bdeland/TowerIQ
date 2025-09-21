@@ -139,25 +139,14 @@ export function Sidebar({
           paddingLeft: '12px', // Override left padding - adjust this value as needed
           paddingRight: '0px', // Override right padding to allow button closer to edge
         }}>
-          {/* Hamburger Menu Toggle - Always show in sidebar when visible */}
-          <IconButton
-            color="inherit"
-            aria-label="toggle sidebar"
-            onClick={onSidebarToggle}
+          {/* TowerIQ Logo - No button wrapper, no hover effect */}
+          <TowerIQLogo 
             sx={{ 
-              color: 'text.primary',
-              width: 28,
-              height: 28,
-              alignSelf: 'center',
-              padding: 0, // Remove default IconButton padding
+              fontSize: 28,
               marginRight: '12px', // Add spacing between logo and text
-              '&:hover': {
-                backgroundColor: 'rgba(255, 255, 255, 0.04)',
-              },
-            }}
-          >
-            <TowerIQLogo sx={{ fontSize: 28 }} />
-          </IconButton>
+              alignSelf: 'center',
+            }} 
+          />
           
           {/* TowerIQ Text */}
           <Box sx={{ fontWeight: 600, color: 'text.primary', flexGrow: 1 }}>TowerIQ</Box>

@@ -1,3 +1,15 @@
+/**
+ * ConnectionPage.tsx - Main device connection and monitoring interface
+ * 
+ * This component provides the primary UI for:
+ * - Device selection and connection
+ * - Process discovery and monitoring
+ * - Frida server management
+ * - ADB server controls
+ * - Hook script selection and activation
+ * - Connection flow orchestration
+ */
+
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { keyframes } from '@mui/system';
 import { styled } from '@mui/material/styles';
@@ -57,14 +69,24 @@ import { useBackend, Device, Process, HookScript, FridaStatus, ScriptStatus, Adb
 import { ScriptStatusWidget } from '../components/ScriptStatusWidget';
 import { HookScriptCard } from '../components/HookScriptCard';
 
-// Application constants for auto-selection
+// ============================================================================
+// CONSTANTS AND TYPES
+// ============================================================================
+
+// Application constants for auto-selection - these define the target game
 const TARGET_PROCESS_PACKAGE = 'com.TechTreeGames.TheTower';
 const TARGET_PROCESS_NAME = 'The Tower';
 
-// Connection flow state type
+// Connection flow state type - defines the different states of the connection process
+// This drives the UI flow and button states throughout the connection process
 type ConnectionFlowState = 'IDLE' | 'CONNECTING_DEVICE' | 'SEARCHING_PROCESS' | 'CONFIGURING_FRIDA' | 'STARTING_HOOK' | 'MONITORING_ACTIVE' | 'ERROR';
 
+// ============================================================================
+// UTILITY FUNCTIONS
+// ============================================================================
+
 // Helper function for generating device status tooltip content
+// This creates contextual help text that appears when hovering over device status chips
 const getDeviceStatusTooltip = (status: string) => {
   switch (status) {
     case 'unauthorized':
@@ -104,8 +126,16 @@ const getDeviceStatusTooltip = (status: string) => {
   }
 };
 
+// ============================================================================
+// MAIN COMPONENT
+// ============================================================================
+
 export function ConnectionPage() {
-  // Animation configuration
+  // ============================================================================
+  // ANIMATION CONFIGURATION
+  // ============================================================================
+  
+  // Animation configuration for refresh button spinning
   const refreshAnimationConfig = {
     duration: 600,
     easing: 'cubic-bezier(0.4, 0, 0.2, 1)',
@@ -114,6 +144,12 @@ export function ConnectionPage() {
 
 
 
+  // ============================================================================
+  // BACKEND HOOKS AND API FUNCTIONS
+  // ============================================================================
+  
+  // Destructure all backend functions and state from the useBackend hook
+  // These provide the connection to the Python backend API
   const { 
     status, 
     loading, 
@@ -140,38 +176,48 @@ export function ConnectionPage() {
     getAdbStatus
   } = useBackend();
   
-  // Simplified state management
-  const [selectedDevice, setSelectedDevice] = useState<Device | null>(null);
-  const [isRefreshSpinning, setIsRefreshSpinning] = useState(false);
-  const [connectionStatus, setConnectionStatus] = useState<'idle' | 'connecting' | 'connected' | 'error'>('idle');
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  // ============================================================================
+  // COMPONENT STATE MANAGEMENT
+  // ============================================================================
+  
+  // UI State - Controls the visual state of various UI elements
+  const [selectedDevice, setSelectedDevice] = useState<Device | null>(null); // Currently selected device in the device table
+  const [isRefreshSpinning, setIsRefreshSpinning] = useState(false); // Controls refresh button animation
+  const [connectionStatus, setConnectionStatus] = useState<'idle' | 'connecting' | 'connected' | 'error'>('idle'); // Overall connection state
+  const [errorMessage, setErrorMessage] = useState<string | null>(null); // Error messages displayed in alerts
 
-  // Master connection flow state machine
-  const [flowState, setFlowState] = useState<ConnectionFlowState>('IDLE');
-  const [statusMessage, setStatusMessage] = useState<string>('');
+  // Connection Flow State - Master state machine that drives the entire connection process
+  const [flowState, setFlowState] = useState<ConnectionFlowState>('IDLE'); // Current step in connection flow
+  const [statusMessage, setStatusMessage] = useState<string>(''); // Status text shown to user during connection
 
-  // Troubleshooting section
-  const [showTroubleshooting, setShowTroubleshooting] = useState(false);
+  // UI Section Visibility
+  const [showTroubleshooting, setShowTroubleshooting] = useState(false); // Controls troubleshooting accordion visibility
 
-  // Data from backend
-  const [devices, setDevices] = useState<Device[]>([]);
-  const [processes, setProcesses] = useState<Process[]>([]);
-  const [hookScripts, setHookScripts] = useState<HookScript[]>([]);
-  const [selectedHookScript, setSelectedHookScript] = useState<HookScript | null>(null);
+  // Backend Data State - Data fetched from the Python backend
+  const [devices, setDevices] = useState<Device[]>([]); // List of available Android devices
+  const [processes, setProcesses] = useState<Process[]>([]); // List of running processes on selected device
+  const [hookScripts, setHookScripts] = useState<HookScript[]>([]); // Available hook scripts for injection
+  const [selectedHookScript, setSelectedHookScript] = useState<HookScript | null>(null); // Currently selected hook script
 
-  // Loading states
-  const [devicesLoading, setDevicesLoading] = useState(true);
-  const [processesLoading, setProcessesLoading] = useState(false);
+  // Loading States - Controls loading spinners and skeleton screens
+  const [devicesLoading, setDevicesLoading] = useState(true); // Device list loading state
+  const [processesLoading, setProcessesLoading] = useState(false); // Process list loading state
 
-  // Script status state
-  const [scriptStatus, setScriptStatus] = useState<ScriptStatus | null>(null);
-  const [scriptStatusLoading, setScriptStatusLoading] = useState(false);
+  // Script Status State - Information about currently running hook scripts
+  const [scriptStatus, setScriptStatus] = useState<ScriptStatus | null>(null); // Status of active hook script
+  const [scriptStatusLoading, setScriptStatusLoading] = useState(false); // Script status loading state
 
-  // ADB server management state
-  const [isAdbRestarting, setIsAdbRestarting] = useState(false);
-  const [adbStatus, setAdbStatus] = useState<AdbStatus | null>(null);
+  // ADB Server Management State - Controls ADB server operations
+  const [isAdbRestarting, setIsAdbRestarting] = useState(false); // ADB server restart operation state
+  const [adbStatus, setAdbStatus] = useState<AdbStatus | null>(null); // Current ADB server status
 
+  // ============================================================================
+  // UTILITY FUNCTIONS AND CALLBACKS
+  // ============================================================================
+  
   // Centralized ADB state updater with delay and optional device refresh
+  // This function updates ADB status and optionally refreshes the device list
+  // Used by ADB server control buttons to keep UI in sync
   const updateAdbState = useCallback(async (shouldRefreshDevices?: boolean) => {
     await new Promise((resolve) => setTimeout(resolve, 500));
     const status = await getAdbStatus();
@@ -184,7 +230,9 @@ export function ConnectionPage() {
     }
   }, [getAdbStatus, refreshDevices]);
 
-  // Frida server status state
+  // Backend status synchronization function
+  // This function translates backend status into UI state changes
+  // It handles device disconnection, connection states, and error conditions
   const applyBackendStatus = useCallback((nextStatus: BackendStatus | null) => {
     console.log('ConnectionPage: Applying backend status', {
       hasSession: Boolean(nextStatus?.session),
@@ -259,14 +307,20 @@ export function ConnectionPage() {
     }
   }, []);
 
-  const [fridaStatus, setFridaStatus] = useState<FridaStatus | null>(null);
-  const [fridaStatusLoading, setFridaStatusLoading] = useState(false);
-  const [fridaError, setFridaError] = useState<string | null>(null);
+  // Frida Server Status State - Information about Frida server on selected device
+  const [fridaStatus, setFridaStatus] = useState<FridaStatus | null>(null); // Current Frida server status
+  const [fridaStatusLoading, setFridaStatusLoading] = useState(false); // Frida status loading state
+  const [fridaError, setFridaError] = useState<string | null>(null); // Frida operation error messages
 
-  // Process search state
-  const [processSearchTerm, setProcessSearchTerm] = useState<string>('');
+  // Process Search State - Controls the process search/filter functionality
+  const [processSearchTerm, setProcessSearchTerm] = useState<string>(''); // Search term for filtering processes
 
-  // Load initial data
+  // ============================================================================
+  // EFFECT HOOKS - COMPONENT LIFECYCLE AND DATA LOADING
+  // ============================================================================
+  
+  // Initial data loading effect - runs when component mounts
+  // Loads devices, hook scripts, script status, and ADB status
   useEffect(() => {
     console.log('ConnectionPage: Component mounted');
     loadDevices();
@@ -283,6 +337,8 @@ export function ConnectionPage() {
     })();
   }, []);
 
+  // Backend status synchronization effect - keeps UI in sync with backend state
+  // Sets up periodic status updates and window focus/visibility event listeners
   useEffect(() => {
     if (typeof window === 'undefined') {
       return;
@@ -327,13 +383,15 @@ export function ConnectionPage() {
   }, [applyBackendStatus, getStatus]);
 
   // Auto-select first hook script when scripts change
+  // This ensures a script is always selected when available
   useEffect(() => {
     if (hookScripts.length > 0 && !selectedHookScript) {
       setSelectedHookScript(hookScripts[0]);
     }
   }, [hookScripts, selectedHookScript]);
 
-  // Ensure UI reflects script activity even if backend state lags
+  // Script activity synchronization effect
+  // Ensures UI reflects script activity even if backend state lags
   useEffect(() => {
     if (scriptStatus?.is_active) {
       setFlowState('MONITORING_ACTIVE');
@@ -343,7 +401,7 @@ export function ConnectionPage() {
     }
   }, [scriptStatus?.is_active]);
 
-  // Load script status when connected
+  // Script status loading effect - loads script status when device becomes connected
   useEffect(() => {
     console.log('ConnectionPage: useEffect triggered', { 
       isConnected: status?.session.is_connected
@@ -369,12 +427,12 @@ export function ConnectionPage() {
     loadScriptStatus();
   }, [status?.session.is_connected]);
 
-  // Update connection state whenever backend status changes
+  // Backend status change effect - applies backend status changes to UI state
   useEffect(() => {
     applyBackendStatus(status ?? null);
   }, [applyBackendStatus, status]);
 
-  // Sync selected device with globally connected device
+  // Device selection synchronization effect - syncs selected device with backend connected device
   useEffect(() => {
     console.log('ConnectionPage: Device sync useEffect triggered', {
       backendConnected: status?.session.is_connected,
@@ -426,7 +484,7 @@ export function ConnectionPage() {
     }
   }, [status?.session.is_connected, status?.session.current_device, devices]);
 
-  // Update selected device with full details when devices list becomes available
+  // Device details update effect - updates placeholder device with full details when device list loads
   useEffect(() => {
     if (selectedDevice && devices.length > 0 && selectedDevice.model === 'Loading...') {
       const fullDevice = devices.find(d => d.id === selectedDevice.id);
@@ -437,7 +495,7 @@ export function ConnectionPage() {
     }
   }, [devices, selectedDevice]);
 
-  // Load processes when device becomes connected
+  // Process loading effect - loads processes when device becomes connected
   useEffect(() => {
     if (status?.session.is_connected && selectedDevice && status?.session.current_device === selectedDevice.id) {
       const loadProcessesForConnectedDevice = async () => {
@@ -456,7 +514,7 @@ export function ConnectionPage() {
     }
   }, [status?.session.is_connected, status?.session.current_device, selectedDevice]);
 
-  // Load Frida status when device is selected
+  // Frida status loading effect - loads Frida status when device is selected
   useEffect(() => {
     if (selectedDevice) {
       loadFridaStatus(selectedDevice.id);
@@ -465,7 +523,11 @@ export function ConnectionPage() {
     }
   }, [selectedDevice]);
 
-  // Load devices
+  // ============================================================================
+  // DATA LOADING FUNCTIONS
+  // ============================================================================
+  
+  // Load devices from backend - populates the device table
   const loadDevices = async () => {
     try {
       setDevicesLoading(true);
@@ -478,7 +540,7 @@ export function ConnectionPage() {
     }
   };
 
-  // Load hook scripts
+  // Load hook scripts from backend - populates the hook script selection area
   const loadHookScripts = async () => {
     try {
       const scriptList = await getHookScripts();
@@ -492,7 +554,7 @@ export function ConnectionPage() {
     }
   };
 
-  // Load script status
+  // Load script status from backend - shows current hook script activity
   const loadScriptStatus = async () => {
     try {
       setScriptStatusLoading(true);
@@ -505,7 +567,7 @@ export function ConnectionPage() {
     }
   };
 
-  // Load Frida status
+  // Load Frida status from backend - shows Frida server status on selected device
   const loadFridaStatus = async (deviceId: string) => {
     try {
       setFridaStatusLoading(true);
@@ -524,7 +586,13 @@ export function ConnectionPage() {
     }
   };
 
+  // ============================================================================
+  // CONNECTION FLOW FUNCTIONS
+  // ============================================================================
+  
   // Master orchestration function for starting monitoring
+  // This is the main function that handles the entire connection and monitoring setup process
+  // It coordinates device connection, process discovery, Frida setup, and hook activation
   const handleStartMonitoring = async () => {
     if (!selectedDevice) {
       setFlowState('ERROR');
@@ -583,7 +651,9 @@ export function ConnectionPage() {
     }
   };
 
-  // Auto-provision Frida helper
+  // Auto-provision Frida helper function
+  // Automatically installs and starts Frida server on the target device
+  // Returns true if Frida is ready, false if setup failed
   const handleAutoProvisionFrida = async (device: Device): Promise<boolean> => {
     try {
       // Check Frida status
@@ -615,6 +685,7 @@ export function ConnectionPage() {
   };
 
   // Stop monitoring function
+  // Deactivates the hook script and disconnects from the device
   const handleStopMonitoring = async () => {
     try {
       setStatusMessage('Stopping monitoring...');
@@ -637,12 +708,16 @@ export function ConnectionPage() {
     }
   };
 
-  // Handle device selection
+  // ============================================================================
+  // UI EVENT HANDLERS
+  // ============================================================================
+  
+  // Handle device selection from the device table
   const handleDeviceSelection = (device: Device) => {
     setSelectedDevice(device);
   };
 
-  // Handle refresh devices
+  // Handle refresh devices button click
   const handleRefreshDevices = async () => {
     setIsRefreshSpinning(true);
     try {
@@ -660,7 +735,7 @@ export function ConnectionPage() {
     }
   };
 
-  // ADB Server Management Handlers
+  // ADB Server Management Handlers - Control ADB server operations
   const handleRestartAdbServer = async () => {
     try {
       setIsAdbRestarting(true);
@@ -706,13 +781,27 @@ export function ConnectionPage() {
     }
   };
 
+  // ============================================================================
+  // RENDER - UI COMPONENT STRUCTURE
+  // ============================================================================
+  
   return (
     <Box sx={{ 
       mx: 'auto',
       width: '100%',
       maxWidth: 1200,
+      px: { xs: 0.5, sm: 1, md: 2 },
+      py: { xs: 0.5, sm: 1, md: 2 },
     }}>
-      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 3 }}>
+      {/* PAGE HEADER SECTION - Title and main action button */}
+      <Box sx={{ 
+        display: 'flex', 
+        alignItems: 'center', 
+        justifyContent: 'space-between', 
+        mb: 4,
+        px: { xs: 1, sm: 2 },
+        py: 0,
+      }}>
         <Box>
           <Typography variant="h4" component="h1" gutterBottom>
             Device Connection
@@ -723,6 +812,7 @@ export function ConnectionPage() {
           </Typography>
         </Box>
         
+        {/* MAIN ACTION BUTTONS - Start/Stop monitoring with loading states */}
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
           {flowState === 'CONNECTING_DEVICE' || flowState === 'SEARCHING_PROCESS' || 
            flowState === 'CONFIGURING_FRIDA' || flowState === 'STARTING_HOOK' ? (
@@ -773,9 +863,23 @@ export function ConnectionPage() {
         </Box>
       </Box>
 
-      {/* Device Selection Section */}
-      <Box sx={{ mb: 4 }}>
-        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2 }}>
+      {/* DEVICE SELECTION SECTION - Device table with selection and refresh */}
+      <Box sx={{ 
+        mb: 5,
+        px: { xs: 1, sm: 2 },
+        py: 3,
+        borderRadius: 2,
+        border: 1,
+        borderColor: 'divider',
+        backgroundColor: 'background.paper',
+      }}>
+        <Box sx={{ 
+          display: 'flex', 
+          alignItems: 'center', 
+          justifyContent: 'space-between', 
+          mb: 3,
+          px: 1,
+        }}>
           <Typography variant="h6" component="h2">
             Available Devices
           </Typography>
@@ -793,7 +897,14 @@ export function ConnectionPage() {
           </IconButton>
         </Box>
         
-        <TableContainer sx={{ maxHeight: 300 }}>
+        {/* DEVICE TABLE - Shows available Android devices with selection radio buttons */}
+        <TableContainer sx={{ 
+          maxHeight: 300,
+          borderRadius: 1,
+          border: 1,
+          borderColor: 'divider',
+          mt: 2,
+        }}>
           <Table stickyHeader size="small">
             <TableHead>
               <TableRow>
@@ -806,6 +917,7 @@ export function ConnectionPage() {
               </TableRow>
             </TableHead>
             <TableBody>
+              {/* LOADING STATES - Skeleton screens and loading messages */}
               {(devicesLoading || isAdbRestarting) ? (
                 Array.from({ length: 3 }).map((_, index) => (
                   <TableRow key={index}>
@@ -838,6 +950,7 @@ export function ConnectionPage() {
                   </TableCell>
                 </TableRow>
               ) : (
+                /* DEVICE ROWS - Individual device entries with selection and status */
                 devices.map((device) => (
                   <TableRow 
                     key={device.id}
@@ -896,8 +1009,14 @@ export function ConnectionPage() {
         </TableContainer>
       </Box>
 
+      {/* ERROR ALERT - Shows connection errors with retry button */}
       {flowState === 'ERROR' && errorMessage && (
-        <Alert severity="error" sx={{ mb: 3 }}>
+        <Alert severity="error" sx={{ 
+          mb: 4,
+          mx: { xs: 1, sm: 2 },
+          px: 2,
+          py: 2,
+        }}>
           {errorMessage}
           <Button 
             size="small" 
@@ -909,19 +1028,62 @@ export function ConnectionPage() {
         </Alert>
       )}
 
-      <Typography variant="body1" sx={{ mb: 3, fontStyle: 'italic' }}>
-        {statusMessage}
-      </Typography>
+      {/* STATUS MESSAGE - Shows current connection flow status */}
+      {statusMessage && (
+        <Typography variant="body1" sx={{ 
+          mb: 4, 
+          fontStyle: 'italic',
+          mx: { xs: 1, sm: 2 },
+          px: 2,
+          py: 1,
+          textAlign: 'center',
+          color: 'primary.main',
+          fontWeight: 'medium',
+        }}>
+          {statusMessage}
+        </Typography>
+      )}
 
-      {/* Troubleshooting Section */}
-      <Accordion>
-        <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+      {/* ADVANCED CONTROLS ACCORDION - Collapsible section with detailed controls */}
+      <Accordion sx={{ 
+        mt: 2,
+        mx: { xs: 1, sm: 2 },
+        borderRadius: 2,
+        '&:before': {
+          display: 'none',
+        },
+      }}>
+        <AccordionSummary 
+          expandIcon={<ExpandMoreIcon />}
+          sx={{ 
+            px: 2,
+            py: 1,
+            '& .MuiAccordionSummary-content': {
+              margin: '12px 0',
+            },
+          }}
+        >
           <Typography variant="h6">Advanced Controls & Troubleshooting</Typography>
         </AccordionSummary>
-        <AccordionDetails>
-          {/* Process Selection */}
-          <Box sx={{ mb: 3 }}>
-            <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1 }}>
+        <AccordionDetails sx={{ 
+          px: 3,
+          py: 2,
+        }}>
+          {/* PROCESS SELECTION SECTION - Shows running processes on selected device */}
+          <Box sx={{ 
+            mb: 4,
+            p: 3,
+            borderRadius: 2,
+            border: 1,
+            borderColor: 'divider',
+            backgroundColor: 'background.default',
+          }}>
+            <Box sx={{ 
+              display: 'flex', 
+              alignItems: 'center', 
+              justifyContent: 'space-between', 
+              mb: 2,
+            }}>
               <Typography variant="h6">
                 Available Processes
               </Typography>
@@ -1117,9 +1279,21 @@ export function ConnectionPage() {
 
           <Divider sx={{ my: 2 }} />
 
-          {/* Device Information */}
-          <Box sx={{ mb: 3 }}>
-            <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1 }}>
+          {/* DEVICE INFORMATION SECTION - Detailed device specs and status */}
+          <Box sx={{ 
+            mb: 4,
+            p: 3,
+            borderRadius: 2,
+            border: 1,
+            borderColor: 'divider',
+            backgroundColor: 'background.default',
+          }}>
+            <Box sx={{ 
+              display: 'flex', 
+              alignItems: 'center', 
+              justifyContent: 'space-between', 
+              mb: 2,
+            }}>
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                 <Typography variant="h6">
                   Device Information
@@ -1216,9 +1390,21 @@ export function ConnectionPage() {
 
           <Divider sx={{ my: 2 }} />
 
-          {/* Frida Server Controls */}
-          <Box sx={{ mb: 3 }}>
-            <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1 }}>
+          {/* FRIDA SERVER CONTROLS SECTION - Install, start, stop, remove Frida server */}
+          <Box sx={{ 
+            mb: 4,
+            p: 3,
+            borderRadius: 2,
+            border: 1,
+            borderColor: 'divider',
+            backgroundColor: 'background.default',
+          }}>
+            <Box sx={{ 
+              display: 'flex', 
+              alignItems: 'center', 
+              justifyContent: 'space-between', 
+              mb: 2,
+            }}>
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                 <Typography variant="h6">
                   Frida Server Controls
@@ -1442,9 +1628,21 @@ export function ConnectionPage() {
 
           <Divider sx={{ my: 2 }} />
 
-          {/* ADB Server Controls */}
-          <Box sx={{ mb: 3 }}>
-            <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1 }}>
+          {/* ADB SERVER CONTROLS SECTION - Start, kill, restart ADB server */}
+          <Box sx={{ 
+            mb: 4,
+            p: 3,
+            borderRadius: 2,
+            border: 1,
+            borderColor: 'divider',
+            backgroundColor: 'background.default',
+          }}>
+            <Box sx={{ 
+              display: 'flex', 
+              alignItems: 'center', 
+              justifyContent: 'space-between', 
+              mb: 2,
+            }}>
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                 <Typography variant="h6">
                   ADB Server Controls
@@ -1513,9 +1711,20 @@ export function ConnectionPage() {
 
           <Divider sx={{ my: 2 }} />
 
-          {/* Hook Script Selection */}
-          <Box>
-            <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2 }}>
+          {/* HOOK SCRIPT SELECTION SECTION - Available hook scripts for injection */}
+          <Box sx={{ 
+            p: 3,
+            borderRadius: 2,
+            border: 1,
+            borderColor: 'divider',
+            backgroundColor: 'background.default',
+          }}>
+            <Box sx={{ 
+              display: 'flex', 
+              alignItems: 'center', 
+              justifyContent: 'space-between', 
+              mb: 3,
+            }}>
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                 <Typography variant="h6">
                   Available Hook Scripts
