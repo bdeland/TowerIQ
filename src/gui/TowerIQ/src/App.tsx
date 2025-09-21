@@ -4,7 +4,6 @@ import {
   Box,
   CssBaseline,
   ThemeProvider,
-  createTheme,
 } from '@mui/material';
 import { Alert, Snackbar, Button } from '@mui/material';
 import {
@@ -37,238 +36,30 @@ import { DashboardEditProvider } from './contexts/DashboardEditContext';
 import { DashboardVariableProvider } from './contexts/DashboardVariableContext';
 import { DeveloperProvider } from './contexts/DeveloperContext';
 import { HeaderToolbarProvider } from './contexts/HeaderToolbarContext';
+import { toweriqTheme, colors, spacing } from './theme';
 
 import './App.css';
 
-// Centralized layout configuration
+// Centralized layout configuration - now using theme values
 const layout = {
-  appBarHeight: 40,
-  drawerWidth: 180,
-  border: '1px solid #2e3136',
-  borderColor: '#2e3136',
+  appBarHeight: spacing.layout.headerHeight,
+  drawerWidth: spacing.layout.sidebarWidth,
+  border: `1px solid ${colors.borders.primary}`,
+  borderColor: colors.borders.primary,
   backgroundColor: {
-    main: '#111217',      // Grafana's main background
-    paper: '#181b1f',     // Grafana's sidebar/card background
+    main: colors.backgrounds.main,
+    paper: colors.backgrounds.paper,
   },
   colors: {
-    primary: '#00a7e1',   // Grafana's orange
-    secondary: '#ff6464',
-    textPrimary: '#e0e0e0',
-    textSecondary: '#8e8e8e',
+    primary: colors.brand.primary,
+    secondary: colors.accent.secondary,
+    textPrimary: colors.text.primary,
+    textSecondary: colors.text.secondary,
   }
 };
 
-// Create a Grafana-inspired dark theme
-const theme = createTheme({
-  palette: {
-    // Don't use mode: 'dark' to avoid Material-UI's default dark theme
-    primary: {
-      main: layout.colors.primary,
-    },
-    secondary: {
-      main: layout.colors.secondary,
-    },
-    background: {
-      default: layout.backgroundColor.main,
-      paper: layout.backgroundColor.paper,
-    },
-    text: {
-      primary: layout.colors.textPrimary,
-      secondary: layout.colors.textSecondary,
-    },
-    divider: layout.borderColor,
-    // Explicitly set dark theme colors to avoid Material-UI defaults
-    action: {
-      active: '#e0e0e0',
-      hover: 'rgba(255, 255, 255, 0.04)',
-      selected: 'rgba(255, 255, 255, 0.08)',
-      disabled: 'rgba(255, 255, 255, 0.3)',
-      disabledBackground: 'rgba(255, 255, 255, 0.12)',
-    },
-  },
-  typography: {
-    fontFamily: '"Inter", "Roboto", "Helvetica", "Arial", sans-serif',
-    fontSize: 14,
-    h1: {
-      fontSize: '2rem',
-      fontWeight: 600,
-    },
-    h2: {
-      fontSize: '1.75rem',
-      fontWeight: 600,
-    },
-    h3: {
-      fontSize: '1.5rem',
-      fontWeight: 600,
-    },
-    h4: {
-      fontSize: '1.25rem',
-      fontWeight: 600,
-    },
-    h5: {
-      fontSize: '1.125rem',
-      fontWeight: 600,
-    },
-    h6: {
-      fontSize: '1rem',
-      fontWeight: 600,
-    },
-    body1: {
-      fontSize: '0.875rem',
-    },
-    body2: {
-      fontSize: '0.8rem',
-    },
-  },
-  // Force override Material-UI's default dark theme colors
-  shape: {
-    borderRadius: 8,
-  },
-  components: {
-            MuiCssBaseline: {
-          styleOverrides: (theme) => ({
-            ':root': {
-              // Expose theme colors as CSS custom properties for react-grid-layout
-              '--theme-text-secondary': theme.palette.text.secondary,
-              '--theme-primary-main': theme.palette.primary.main,
-            },
-            body: {
-              '&::-webkit-scrollbar': {
-                width: '0px',
-                background: 'transparent',
-              },
-              '&::-webkit-scrollbar-track': {
-                background: 'transparent',
-              },
-              '&::-webkit-scrollbar-thumb': {
-                background: 'transparent',
-              },
-              '&::-webkit-scrollbar-thumb:hover': {
-                background: 'transparent',
-              },
-            },
-            // Hide scrollbars for all elements
-            '*': {
-              '&::-webkit-scrollbar': {
-                width: '0px',
-                background: 'transparent',
-              },
-              '&::-webkit-scrollbar-track': {
-                background: 'transparent',
-              },
-              '&::-webkit-scrollbar-thumb': {
-                background: 'transparent',
-              },
-              '&::-webkit-scrollbar-thumb:hover': {
-                background: 'transparent',
-              },
-            },
-            // Global override for all drawer papers
-            '.MuiDrawer-paper': {
-              backgroundColor: theme.palette.background.paper,
-            },
-            // React Grid Layout resize handle styles - only SE (bottom-right) handle  
-            '.react-resizable-handle-se': {
-              opacity: 1.0,
-              transition: 'all 0.2s ease',
-              // Change the color of the existing handle to match theme
-              filter: 'brightness(0) saturate(100%) invert(56%) sepia(0%) saturate(0%) hue-rotate(0deg) brightness(89%) contrast(87%)',
-            },
-            // Breadcrumbs collapse button styling
-            '.MuiBreadcrumbs-collapsedButton': {
-              color: 'inherit !important',
-              backgroundColor: 'transparent !important',
-              border: 'none !important',
-              boxShadow: 'none !important',
-              '&:hover': {
-                backgroundColor: 'rgba(255, 255, 255, 0.04) !important',
-              },
-              '&:focus': {
-                backgroundColor: 'transparent !important',
-              }
-            },
-            '.MuiBreadcrumbs-collapsedIcon': {
-              color: 'inherit !important',
-              backgroundColor: 'transparent !important',
-            }
-          }),
-        },
-    MuiAppBar: {
-      styleOverrides: {
-        root: {
-          backgroundColor: layout.backgroundColor.paper,
-          boxShadow: 'none', // Remove shadow to make it flat
-          // Don't set borders or height here - let individual components handle it
-        },
-      },
-    },
-    MuiListItemButton: {
-      styleOverrides: {
-        root: {
-          '&.Mui-selected': {
-            backgroundColor: 'rgba(247, 149, 32, 0.1)',
-            borderLeft: '4px solid #f79520',
-            color: 'primary.main',
-            '&:hover': {
-              backgroundColor: 'rgba(247, 149, 32, 0.15)',
-            },
-          },
-          '&:hover': {
-            backgroundColor: 'rgba(255, 255, 255, 0.04)',
-          },
-        },
-      },
-    },
-    MuiDrawer: {
-      styleOverrides: {
-        paper: {
-          backgroundColor: layout.backgroundColor.paper,
-        },
-      },
-    },
-    MuiToolbar: {
-      styleOverrides: {
-        root: {
-          backgroundColor: layout.backgroundColor.paper,
-        },
-      },
-    },
-    MuiPaper: {
-      styleOverrides: {
-        root: {
-          backgroundColor: layout.backgroundColor.paper,
-        },
-      },
-    },
-    MuiAccordion: {
-      styleOverrides: {
-        root: {
-          backgroundColor: '#22252b',
-          '&:before': {
-            display: 'none', // Remove the default border
-          },
-        },
-      },
-    },
-    MuiAccordionSummary: {
-      styleOverrides: {
-        root: {
-          backgroundColor: '#22252b',
-          '&:hover': {
-            backgroundColor: '#2a2d33', // Slightly lighter on hover
-          },
-        },
-      },
-    },
-    MuiAccordionDetails: {
-      styleOverrides: {
-        root: {
-          backgroundColor: '#22252b',
-        },
-      },
-    },
-  },
-});
+// Use the centralized TowerIQ theme
+const theme = toweriqTheme;
 
 // Navigation items with routes - Grafana-style organization
 const navigationItems = [

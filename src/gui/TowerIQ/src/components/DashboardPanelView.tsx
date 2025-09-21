@@ -910,7 +910,7 @@ const DashboardPanelViewComponent: React.FC<DashboardPanelViewProps> = ({
             tier: row.tier,
             itemStyle: {
               color: getTierColor(row.tier, availableTiers),
-              borderColor: '#000000',
+              borderColor: 'var(--tiq-border-primary)',
               borderWidth: 1
             }
           }));
@@ -1034,7 +1034,7 @@ const DashboardPanelViewComponent: React.FC<DashboardPanelViewProps> = ({
                 type: 'bar',
                 data: barData.map(item => item.value),
                 itemStyle: {
-                  color: '#8a3ffc'
+                  color: 'var(--tiq-brand-primary)'
                 }
               }],
               tooltip: {
@@ -1820,10 +1820,10 @@ const DashboardPanelViewComponent: React.FC<DashboardPanelViewProps> = ({
               <tr>
                 {queryResult.data.length > 0 && Object.keys(queryResult.data[0]).map(key => (
                   <th key={key} style={{ 
-                    border: '1px solid var(--mui-palette-divider)', 
-                    backgroundColor: 'var(--mui-palette-action-hover)',
+                    border: '1px solid var(--tiq-border-primary)', 
+                    backgroundColor: 'var(--tiq-action-hover)',
                     fontSize: '12px',
-                    color: 'var(--mui-palette-text-primary)',
+                    color: 'var(--tiq-text-primary)',
                     fontWeight: 500
                   }}>
                     {key}
@@ -1836,10 +1836,10 @@ const DashboardPanelViewComponent: React.FC<DashboardPanelViewProps> = ({
                 <tr key={index}>
                   {Object.values(row).map((value, colIndex) => (
                     <td key={colIndex} style={{ 
-                      border: '1px solid var(--mui-palette-divider)', 
+                      border: '1px solid var(--tiq-border-primary)', 
                       fontSize: '11px',
-                      color: 'var(--mui-palette-text-primary)',
-                      backgroundColor: index % 2 === 0 ? 'transparent' : 'var(--mui-palette-action-hover)'
+                      color: 'var(--tiq-text-primary)',
+                      backgroundColor: index % 2 === 0 ? 'transparent' : 'var(--tiq-action-hover)'
                     }}>
                       {String(value)}
                     </td>

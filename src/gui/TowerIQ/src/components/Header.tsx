@@ -4,6 +4,7 @@ import { Breadcrumbs } from './Breadcrumbs';
 import { SearchBar } from './SearchBar';
 import { TowerIQLogo } from './TowerIQLogo';
 import { useHeaderToolbar } from '../contexts/HeaderToolbarContext';
+import { colors } from '../theme/toweriqTheme';
 
 interface HeaderProps {
   sidebarDocked: boolean;
@@ -31,7 +32,14 @@ export function Header({
     items.map(item => <React.Fragment key={item.id}>{item.node}</React.Fragment>);
 
   return (
-    <AppBar position="fixed" sx={{ ...layoutStyles.appBar, backgroundColor: 'background.paper', borderLeft: sidebarDocked ? 'none' : layout.border, borderRight: layout.border }}>
+    <AppBar 
+      position="fixed" 
+      color="default"
+      sx={{ 
+        ...layoutStyles.appBar, 
+        borderLeft: sidebarDocked ? 'none' : layout.border, 
+        borderRight: layout.border 
+      }}>
       <Toolbar
         sx={{
           minHeight: `${layout.appBarHeight + 1}px !important`, // +2px for top and bottom borders
@@ -74,14 +82,14 @@ export function Header({
             <TowerIQLogo 
               sx={{ 
                 fontSize: 28,
-                color: '#39b5e0', // Use the blue color for brand consistency
+                color: 'primary.main', // Use theme brand primary color
                 filter: 'brightness(1.0) drop-shadow(0 0 0px transparent)', // Base state with no glow
                 transition: 'filter 0.1s ease-in-out',
                 display: 'flex',
                 alignItems: 'center',
                 verticalAlign: 'middle',
                 '&:hover': {
-                  filter: 'brightness(1.2) drop-shadow(0 0 2px #39b5e0) drop-shadow(0 0 4px rgba(57, 181, 224, 0.6))',
+                  filter: 'brightness(1.2) drop-shadow(0 0 2px var(--tiq-brand-primary)) drop-shadow(0 0 4px rgba(57, 181, 224, 0.6))',
                 },
               }} 
             />

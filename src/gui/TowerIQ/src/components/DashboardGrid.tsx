@@ -64,7 +64,7 @@ const DashboardGridComponent = ({
     gridTemplateRows: `repeat(${gridDimensions.rows}, ${cellHeight}px)`,
     gap: '6px',
     padding: '0px',
-    border: isDevMode ? '1px solid #2196f3' : 'none',
+    border: isDevMode ? '1px solid var(--tiq-info-main)' : 'none',
     borderRadius: '4px',
     minHeight: '200px',
     position: 'relative' as const,
@@ -167,7 +167,7 @@ const DashboardGridComponent = ({
          cursor: isEditMode && isEditable ? 'move' : 'default',
          opacity: draggedPanel === panel.id ? 0.5 : 1,
          transition: 'opacity 0.2s ease',
-         border: isDevMode ? '1px solid #ff9800' : '1px solid #2e3136', // Orange border in dev mode, default border otherwise
+         border: isDevMode ? '1px solid var(--tiq-warning-main)' : '1px solid var(--tiq-border-primary)', // Orange border in dev mode, default border otherwise
        };
 
       return (
@@ -228,7 +228,7 @@ const DashboardGridComponent = ({
       position: 'absolute' as const,
       gridColumn: `${dragPosition.x + 1} / span ${draggedPanelData.gridPos.w}`,
       gridRow: `${dragPosition.y + 1} / span ${draggedPanelData.gridPos.h}`,
-      border: '2px dashed #2196f3',
+      border: '2px dashed var(--tiq-info-main)',
       backgroundColor: 'rgba(33, 150, 243, 0.1)',
       borderRadius: '4px',
       pointerEvents: 'none' as const,
@@ -244,7 +244,7 @@ const DashboardGridComponent = ({
         padding: 4, 
         textAlign: 'center', 
         backgroundColor: 'rgba(255, 152, 0, 0.1)',
-        border: '0.5px solid #ff9800',
+        border: '0.5px solid var(--tiq-warning-main)',
         borderRadius: '4px',
         minHeight: '200px',
         display: 'flex',

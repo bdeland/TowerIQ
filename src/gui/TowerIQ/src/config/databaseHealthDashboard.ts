@@ -1,6 +1,7 @@
 import { Dashboard } from '../contexts/DashboardContext';
 import { generateUUID } from '../utils/uuid';
 import { formatDataSize, formatDataSizeForChart, formatDataSizeForTooltip } from '../utils/formattingUtils';
+import { CHART_COLORS } from '../utils/colorPalette';
 
 export const databaseHealthDashboard: Dashboard = {
   id: 'database-health-dashboard',
@@ -269,13 +270,13 @@ export const databaseHealthDashboard: Dashboard = {
                 }
               },
               fontSize: 11,
-              color: '#ffffff',
+              color: CHART_COLORS.textPrimary,
               fontWeight: 'bold',
               overflow: 'truncate',
               ellipsis: '...'
             },
             itemStyle: {
-              borderColor: '#ffffff',
+              borderColor: CHART_COLORS.textPrimary,
               borderWidth: 2,
               gapWidth: 2
             },
@@ -283,7 +284,7 @@ export const databaseHealthDashboard: Dashboard = {
               {
                 // Level 0 - Large sections
                 itemStyle: {
-                  borderColor: '#ffffff',
+                  borderColor: CHART_COLORS.textPrimary,
                   borderWidth: 2,
                   gapWidth: 2
                 },
@@ -299,14 +300,14 @@ export const databaseHealthDashboard: Dashboard = {
                     }
                   },
                   fontSize: 11,
-                  color: '#ffffff',
+                  color: CHART_COLORS.textPrimary,
                   fontWeight: 'bold'
                 }
               },
               {
                 // Level 1 - Medium sections
                 itemStyle: {
-                  borderColor: '#ffffff',
+                  borderColor: CHART_COLORS.textPrimary,
                   borderWidth: 1,
                   gapWidth: 1
                 },
@@ -322,14 +323,14 @@ export const databaseHealthDashboard: Dashboard = {
                     }
                   },
                   fontSize: 10,
-                  color: '#ffffff',
+                  color: CHART_COLORS.textPrimary,
                   fontWeight: 'normal'
                 }
               },
               {
                 // Level 2 - Small sections
                 itemStyle: {
-                  borderColor: '#ffffff',
+                  borderColor: CHART_COLORS.textPrimary,
                   borderWidth: 1,
                   gapWidth: 1
                 },
@@ -348,7 +349,7 @@ export const databaseHealthDashboard: Dashboard = {
                     }
                   },
                   fontSize: 9,
-                  color: '#ffffff',
+                  color: CHART_COLORS.textPrimary,
                   fontWeight: 'normal'
                 }
               }

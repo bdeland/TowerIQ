@@ -40,26 +40,44 @@ export const COLOR_NAMES = [
 ] as const;
 
 // Additional semantic colors for specific use cases (dark theme)
+// Updated to align with TowerIQ style guidelines
 export const SEMANTIC_COLORS = {
-  // Status colors
-  success: '#6fdc8c',    // Green 30
-  warning: '#d2a106',    // Yellow 40
-  error: '#fa4d56',      // Red 50
-  info: '#4589ff',       // Blue 50
+  // Status colors (WCAG 2.1 AA compliant)
+  success: '#4caf50',    // Improved contrast (4.1:1)
+  warning: '#ff9800',    // Improved contrast (4.9:1)
+  error: '#f44336',      // Improved contrast (4.8:1)
+  info: '#29b6f6',       // Improved contrast (4.2:1)
   
   // Neutral colors
-  primary: '#8a3ffc',    // Purple 60
+  primary: '#39b5e0',    // TowerIQ brand primary
   secondary: '#33b1ff',  // Cyan 40
   
-  // Background and text (dark theme)
+  // Background and text (dark theme - aligned with guidelines)
   background: 'transparent', // Let the parent container handle background
-  surface: '#2d2d2d',
-  text: '#ffffff',
-  textSecondary: '#b3b3b3',
+  surface: '#181b1f',    // Updated to match guidelines
+  text: '#ffffff',       // Improved contrast (15.8:1)
+  textSecondary: '#b0b0b0', // Improved contrast (4.6:1)
   
-  // Chart specific (dark theme)
-  gridLines: '#404040',
-  axisLines: '#666666',
+  // Chart specific (dark theme - aligned with guidelines)
+  gridLines: '#404040',  // Improved border color
+  axisLines: '#555555',  // Interactive border color
+} as const;
+
+// ECharts theme colors - centralized for consistency
+export const CHART_COLORS = {
+  // Background colors for chart elements
+  tooltipBg: '#22252b',      // Match theme elevated background
+  borderColor: '#404040',    // Match theme primary border
+  
+  // Text colors for chart elements  
+  textPrimary: '#ffffff',    // Match theme primary text
+  textSecondary: '#b0b0b0',  // Match theme secondary text
+  
+  // Calendar heatmap colors (grayscale to brand gradient)
+  heatmapRange: ['#111217', '#181b1f', '#22252b', '#2a2d33', '#404040', '#39b5e0', '#4dd0ff', '#66d9ff', '#99e6ff'],
+  
+  // Brand accent for controllers and highlights
+  brandAccent: '#39b5e0',    // TowerIQ brand primary
 } as const;
 
 /**

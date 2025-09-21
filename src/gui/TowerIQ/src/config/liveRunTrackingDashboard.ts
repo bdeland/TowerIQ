@@ -2,6 +2,7 @@ import { Dashboard } from '../contexts/DashboardContext';
 import { generateUUID } from '../utils/uuid';
 import { formatCurrency, formatCurrencyForChart, formatCurrencyForTooltip } from '../utils/formattingUtils';
 import { applyChartTheme } from '../utils/chartTheme';
+import { CHART_COLORS } from '../utils/colorPalette';
 
 export const liveRunTrackingDashboard: Dashboard = {
   id: 'live-run-tracking-dashboard',
@@ -313,8 +314,8 @@ export const liveRunTrackingDashboard: Dashboard = {
             smooth: true,
             symbol: 'circle',
             symbolSize: 4,
-            lineStyle: { width: 2, color: '#FFD700' },
-            areaStyle: { opacity: 0.1, color: '#FFD700' },
+            lineStyle: { width: 2, color: CHART_COLORS.brandAccent },
+            areaStyle: { opacity: 0.1, color: CHART_COLORS.brandAccent },
             data: []
           }],
           dataZoom: [
@@ -378,8 +379,8 @@ export const liveRunTrackingDashboard: Dashboard = {
             smooth: true,
             symbol: 'circle',
             symbolSize: 4,
-            lineStyle: { width: 2, color: '#00CED1' },
-            areaStyle: { opacity: 0.1, color: '#00CED1' },
+            lineStyle: { width: 2, color: CHART_COLORS.brandAccent },
+            areaStyle: { opacity: 0.1, color: CHART_COLORS.brandAccent },
             data: []
           }],
           dataZoom: [
@@ -443,8 +444,8 @@ export const liveRunTrackingDashboard: Dashboard = {
             smooth: true,
             symbol: 'circle',
             symbolSize: 4,
-            lineStyle: { width: 2, color: '#FF69B4' },
-            areaStyle: { opacity: 0.1, color: '#FF69B4' },
+            lineStyle: { width: 2, color: CHART_COLORS.brandAccent },
+            areaStyle: { opacity: 0.1, color: CHART_COLORS.brandAccent },
             data: []
           }],
           dataZoom: [

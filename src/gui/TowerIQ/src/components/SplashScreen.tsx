@@ -65,8 +65,8 @@ const SplashScreen: React.FC<SplashScreenProps> = ({ onComplete, minDisplayTime 
             }}
           />
           <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 2 }}>
-            <CircularProgress size={20} sx={{ color: '#f79520' }} />
-            <Typography variant="body2" sx={{ color: '#8e8e8e' }}>
+            <CircularProgress size={20} sx={{ color: 'var(--tiq-brand-secondary)' }} />
+            <Typography variant="body2" sx={{ color: 'var(--tiq-text-secondary)' }}>
               Starting TowerIQ...
             </Typography>
           </Box>

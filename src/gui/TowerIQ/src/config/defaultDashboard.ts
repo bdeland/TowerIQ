@@ -2,6 +2,7 @@ import { Dashboard } from '../contexts/DashboardContext';
 import { generateUUID } from '../utils/uuid';
 import { formatCurrency, formatCurrencyForChart, formatCurrencyForTooltip } from '../utils/formattingUtils';
 import { applyChartTheme } from '../utils/chartTheme';
+import { CHART_COLORS } from '../utils/colorPalette';
 
 export const defaultDashboard: Dashboard = {
   id: 'default-dashboard',
@@ -204,31 +205,31 @@ export const defaultDashboard: Dashboard = {
             range: [2024], // Default to current year, will be overridden
             itemStyle: {
               borderWidth: 1,
-              borderColor: '#2d2d2d',
+              borderColor: CHART_COLORS.borderColor,
               borderType: 'solid'
             },
             yearLabel: {
               show: true,
               fontSize: 14,
-              color: '#ffffff',
+              color: CHART_COLORS.textPrimary,
               fontWeight: 'bold'
             },
             monthLabel: {
               show: true,
               fontSize: 12,
-              color: '#b3b3b3',
+              color: CHART_COLORS.textSecondary,
               nameMap: 'EN'
             },
             dayLabel: {
               show: true,
               fontSize: 10,
-              color: '#b3b3b3',
+              color: CHART_COLORS.textSecondary,
               nameMap: ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
             },
             splitLine: {
               show: true,
               lineStyle: {
-                color: '#404040',
+                color: CHART_COLORS.borderColor,
                 width: 1,
                 type: 'solid'
               }
@@ -243,15 +244,15 @@ export const defaultDashboard: Dashboard = {
             bottom: 20,
             calculable: true,
             inRange: {
-              color: ['#1a1a1a', '#2d2d2d', '#404040', '#595959', '#737373', '#8a3ffc', '#a366ff', '#bb8cff', '#d4bbff']
+              color: CHART_COLORS.heatmapRange
             },
             textStyle: {
-              color: '#ffffff',
+              color: CHART_COLORS.textPrimary,
               fontSize: 12
             },
             controller: {
               inRange: {
-                color: '#8a3ffc'
+                color: CHART_COLORS.brandAccent
               }
             }
           },
@@ -261,7 +262,7 @@ export const defaultDashboard: Dashboard = {
             data: [],
             label: {
               show: false,
-              color: '#ffffff',
+              color: CHART_COLORS.textPrimary,
               fontSize: 10
             },
             emphasis: {
@@ -272,11 +273,11 @@ export const defaultDashboard: Dashboard = {
             }
           }],
           tooltip: {
-            backgroundColor: '#2d2d2d',
-            borderColor: '#404040',
+            backgroundColor: CHART_COLORS.tooltipBg,
+            borderColor: CHART_COLORS.borderColor,
             borderWidth: 1,
             textStyle: {
-              color: '#ffffff'
+              color: CHART_COLORS.textPrimary
             },
             extraCssText: 'box-shadow: 0 4px 12px rgba(0,0,0,0.3); border-radius: 4px;',
             confine: true,

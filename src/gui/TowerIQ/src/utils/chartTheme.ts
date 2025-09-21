@@ -11,6 +11,7 @@ import {
   CONTINUOUS_PALETTES,
   getContinuousPalette
 } from './colorPalette';
+import { TOWERIQ_COLORS } from '../theme/toweriqTheme';
 
 /**
  * Base chart configuration that should be applied to all charts
@@ -108,7 +109,7 @@ export function createBarChartTheme(options: {
       },
       itemStyle: {
         borderRadius: [2, 2, 0, 0],
-        borderColor: '#000000',
+        borderColor: 'var(--tiq-border-primary)',
         borderWidth: 1,
       },
       emphasis: {

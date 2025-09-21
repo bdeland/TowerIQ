@@ -14,9 +14,9 @@ export function SearchBar() {
                     sx={{
          position: 'relative',
          borderRadius: 0.5, // You can change this value: 0 = no radius, 1 = small, 2 = medium, 3 = large, etc.
-         backgroundColor: '#111217', // Use theme background color
+         backgroundColor: 'background.default', // Use theme background color
          '&:hover': {
-           backgroundColor: alpha('#fff', 0.25),
+           backgroundColor: 'action.hover',
          },
         margin: 0, // Remove all margins
         padding: 0, // Remove all padding

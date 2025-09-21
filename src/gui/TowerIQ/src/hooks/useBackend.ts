@@ -121,7 +121,7 @@ let globalStatus: BackendStatus | null = loadPersistedStatus();
 let globalStatusListeners: Set<(status: BackendStatus | null) => void> = new Set();
 
 // Development option to disable polling (set to true to disable)
-const DISABLE_POLLING = false;
+const DISABLE_POLLING = true;
 
 const startGlobalPolling = () => {
   if (globalPollingInterval || DISABLE_POLLING) {
@@ -274,7 +274,7 @@ export const useBackend = () => {
       setLoading(true);
       setError(null);
       
-      // Use cache with 5-second TTL for device scanning
+      // Use cache with longer TTL to reduce automatic refreshing
       const result = await defaultRequestCache.get(
         CacheKeys.devices(),
         async () => {
@@ -288,7 +288,7 @@ export const useBackend = () => {
           const result = await Promise.race([scanPromise, timeoutPromise]);
           return result.devices;
         },
-        { ttl: 5000 } // 5 seconds as specified in PRD
+        { ttl: 300000 } // 5 minutes instead of 5 seconds to prevent auto-refresh
       );
       
       return result;

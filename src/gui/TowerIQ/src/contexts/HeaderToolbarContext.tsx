@@ -279,21 +279,21 @@ function DashboardVariablesToolbar() {
         } else {
           const option = variableOptions.find(opt => opt.value === selectedValue);
           displayValue = option?.label || selectedValue || 'All';
-          renderValue = <span style={{ color: '#e0e0e0', fontSize: '0.75rem' }}>{displayValue}</span>;
+          renderValue = <span style={{ color: 'var(--tiq-text-primary)', fontSize: '0.75rem' }}>{displayValue}</span>;
         }
 
         return (
           <Box key={variable.name} sx={{ display: 'flex', alignItems: 'center' }}>
             <Box
               sx={{
-                backgroundColor: '#181b1f',
-                color: '#e0e0e0',
+                backgroundColor: 'var(--tiq-bg-paper)',
+                color: 'var(--tiq-text-primary)',
                 px: 1.5,
                 py: 0.5,
                 fontSize: '0.8rem',
                 fontWeight: 500,
                 borderRadius: '2px 0 0 2px',
-                border: '1px solid #404040',
+                border: '1px solid var(--tiq-border-primary)',
                 minHeight: '30px',
                 display: 'flex',
                 alignItems: 'center',
@@ -376,10 +376,10 @@ function DashboardVariablesToolbar() {
                           }
                           size="small"
                           sx={{
-                            color: '#e0e0e0',
+                            color: 'var(--tiq-text-primary)',
                             p: 0.25,
                             '&.Mui-checked': {
-                              color: '#1f77b4',
+                              color: 'var(--tiq-brand-primary)',
                             },
                             '& .MuiSvgIcon-root': {
                               fontSize: '12px',
@@ -402,17 +402,17 @@ function DashboardVariablesToolbar() {
                   sx={{
                     width: '30px',
                     height: '30px',
-                    backgroundColor: '#404040',
+                    backgroundColor: 'var(--tiq-border-primary)',
                     borderRadius: '0 2px 2px 0',
-                    border: '1px solid #404040',
-                    color: '#e0e0e0',
+                    border: '1px solid var(--tiq-border-primary)',
+                    color: 'var(--tiq-text-primary)',
                     '&:hover': {
-                      backgroundColor: '#555',
-                      borderColor: '#555',
+                      backgroundColor: 'var(--tiq-border-interactive)',
+                      borderColor: 'var(--tiq-border-interactive)',
                     },
                     '&:disabled': {
-                      backgroundColor: '#404040',
-                      color: '#666',
+                      backgroundColor: 'var(--tiq-border-primary)',
+                      color: 'var(--tiq-text-disabled)',
                     },
                   }}
                 >

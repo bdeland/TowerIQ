@@ -495,7 +495,7 @@ export default function TransformationRow({ config, index, onUpdate, onDelete, a
                             '& .MuiOutlinedInput-root': {
                               height: '28px',
                               borderRadius: 0.25,
-                              backgroundColor: '#111217'
+                              backgroundColor: 'var(--tiq-bg-main)'
                             }
                           }}
                        />
@@ -529,7 +529,7 @@ export default function TransformationRow({ config, index, onUpdate, onDelete, a
                     '& .MuiOutlinedInput-root': {
                       height: '28px',
                       borderRadius: 0.25,
-                      backgroundColor: '#111217'
+                      backgroundColor: 'var(--tiq-bg-main)'
                     }
                   }}>
                     <Select
