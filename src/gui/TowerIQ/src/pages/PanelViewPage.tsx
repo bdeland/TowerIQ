@@ -8,6 +8,9 @@ import {
 } from '@mui/material';
 import { useDashboard, DashboardPanel } from '../contexts/DashboardContext';
 import DashboardPanelView from '../components/DashboardPanelView';
+import { defaultDashboard } from '../config/defaultDashboard';
+import { databaseHealthDashboard } from '../config/databaseHealthDashboard';
+import { liveRunTrackingDashboard } from '../config/liveRunTrackingDashboard';
 
 export function PanelViewPage() {
   const { panelId, dashboardId } = useParams<{ panelId: string; dashboardId: string }>();
@@ -24,9 +27,25 @@ export function PanelViewPage() {
       }
 
       try {
-        // Fetch only the specific dashboard instead of all dashboards
-        const foundDashboard = await fetchDashboard(dashboardId);
+        let foundDashboard = null;
+
+        // Check if this is a special hardcoded dashboard
+        if (dashboardId === 'default-dashboard') {
+          console.log('PanelViewPage - Loading hardcoded default dashboard');
+          foundDashboard = defaultDashboard;
+        } else if (dashboardId === 'live-run-tracking-dashboard') {
+          console.log('PanelViewPage - Loading hardcoded live run tracking dashboard');
+          foundDashboard = liveRunTrackingDashboard;
+        } else if (dashboardId === 'database-health-dashboard') {
+          console.log('PanelViewPage - Loading hardcoded database health dashboard');
+          foundDashboard = databaseHealthDashboard;
+        } else {
+          // For other dashboards, fetch from backend
+          foundDashboard = await fetchDashboard(dashboardId);
+        }
+
         if (!foundDashboard) {
+          console.error(`Dashboard with ID "${dashboardId}" not found`);
           return;
         }
 

@@ -12,7 +12,7 @@ export const defaultDashboard: Dashboard = {
   config: {
     panels: [
       {
-        id: generateUUID(),
+        id: 'e395d348-2e44-4c3c-a20a-362a0abf0fc0',
         type: 'bar',
         title: 'CPH vs. Run (Chronological)',
         gridPos: { x: 0, y: 0, w: 13, h: 5 },
@@ -137,7 +137,7 @@ export const defaultDashboard: Dashboard = {
         }, 'bar')
       },
       {
-        id: generateUUID(),
+        id: 'a1b2c3d4-e5f6-7890-abcd-ef1234567890',
         type: 'table',
         title: 'Recent Runs',
         gridPos: { x: 5, y: 10, w: 8, h: 4 },
@@ -145,7 +145,7 @@ export const defaultDashboard: Dashboard = {
         echartsOption: {}
       },
       {
-        id: generateUUID(),
+        id: 'b2c3d4e5-f6g7-8901-bcde-f23456789012',
         type: 'timeseries',
         title: 'Coins Per Hour (Last Runs)',
         gridPos: { x: 0, y: 5, w: 4, h: 4 },
@@ -163,7 +163,7 @@ export const defaultDashboard: Dashboard = {
         }
       },
       {
-        id: generateUUID(),
+        id: 'c3d4e5f6-g7h8-9012-cdef-345678901234',
         type: 'table',
         title: 'System Log',
         gridPos: { x: 4, y: 5, w: 8, h: 2 },
@@ -171,7 +171,7 @@ export const defaultDashboard: Dashboard = {
         echartsOption: {}
       },
       {
-        id: generateUUID(),
+        id: 'd4e5f6g7-h8i9-0123-defg-456789012345',
         type: 'calendar',
         title: 'Daily Coins Earned - Calendar Heatmap',
         gridPos: { x: 0, y: 15, w: 12, h: 6 },
