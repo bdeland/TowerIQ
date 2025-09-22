@@ -1,177 +1,422 @@
 ﻿# Dashboard Data Query & Refresh Refactor Plan
+## Simplified & Practical Implementation Guide
 
-## Background
-- Current dashboards issue panel queries directly from component effects, making throttling, deduplication, and cache invalidation inconsistent.
-- Manual intervals and auto-refresh logic work at the page level, so panels with new data force whole-dashboard refreshes.
-- Fetch batching is bespoke per page, with no visibility into query health, duplicate requests, or backend load.
+### Executive Summary
+This document provides a focused, practical approach to refactoring TowerIQ's dashboard data fetching architecture. The refactor addresses the core issues of code duplication and inefficient batching while avoiding over-engineering. This is a 3-week focused effort that delivers immediate value and sets a foundation for future enhancements.
 
-## Goals
-- Provide a scalable client data layer that minimizes database load while keeping charts fresh.
-- Fetch only the deltas that matter per panel, with panel-level refresh control and status visibility.
-- Offer a clear contract between frontend and backend for caching, metadata, and conditional refreshes.
-- Preserve flexibility for ad-hoc dashboards and future Grafana-like features (variables, overrides, alerts).
+### Current State Analysis
+**Critical Issues Identified:**
+1. **Duplicated Data Fetching Logic**: Each dashboard page (`DefaultDashboardPage`, `DatabaseHealthDashboardPage`, `LiveRunTrackingDashboardPage`, `DashboardViewPage`) implements its own `fetchAllPanelData` function with identical batching logic
+2. **No Request Deduplication**: Multiple panels can trigger identical queries simultaneously
+3. **Hardcoded Batching Parameters**: `BATCH_SIZE=3`, `DELAY_BETWEEN_REQUESTS=100ms`, `DELAY_BETWEEN_BATCHES=200ms` scattered across files
+4. **No Caching Strategy**: Every refresh fetches all data regardless of staleness
+5. **Poor Error Handling**: Limited error recovery and user feedback
+6. **No Loading States**: Users have no indication of data fetching progress
 
-## Constraints & Assumptions
-- Back-end exposes a POST `/query` endpoint today; we can add light metadata endpoints without major API versioning.
-- All dashboard datasets are treated as append-only/immutable, so watermarks can rely on ingest order.
-- Dashboards may define dozens of panels, so concurrency must stay below ~4-6 parallel network calls.
-- Auto-refresh must coexist with manual intervals and obey user “Off/Auto/Ns” selections.
+### Business Goals & Success Metrics
+**Primary Goals:**
+- **Code Quality**: Eliminate 4 duplicate `fetchAllPanelData` implementations
+- **Performance**: Optimize batching logic for 20-30% improvement in load times
+- **User Experience**: Add loading states and better error handling
+- **Maintainability**: Create reusable data fetching service
+- **Developer Experience**: Simplify debugging with better logging
 
-## SQLAlchemy Integration Feasibility & Plan
-- **Current state**: Backend services rely on the stdlib `sqlite3` driver with manual connection management, string-formatted SQL, and bespoke batching logic exposed through the `/query` endpoint.
-- **Feasibility**: `SQLAlchemy` 2.x (Core or ORM) supports SQLite and SQLCipher via custom creators, letting us keep encryption and pragmas while gaining an abstraction for composable, parameterized queries. It can coexist with raw SQL during migration.
-- **Benefits**: Centralizes query construction, enforces parameter binding, unlocks schema reflection for dashboard metadata, simplifies migrations/versioning, and gives us pooled connections + consistent error handling.
-- **Migration approach**:
-  1. Add `SQLAlchemy` (and validate `sqlcipher3` compatibility via a `create_engine(..., creator=...)` hook or community dialect) and fold engine creation into `DatabaseService` with existing WAL/PRAGMA setup in `event.listen` hooks.
-  2. Describe tables used by dashboards with `SQLAlchemy` metadata (declarative models or `Table` objects with reflection) so query builders can target columns safely.
-  3. Introduce a `QueryBuilderService` that accepts panel variables and returns `Select` objects; let `composeQuery` emit the final SQL + bound parameters derived from these objects for the `/query` API.
-  4. Refactor `/query` and `/query/meta` handlers to execute through a scoped `SQLAlchemy` session/connection manager with shared retry/error instrumentation.
-  5. Incrementally replace direct `sqlite3` calls in `DatabaseService` with `SQLAlchemy` equivalents, retaining a short-term escape hatch through `text()` executions for legacy statements.
-- **Risks & mitigations**: Monitor for WAL compatibility (apply pragmas on `connect`), compare performance for bulk writes, and add regression tests that diff `SQLAlchemy`-generated SQL/row counts against the existing implementation before cutover.
+**Realistic Success Metrics:**
+- Code duplication: Eliminate 4 identical `fetchAllPanelData` implementations ✅
+- Request efficiency: Reduce duplicate requests by 50%
+- User experience: Add loading states and error handling
+- Performance: 20-30% improvement in dashboard load times
+- Maintainability: Single source of truth for data fetching logic
 
-## Target Architecture Overview
-1. **DashboardDataService** (frontend) orchestrates all panel requests, using shared scheduling, caching, and deduplication.
-2. **PanelQueryContext** encapsulates the inputs for a request (panel id, composed SQL, variable hash, watermark snapshot, cache policy).
-3. **RequestCache** adds stale-while-revalidate semantics and tracks payload + metadata.
-4. Backend enriches responses with metadata (`etag`, `maxUpdatedAt`, `rowCount`, `ttlHint`) and supports `If-None-Match`/`sinceWatermark` parameters.
-5. RefreshButton interacts with DashboardDataService (not the page) to trigger manual, interval, or auto refresh cycles.
+### Technical Constraints & Assumptions
+**Backend Constraints:**
+- **Add SQLModel** for type-safe database queries and better code protection
+- **Replace raw SQL queries** with SQLModel models and type-safe operations
+- **Maintain SQLite3/SQLCipher** compatibility with SQLModel
+- **Preserve existing security measures** while adding type safety
+- **Keep backward compatibility** for existing dashboard configurations
 
-## Component Ownership
-- **Backend API**
-  - `/query` accepts optional `watermark`/`generationId`, returns `{ data, meta }`.
-  - `/query/meta` (new) returns metadata only for low-cost freshness checks.
-  - Responses must include cache validators (ETag or hash), data watermark, and TTL hints.
-- **Frontend Data Layer**
-  - `DashboardDataContext` stores panel states: `{ data, status, lastUpdated, staleReason, meta }`.
-  - `DashboardDataService` exposes `fetchPanel(panelId, options)` and `refreshPanels({ scope, reason })`.
-  - `PanelScheduler` limits concurrency, batches compatible requests, and applies jitter/backoff.
-  - `usePanelData(panelId)` hook consumes context, powering charts and status UI.
-- **Utilities**
-  - `composeQuery` upgraded to accept `QueryContext` (variables, watermark clause, pagination) and return `{ sql, cacheKeyParts }`.
-  - `RequestCache` wrapper (`PanelCache`) maintains TTL, stale markers, pending promises, and invalidation helpers.
+**Frontend Constraints:**
+- React/Tauri architecture with Material UI components
+- Must support existing dashboard types: Default, Database Health, Live Run Tracking
+- Refresh controls remain at dashboard level (no per-panel buttons)
+- Maintain backward compatibility with existing dashboard configurations
 
-## Caching & Consistency Model
-- Cache key: `panelId|variablesHash|watermarkKey|querySignature`.
-- Entries store `{ data, meta: { etag, maxUpdatedAt, rowCount, fetchedAt, ttlHint }, status }`.
-- Default policy: serve cached data if TTL valid, trigger background revalidation on expiry.
-- Support manual `forceRefresh` to bypass cache and update watermark.
-- Persist last-known watermarks in memory; optional `localStorage` persistence for warm reloads.
+**Performance Constraints:**
+- Maximum 6 concurrent network requests (current batch size)
+- Simple in-memory cache with configurable TTL (5 minutes default)
+- Query timeout: 30 seconds maximum (existing)
+- Focus on request deduplication and batching optimization
 
-## Refresh Modes
-- UI decision: keep refresh controls at the dashboard level; no per-panel manual buttons are required.
-- **Manual**: `RefreshButton` calls `DashboardDataService.refresh({ scope: 'panel' | 'dashboard', reason: 'manual' })`.
-- **Fixed Interval**: scheduler registers per-user interval; when triggered, it refreshes panels with `pollingPolicy !== 'manual'`.
-- **Auto**:
-  - Poll `/query/meta` for each panel (groupable by datasource) using exponential backoff with jitter.
-  - On newer `etag`/`maxUpdatedAt`, enqueue full data fetch.
-  - If backend later supports push (SSE/WebSocket), service can switch to event-driven updates without changing hook API.
+## Simplified Architecture Design
 
-## Implementation Phases
-1. **Discovery & Contracts** (Backend + Frontend)
-   - Document metadata contract and update dashboard schema to capture `watermarkColumn`, `pollingPolicy`, `staleAfter`, `autoMetaInterval`.
-   - Confirm `SQLAlchemy` driver compatibility (SQLite + SQLCipher), pick Core vs ORM usage per query type, and draft a migration plan to phase out raw dashboard queries.
-   - Introduce dashboard schema versioning and migration scripts to evolve metadata safely.
-   - Build shared TypeScript types for `{ data, meta }` payloads.
-2. **Infrastructure Setup**
-   - Introduce `DashboardDataContext`, `DashboardDataService`, and `usePanelData` hook.
-   - Wrap existing `RequestCache` to support stale-while-revalidate and metadata storage.
-   - Implement `PanelScheduler` with concurrency controls and request dedupe.
-3. **Backend Enhancements**
-   - Add `etag`, `maxUpdatedAt`, `ttlHint` to `/query` responses; honor `If-None-Match` returning 304 when unchanged.
-   - Stand up a shared `SQLAlchemy` engine/session layer that wraps `sqlcipher3` connections, carries existing PRAGMA configuration, and exposes helpers for transactional query execution.
-   - Add `/query/meta` endpoint with cheap aggregation query.
-   - Port the highest-traffic dashboard queries to SQLAlchemy Core expressions and expose a builder that can emit raw SQL when the frontend needs to preview queries.
-   - Support optional `sinceWatermark` filter for delta fetches.
-4. **Dashboard Migration**
-   - Convert Default and Live Run dashboards to use `usePanelData`; remove bespoke batching effects.
-   - Wire `RefreshButton` to new service; implement dashboard-level status bar showing active refreshes.
-   - Validate interval + auto behavior, adjust scheduler knobs.
-5. **Hardening & Extensions**
-   - Implement telemetry/logging hooks (dev console + optional analytics) for cache stats and request durations.
-   - Add persisted watermarks per panel (optional) and safeguards for variable changes (auto cache bust).
-   - Remove remaining direct `sqlite3` call sites once SQLAlchemy coverage is complete and monitor for regressions via side-by-side query logging.
-   - Cleanup legacy code paths and ensure backwards compatibility for custom dashboards.
+### 1. SQLModel Integration Strategy
 
-## Testing Strategy
-- **Unit Tests**
-  - `composeQuery` permutations with variables, watermarks, and limits.
-  - `DashboardDataService` cache hit/miss, dedupe, stale revalidation, concurrency gates.
-  - `PanelScheduler` timing/backoff logic (fake timers).
-  - Query inspector store reducers prune histories correctly and serialize inspector payloads for CSV export.
-- **Integration / Component Tests**
-  - React testing library: dashboard renders cached data immediately, refresh updates panel without affecting others.
-  - Mock backend returning 304 to assert no redundant data loads.
-  - Verify the Query Inspector drawer renders only in development builds, displays captured SQL/metadata per tab, and that exports/copy actions produce the expected artifacts.
-- **Manual / Exploratory**
-  - Stress test with high panel counts; measure network calls and timing.
-  - Validate auto mode responds to simulated new data while other panels remain untouched.
-  - Exercise the Query Inspector end-to-end: trigger successes, cached responses, and intentional failures to confirm tabs populate accurately and CSV exports remain performant on large datasets.
-## Observability & Tooling
-- Add verbose logging toggled via `import.meta.env.DEV` to surface cache and refresh events.
-- Expose `DashboardDataService.getStats()` for developer console inspection.
-- Channel inspector events into the same instrumentation pipeline so opening the drawer automatically captures new samples and can enable per-panel debug logging.
-- Consider optional in-app developer overlay summarizing panel freshness, fetched rows, and last durations.
+**Why SQLModel:**
+- **Type Safety**: Eliminates SQL injection risks and provides compile-time type checking
+- **Code Protection**: Prevents malformed queries and provides better error handling
+- **Simplified Queries**: Reduces raw SQL complexity with Python objects
+- **FastAPI Compatibility**: Designed to work seamlessly with FastAPI
+- **SQLAlchemy Foundation**: Built on proven SQLAlchemy with Pydantic validation
 
-## Query Inspector (Development Mode)
-- **Activation & entry point**: Render a Material UI `QueryStatsIcon` to the left of the fullscreen toggle when `import.meta.env.DEV` is true. Clicking the icon opens a right-anchored drawer scoped to the panel.
-- **Captured telemetry**: Extend `DashboardDataService` to emit inspector events containing request id, panel id, SQL (compiled from `SQLAlchemy`), bound parameters, variable snapshot, timings (compose, network, transform), cache state, and raw/processed payload summaries.
-- **Drawer layout & tabs**:
-  - **Data**: Tabular view of the rows returned (raw and transformed), toggle field overrides, pagination, copy-to-clipboard, and CSV export (raw vs transformed). Support multi-query result selection when panels execute more than one request.
-  - **Stats**: Display query execution time, server processing, network latency, rows returned, cache source (fresh/hit/stale), and scheduler metadata (batch id, retries).
-  - **Query**: Show the SQL string, bound parameters, and raw response JSON. Provide quick-copy buttons for SQL and response.
-  - **JSON**: Expose panel config JSON, variable context, and response meta (`etag`, `maxUpdatedAt`, `ttlHint`) for provisioning/debugging.
-  - **Error**: Only present when the latest request failed; surface stack traces, SQLAlchemy/SQLite error codes, and retry suggestions.
-- **Implementation steps**:
-  1. Create an inspector store (context or Zustand) that records the latest N events per panel, with pruning to avoid unbounded memory use.
-  2. Hook `DashboardDataService` request lifecycle (before send, after response, on error) to push inspector entries including diffed payloads.
-  3. Build a `PanelQueryInspectorDrawer` component with tabbed content, code/highlight views, CSV export helpers, and clipboard utilities.
-  4. Update `DashboardGrid` panel header to conditionally render the icon and pass inspector toggle handlers; ensure keyboard accessibility.
-  5. Gate the entire feature behind `import.meta.env.DEV` (and optionally a user toggle) so production builds tree-shake the inspector.
-- **Performance & hygiene**: Run heavy formatting (diffs, CSV generation) in web workers when datasets exceed thresholds, and exclude inspector telemetry from production logs.
+**SQLModel Models for Dashboard Data:**
+```python
+# src/tower_iq/models/dashboard_models.py
+from sqlmodel import SQLModel, Field, Relationship
+from typing import Optional, List, Dict, Any
+from datetime import datetime
 
-## Risks & Mitigations
-- **Inconsistent Metadata**: enforce metadata contract via shared types and backend schema validation.
-- **Long-Running Queries**: scheduler applies backoff and can mark panel as degraded; allow panel config to opt out of auto meta polling.
-- **Watermark Drift**: fallback to full refresh when `sinceWatermark` returns empty but metadata indicates newer data.
-- **State Explosion**: limit persisted watermarks to recent dashboards; clear on logout or variable reset.
+class Dashboard(SQLModel, table=True):
+    id: Optional[str] = Field(default=None, primary_key=True)
+    uid: str = Field(unique=True, index=True)
+    title: str
+    description: Optional[str] = None
+    config: Optional[Dict[str, Any]] = Field(default_factory=dict, sa_column_kwargs={"type_": "JSON"})
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    
+    # Relationship to panels
+    panels: List["DashboardPanel"] = Relationship(back_populates="dashboard")
 
-## Open Questions
-- Define target data freshness windows (service-level objective) per dashboard (e.g., Live Run <= 5s, Default <= 60s) to tune default TTL and backoff; capture this in dashboard metadata alongside config.
-## Appendix: Data Contracts
-```ts
-interface PanelMeta {
-  etag: string;               // Stable hash of data payload
-  maxUpdatedAt?: string;      // ISO timestamp for watermark
-  rowCount: number;           // Rows returned
-  ttlHint?: number;           // ms until considered stale
-  processedAt: string;        // ISO timestamp from backend
-}
+class DashboardPanel(SQLModel, table=True):
+    id: Optional[str] = Field(default=None, primary_key=True)
+    dashboard_id: str = Field(foreign_key="dashboard.id")
+    title: str
+    query: str
+    panel_type: str = Field(default="table")
+    position: Optional[Dict[str, Any]] = Field(default_factory=dict, sa_column_kwargs={"type_": "JSON"})
+    config: Optional[Dict[str, Any]] = Field(default_factory=dict, sa_column_kwargs={"type_": "JSON"})
+    
+    # Relationship to dashboard
+    dashboard: Optional[Dashboard] = Relationship(back_populates="panels")
 
-interface PanelResponse<T> {
-  data: T[];
-  meta: PanelMeta;
-}
+# Query result models for type-safe responses
+class QueryResult(SQLModel):
+    data: List[Dict[str, Any]]
+    row_count: int
+    execution_time_ms: Optional[float] = None
+    cache_hit: bool = False
+```
 
-interface PanelRequestOptions {
-  panelId: string;
-  sql: string;
-  variablesHash: string;
-  watermark?: string;
-  forceRefresh?: boolean;
+**Enhanced Query Service with SQLModel:**
+```python
+# src/tower_iq/services/query_service.py
+from sqlmodel import Session, select, text
+from typing import List, Dict, Any, Optional
+import time
+
+class QueryService:
+    def __init__(self, session: Session):
+        self.session = session
+    
+    async def execute_dashboard_query(
+        self, 
+        panel: DashboardPanel, 
+        variables: Dict[str, Any]
+    ) -> QueryResult:
+        """Execute a dashboard panel query with type safety"""
+        start_time = time.time()
+        
+        try:
+            # Compose query with variables (existing logic)
+            final_query = compose_query(panel.query, variables)
+            
+            # Execute with SQLModel session for better error handling
+            result = self.session.exec(text(final_query))
+            data = [dict(row._mapping) for row in result]
+            
+            execution_time = (time.time() - start_time) * 1000
+            
+            return QueryResult(
+            data=data,
+                row_count=len(data),
+                execution_time_ms=execution_time,
+                cache_hit=False
+            )
+            
+        except Exception as e:
+            # Better error handling with SQLModel
+            raise QueryExecutionError(f"Query failed for panel {panel.title}: {str(e)}")
+    
+    def get_dashboard_panels(self, dashboard_id: str) -> List[DashboardPanel]:
+        """Get panels for a dashboard with type safety"""
+        statement = select(DashboardPanel).where(DashboardPanel.dashboard_id == dashboard_id)
+        return self.session.exec(statement).all()
+```
+
+### 2. Frontend Data Service Strategy
+
+**Current State Analysis:**
+- 4 identical `fetchAllPanelData` implementations across dashboard pages
+- Hardcoded batching parameters scattered across files
+- No request deduplication or caching
+- Poor error handling and loading states
+
+**Solution: Extract Shared Service**
+
+**Week 1: Create DashboardDataService**
+```typescript
+// src/services/DashboardDataService.ts
+import { composeQuery } from '../utils/queryComposer';
+
+export class DashboardDataService {
+  private cache = new Map<string, { data: any[], timestamp: number }>();
+  private pendingRequests = new Map<string, Promise<any>>();
+  private config = {
+      batchSize: 6,
+    delayBetweenRequests: 100,
+    delayBetweenBatches: 200,
+    cacheTTL: 5 * 60 * 1000, // 5 minutes
+    maxRetries: 3
+  };
+  
+  async fetchPanelData(panelId: string, query: string, variables: any) {
+    // CRITICAL: Always compose query with variables to handle placeholders
+    const finalQuery = composeQuery(query, variables);
+    const cacheKey = this.generateCacheKey(panelId, finalQuery, variables);
+    
+    // Check cache first
+    const cached = this.cache.get(cacheKey);
+    if (cached && Date.now() - cached.timestamp < this.config.cacheTTL) {
+      return cached.data;
+    }
+    
+    // Check for pending request (deduplication)
+    if (this.pendingRequests.has(cacheKey)) {
+      return this.pendingRequests.get(cacheKey);
+    }
+    
+    // Make request with composed query (no placeholders)
+    const promise = this.executeQuery(finalQuery);
+    this.pendingRequests.set(cacheKey, promise);
+    
+    try {
+      const result = await promise;
+      this.cache.set(cacheKey, { data: result, timestamp: Date.now() });
+      return result;
+    } finally {
+      this.pendingRequests.delete(cacheKey);
+    }
+  }
+  
+  async fetchAllPanels(panels: Panel[], variables: any) {
+    const panelsWithQueries = panels.filter(panel => panel.query);
+    
+    for (let i = 0; i < panelsWithQueries.length; i += this.config.batchSize) {
+      const batch = panelsWithQueries.slice(i, i + this.config.batchSize);
+      
+      await Promise.all(batch.map(panel => 
+        this.fetchPanelData(panel.id, panel.query, variables)
+      ));
+      
+      // Delay between batches
+      if (i + this.config.batchSize < panelsWithQueries.length) {
+        await this.delay(this.config.delayBetweenBatches);
+      }
+    }
+  }
+  
+  // Helper method to check if query has unresolved placeholders
+  hasUnresolvedPlaceholders(query: string, variables: any): boolean {
+    const composedQuery = composeQuery(query, variables);
+    return composedQuery.includes('${');
+  }
 }
 ```
 
+### 2. React Hook Integration
 
+**Week 2: Create usePanelData Hook**
+```typescript
+// src/hooks/usePanelData.ts
+export const usePanelData = (panelId: string, query: string, variables: any) => {
+  const [data, setData] = useState<any[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const dataService = useDashboardDataService();
+  
+  useEffect(() => {
+    const fetchData = async () => {
+      // Don't fetch if no query or if variables are still loading
+      if (!query || !variables) {
+        return;
+      }
+      
+      setLoading(true);
+      setError(null);
+      
+      try {
+        // The service handles variable substitution internally
+        const result = await dataService.fetchPanelData(panelId, query, variables);
+        setData(result);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Failed to fetch data');
+      } finally {
+        setLoading(false);
+      }
+    };
+    
+    fetchData();
+  }, [panelId, query, JSON.stringify(variables)]);
+  
+  return { data, loading, error, refetch: () => fetchData() };
+};
+```
 
+### 3. Dashboard Migration Strategy
 
+**Week 3: Migrate Dashboard Pages**
+```typescript
+// Before: Duplicated fetchAllPanelData in each dashboard
+const fetchAllPanelData = async () => {
+  // 50+ lines of identical batching logic
+  // Hardcoded parameters
+  // No caching or deduplication
+};
 
+// After: Use shared service
+const { data, loading, error } = usePanelData(panelId, query, variables);
 
+// Or for dashboard-level fetching:
+const dataService = useDashboardDataService();
+await dataService.fetchAllPanels(panels, variables);
+```
 
+## Simplified Implementation Plan
 
+### 4-Week Enhanced Approach (with SQLModel)
 
+**Week 1: SQLModel Integration & Backend Enhancement**
+- [ ] **Task 1.1**: Add SQLModel dependency and create SQLCipher-compatible engine
+- [ ] **Task 1.2**: Create SQLModel models for Dashboard and DashboardPanel
+- [ ] **Task 1.3**: Implement QueryService with type-safe query execution
+- [ ] **Task 1.4**: Update `/query` endpoint to use SQLModel instead of raw SQL
+- [ ] **Task 1.5**: Add comprehensive unit tests for SQLModel integration
+- [ ] **Task 1.6**: Performance testing: SQLModel vs raw SQLite3
 
+**Week 2: Frontend Data Service**
+- [ ] **Task 2.1**: Create `DashboardDataService` class with basic caching and deduplication
+- [ ] **Task 2.2**: Implement configurable batching parameters (batch size, delays)
+- [ ] **Task 2.3**: Add request deduplication to prevent duplicate queries
+- [ ] **Task 2.4**: Create simple in-memory cache with TTL
+- [ ] **Task 2.5**: Add comprehensive unit tests for the service
+- [ ] **Task 2.6**: Integration testing with SQLModel backend
 
+**Week 3: React Integration**
+- [ ] **Task 3.1**: Create `usePanelData` hook for individual panel data
+- [ ] **Task 3.2**: Create `useDashboardData` hook for dashboard-level fetching
+- [ ] **Task 3.3**: Add loading states and error handling
+- [ ] **Task 3.4**: Implement retry mechanisms for failed requests
+- [ ] **Task 3.5**: Add React component tests
+- [ ] **Task 3.6**: Integration testing with existing dashboards
 
+**Week 4: Dashboard Migration**
+- [ ] **Task 4.1**: Migrate `DefaultDashboardPage` to use new service
+- [ ] **Task 4.2**: Migrate `DatabaseHealthDashboardPage`
+- [ ] **Task 4.3**: Migrate `LiveRunTrackingDashboardPage`
+- [ ] **Task 4.4**: Migrate `DashboardViewPage`
+- [ ] **Task 4.5**: Remove duplicate `fetchAllPanelData` implementations
+- [ ] **Task 4.6**: End-to-end testing and performance validation
 
+### Key Benefits of Enhanced Approach (with SQLModel)
 
+1. **Type Safety**: Eliminates SQL injection risks and provides compile-time type checking
+2. **Code Protection**: Prevents malformed queries and provides better error handling
+3. **Simplified Queries**: Reduces raw SQL complexity with Python objects
+4. **FastAPI Compatibility**: Designed to work seamlessly with existing FastAPI setup
+5. **Maintainable**: Single source of truth for data fetching with type safety
+6. **Extensible**: Foundation for future enhancements with robust data models
+7. **Realistic**: 4-week timeline with measurable outcomes and better code quality
 
+### Critical Fix: Variable Placeholder Loading Issue
+
+**Problem Identified:**
+- `DashboardPanelView` shows "Query contains placeholders - waiting for processed data" error
+- This happens because the component checks for `${` placeholders before variable substitution
+- The dashboard-level fetching properly uses `composeQuery()` but panel-level doesn't
+
+**Solution:**
+- **Always call `composeQuery()`** in `DashboardDataService.fetchPanelData()` before making API calls
+- **Remove placeholder checks** from individual panel components
+- **Ensure variables are available** before attempting to fetch data
+- **Cache based on final composed query** to avoid duplicate requests
+
+**Implementation:**
+```typescript
+// Before: Panel shows error for queries with variables
+if (panel.query.includes('${')) {
+  setError('Query contains placeholders - waiting for processed data');
+  return;
+}
+
+// After: Service handles variable substitution automatically
+const finalQuery = composeQuery(query, variables);
+// No placeholders remain, clean API call
+```
+
+## Success Criteria & Testing
+
+### Realistic Success Metrics
+- [ ] **Code Duplication**: Eliminate 4 identical `fetchAllPanelData` implementations ✅
+- [ ] **Variable Loading Fix**: Remove "Query contains placeholders" error for panels with variables ✅
+- [ ] **Type Safety**: Replace raw SQL queries with SQLModel type-safe operations ✅
+- [ ] **Code Protection**: Eliminate SQL injection risks with parameterized queries ✅
+- [ ] **Request Efficiency**: Reduce duplicate requests by 50%
+- [ ] **User Experience**: Add loading states and error handling
+- [ ] **Performance**: 20-30% improvement in dashboard load times
+- [ ] **Maintainability**: Single source of truth for data fetching logic
+
+### Testing Strategy
+- [ ] **SQLModel Tests**: Test type-safe query execution and model validation
+- [ ] **Type Safety Tests**: Verify SQLModel prevents SQL injection and malformed queries
+- [ ] **Unit Tests**: Test `DashboardDataService` with various scenarios
+- [ ] **Variable Substitution Tests**: Verify `composeQuery()` handles all placeholder types correctly
+- [ ] **Loading State Tests**: Ensure panels with variables show loading instead of placeholder errors
+- [ ] **Integration Tests**: Test hooks with SQLModel backend
+- [ ] **Performance Tests**: Measure load time improvements (SQLModel vs raw SQL)
+- [ ] **User Acceptance**: Verify all dashboard types work correctly
+- [ ] **Regression Tests**: Ensure no functionality is lost
+
+## Risk Mitigation
+
+### Low-Risk Approach
+1. **SQLModel Integration**: Add SQLModel alongside existing system for gradual migration
+2. **Gradual Migration**: Migrate one dashboard at a time
+3. **Feature Flags**: Use feature flags for gradual rollout
+4. **Rollback Plan**: Easy to revert to raw SQL if issues arise
+5. **Monitoring**: Add comprehensive logging for debugging and performance tracking
+
+### What We're Adding (SQLModel Benefits)
+- ✅ **Type Safety**: Eliminates SQL injection risks with parameterized queries
+- ✅ **Code Protection**: Prevents malformed queries with compile-time checking
+- ✅ **Simplified Queries**: Reduces raw SQL complexity with Python objects
+- ✅ **FastAPI Compatibility**: Designed to work seamlessly with existing setup
+- ✅ **Better Error Handling**: More descriptive error messages and validation
+
+### What We're Avoiding
+- ❌ Complex caching systems (over-engineering)
+- ❌ Watermark/ETag systems (premature optimization)
+- ❌ Query inspector (console logging is sufficient)
+- ❌ 10-week timeline (unrealistic scope)
+
+---
+
+## Summary
+
+This enhanced refactor plan focuses on solving the actual problems while adding significant value:
+
+1. **Core Issue**: 4 duplicate `fetchAllPanelData` implementations
+2. **Solution**: Extract shared `DashboardDataService` with SQLModel type safety
+3. **Timeline**: 4 weeks with significant code quality improvements
+4. **Risk**: Low - gradual SQLModel integration with rollback capability
+5. **Value**: Immediate improvement in code quality, type safety, and user experience
+
+### Key Improvements with SQLModel:
+- **Type Safety**: Eliminates SQL injection risks and provides compile-time type checking
+- **Code Protection**: Prevents malformed queries with better error handling
+- **Simplified Queries**: Reduces raw SQL complexity with Python objects
+- **FastAPI Compatibility**: Designed to work seamlessly with existing setup
+
+The approach follows the principle of **"solve today's problems today"** while adding robust type safety and code protection. This provides immediate value while setting a solid foundation for future enhancements based on real usage patterns.
+
+**SQLModel Reference**: [https://github.com/fastapi/sqlmodel](https://github.com/fastapi/sqlmodel) - SQL databases in Python, designed for simplicity, compatibility, and robustness.
