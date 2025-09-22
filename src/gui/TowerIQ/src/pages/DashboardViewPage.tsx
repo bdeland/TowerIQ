@@ -34,6 +34,7 @@ function DefaultDashboardContent({ panels, currentDashboard, isEditMode, selecte
   const [panelData, setPanelData] = useState<Record<string, any[]>>({});
   const [isLoading, setIsLoading] = useState(false);
   const [lastPanelIds, setLastPanelIds] = useState<string>('');
+  const [lastSelectedValues, setLastSelectedValues] = useState<string>('');
 
   // Only use dashboard variables if the dashboard has them
   let selectedValues = {};
@@ -60,13 +61,14 @@ function DefaultDashboardContent({ panels, currentDashboard, isEditMode, selecte
     
     // Only fetch if panels have changed or selectedValues have changed, and we're not already loading
     // Or if forceRefresh has been triggered
-    if (isLoading || (currentPanelIds === lastPanelIds && forceRefresh === lastForceRefresh)) {
+    if (isLoading || (currentPanelIds === lastPanelIds && selectedValuesString === lastSelectedValues && forceRefresh === lastForceRefresh)) {
       return;
     }
     
     const fetchAllPanelData = async () => {
       setIsLoading(true);
       setLastPanelIds(currentPanelIds);
+      setLastSelectedValues(selectedValuesString);
       
       // Update lastForceRefresh to prevent infinite loops
       setLastForceRefresh(forceRefresh);
@@ -123,7 +125,7 @@ function DefaultDashboardContent({ panels, currentDashboard, isEditMode, selecte
     };
 
     fetchAllPanelData();
-  }, [selectedValues, panels, isLoading, lastPanelIds, forceRefresh, lastForceRefresh]);
+  }, [selectedValues, panels, isLoading, lastPanelIds, lastSelectedValues, forceRefresh, lastForceRefresh]);
 
   // Add event listener for database metrics updates
   useEffect(() => {

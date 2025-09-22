@@ -7,7 +7,7 @@ import { CHART_COLORS } from '../utils/colorPalette';
 export const defaultDashboard: Dashboard = {
   id: 'default-dashboard',
   uid: 'default-dashboard-uid',
-  title: 'TowerIQ Overview123',
+  title: 'TowerIQ Overview',
   description: 'Default pre-written dashboard, loaded from the frontend.',
   config: {
     panels: [
