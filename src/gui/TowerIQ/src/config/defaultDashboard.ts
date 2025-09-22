@@ -14,44 +14,107 @@ export const defaultDashboard: Dashboard = {
       {
         id: 'e395d348-2e44-4c3c-a20a-362a0abf0fc0',
         type: 'bar',
-        title: 'CPH vs. Run (Chronological)',
+        title: 'Coins vs. Run (Chronological)',
         gridPos: { x: 0, y: 0, w: 13, h: 5 },
-        query: "SELECT row_number() OVER (ORDER BY start_time ASC) as run_number, CPH, tier FROM runs ${tier_filter} ORDER BY start_time ASC ${limit_clause}",
-        echartsOption: applyChartTheme({
-          tooltip: { 
-            trigger: 'axis',
-            formatter: (params: any) => {
-              const data = params[0];
-              const value = typeof data.data === 'object' ? data.data.value : data.data;
-              const tier = typeof data.data === 'object' ? data.data.tier : 'N/A';
-              const formattedValue = formatCurrencyForTooltip(value);
-              return `Run ${data.axisValue}<br/>CPH: ${formattedValue}<br/>Tier: ${tier}<br/><em>Click to drill down</em>`;
-            }
-          },
-          xAxis: { 
-            name: 'Run Number',
-            nameLocation: 'middle',
-            nameGap: 30,
-            data: [] 
-          },
-          yAxis: { 
-            name: 'CPH',
-            nameLocation: 'middle',
-            nameGap: 40,
-            axisLabel: {
-              formatter: (value: number) => formatCurrencyForChart(value)
-            }
-          },
-          series: [{
-            label: {
+        query: "SELECT row_number() OVER (ORDER BY start_time ASC) as run_number, round_coins, CPH, tier FROM runs ${tier_filter} ORDER BY start_time ASC ${limit_clause}",
+        echartsOption: {
+          ...applyChartTheme({
+            tooltip: { 
+              trigger: 'axis',
               formatter: (params: any) => {
-                const value = typeof params.data === 'object' ? params.data.value : params.data;
-                return formatCurrencyForChart(value);
+                let tooltip = `Run ${params[0].axisValue}<br/>`;
+                params.forEach((param: any) => {
+                  const value = typeof param.data === 'object' ? param.data.value : param.data;
+                  const tier = typeof param.data === 'object' ? param.data.tier : 'N/A';
+                  const formattedValue = formatCurrencyForTooltip(value);
+                  if (param.seriesName === 'Total Coins') {
+                    tooltip += `Total Coins: ${formattedValue}<br/>`;
+                  } else if (param.seriesName === 'CPH') {
+                    tooltip += `CPH: ${formattedValue}<br/>`;
+                  }
+                });
+                tooltip += `Tier: ${params[0].data?.tier || 'N/A'}<br/><em>Click to drill down</em>`;
+                return tooltip;
               }
             },
-            // Enable drilldown by making bars clickable
-            cursor: 'pointer'
-          }],
+            xAxis: { 
+              name: 'Run Number',
+              nameLocation: 'middle',
+              nameGap: 30,
+              data: [] 
+            }
+          }, 'bar'),
+          // Override yAxis with our dual-axis configuration
+          yAxis: [
+            {
+              name: 'Total Coins',
+              nameLocation: 'middle',
+              nameGap: 50,
+              type: 'value',
+              axisLine: {
+                show: false,
+              },
+              axisTick: {
+                show: false,
+              },
+              axisLabel: {
+                color: '#666',
+                fontSize: 12,
+                formatter: (value: number) => formatCurrencyForChart(value)
+              },
+              splitLine: {
+                lineStyle: {
+                  color: '#e0e0e0',
+                  type: 'dashed',
+                },
+              },
+            },
+            {
+              name: 'CPH',
+              nameLocation: 'middle',
+              nameGap: 50,
+              type: 'value',
+              axisLine: {
+                show: false,
+              },
+              axisTick: {
+                show: false,
+              },
+              axisLabel: {
+                color: '#666',
+                fontSize: 12,
+                formatter: (value: number) => formatCurrencyForChart(value)
+              },
+              splitLine: {
+                show: false, // Hide split lines for secondary axis
+              },
+            }
+          ],
+          series: [
+            {
+              name: 'Total Coins',
+              type: 'bar',
+              yAxisIndex: 0,
+              label: {
+                formatter: (params: any) => {
+                  const value = typeof params.data === 'object' ? params.data.value : params.data;
+                  return formatCurrencyForChart(value);
+                }
+              },
+              // Enable drilldown by making bars clickable
+              cursor: 'pointer'
+            },
+            {
+              name: 'CPH',
+              type: 'line',
+              yAxisIndex: 1,
+              smooth: true,
+              symbol: 'circle',
+              symbolSize: 6,
+              lineStyle: { width: 3 },
+              cursor: 'pointer'
+            }
+          ],
           // Add drilldown configuration
           drilldown: {
             enabled: true,
@@ -62,6 +125,7 @@ export const defaultDashboard: Dashboard = {
                 CAST(m.current_wave AS INTEGER) as x_value,
                 m.metric_value as y_value
               FROM metrics m
+              INNER JOIN metric_names mn ON m.metric_name_id = mn.id
               INNER JOIN (
                 SELECT run_id
                 FROM (
@@ -72,7 +136,7 @@ export const defaultDashboard: Dashboard = {
                 WHERE rn = {run_number}
                 LIMIT 1
               ) rd ON m.run_id = rd.run_id
-              WHERE m.metric_name = 'coins' AND m.current_wave IS NOT NULL AND m.current_wave < 1000
+              WHERE mn.name = 'coins' AND m.current_wave IS NOT NULL AND m.current_wave < 1000
               ORDER BY m.current_wave
             `,
             echartsOption: applyChartTheme({
@@ -134,7 +198,7 @@ export const defaultDashboard: Dashboard = {
               ]
             }, 'timeseries')
           }
-        }, 'bar')
+        }
       },
       {
         id: 'a1b2c3d4-e5f6-7890-abcd-ef1234567890',

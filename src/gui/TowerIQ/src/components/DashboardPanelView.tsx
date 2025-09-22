@@ -54,6 +54,7 @@ import { formatCurrency, formatNumber } from '../utils/formattingUtils';
 interface DashboardPanelViewProps {
   panel: DashboardPanel;                    // The panel configuration and data
   data?: any[];                            // Pre-fetched data to use instead of fetching
+  loading?: boolean;                       // External loading state from parent dashboard
   onClick?: () => void;                    // Callback when panel is clicked (edit mode)
   isEditMode?: boolean;                    // Whether panel is in edit mode
   showMenu?: boolean;                      // Whether to show the context menu button
@@ -105,6 +106,7 @@ const getTierColor = (tier: number, availableTiers: number[]): string => {
 const DashboardPanelViewComponent: React.FC<DashboardPanelViewProps> = ({ 
   panel, 
   data,
+  loading: externalLoading = false,
   onClick, 
   isEditMode = false,
   showMenu = true,
@@ -122,8 +124,29 @@ const DashboardPanelViewComponent: React.FC<DashboardPanelViewProps> = ({
   
   // Core data and loading states
   const [queryResult, setQueryResult] = useState<QueryResult>({ data: [] }); // Query results from backend
-  const [loading, setLoading] = useState(false); // Loading state for data fetching
+  const [internalLoading, setInternalLoading] = useState(false); // Internal loading state for data fetching
   const [error, setError] = useState<string | null>(null); // Error state for failed operations
+  
+  // Combined loading state: external (from dashboard) OR internal (from panel)
+  const loading = externalLoading || internalLoading;
+  
+  // Debounced loading state to prevent rapid flashing
+  const [debouncedLoading, setDebouncedLoading] = useState(false);
+  
+  // Effect to debounce loading state changes
+  useEffect(() => {
+    if (loading) {
+      // Show loading immediately when it starts
+      setDebouncedLoading(true);
+    } else {
+      // Add small delay when hiding to prevent flashing
+      const timer = setTimeout(() => {
+        setDebouncedLoading(false);
+      }, 100); // 100ms delay
+      
+      return () => clearTimeout(timer);
+    }
+  }, [loading]);
   const chartRef = useRef<ReactECharts>(null); // Reference to ECharts instance
   const dataFetchedRef = useRef<boolean>(false); // Prevents duplicate data fetching
   
@@ -167,11 +190,13 @@ const DashboardPanelViewComponent: React.FC<DashboardPanelViewProps> = ({
     // Don't fetch if query contains placeholders - should use pre-fetched data
     if (panel.query.includes('${')) {
       console.log('DashboardPanelView: Skipping fetch for query with placeholders:', panel.query);
-      setError('Query contains placeholders - waiting for processed data');
+      // Set loading state instead of error for placeholders
+      setInternalLoading(true);
+      setError(null);
       return;
     }
 
-    setLoading(true);
+    setInternalLoading(true);
     setError(null);
 
     try {
@@ -200,7 +225,7 @@ const DashboardPanelViewComponent: React.FC<DashboardPanelViewProps> = ({
       setError(errorMessage);
       console.error('Error fetching panel data:', err);
     } finally {
-      setLoading(false);
+      setInternalLoading(false);
     }
   };
 
@@ -216,7 +241,7 @@ const DashboardPanelViewComponent: React.FC<DashboardPanelViewProps> = ({
   const handleDrilldown = async (runNumber: number) => {
     if (!panel.echartsOption.drilldown) return;
     
-    setLoading(true);
+    setInternalLoading(true);
     try {
       // Store original option for back navigation
       if (!originalOption) {
@@ -265,7 +290,7 @@ const DashboardPanelViewComponent: React.FC<DashboardPanelViewProps> = ({
       console.error('Drilldown fetch error:', err);
       setError(err instanceof Error ? err.message : 'Failed to fetch drilldown data');
     } finally {
-      setLoading(false);
+      setInternalLoading(false);
     }
   };
 
@@ -283,7 +308,7 @@ const DashboardPanelViewComponent: React.FC<DashboardPanelViewProps> = ({
     
     if (!levels || calendarDrilldownLevel >= levels.length - 1) return;
     
-    setLoading(true);
+    setInternalLoading(true);
     try {
       // Store original option for back navigation on first drill
       if (!originalOption) {
@@ -374,7 +399,7 @@ const DashboardPanelViewComponent: React.FC<DashboardPanelViewProps> = ({
       console.error('Calendar drilldown fetch error:', err);
       setError(err instanceof Error ? err.message : 'Failed to fetch calendar drilldown data');
     } finally {
-      setLoading(false);
+      setInternalLoading(false);
     }
   };
   
@@ -1238,7 +1263,7 @@ const DashboardPanelViewComponent: React.FC<DashboardPanelViewProps> = ({
     if (data) {
       setQueryResult({ data });
       setError(null); // Clear any placeholder-related errors
-      setLoading(false); // Ensure loading state is cleared
+      setInternalLoading(false); // Ensure loading state is cleared
       if (onDataFetched) {
         onDataFetched(data);
       }
@@ -1819,13 +1844,7 @@ const DashboardPanelViewComponent: React.FC<DashboardPanelViewProps> = ({
    * Returns appropriate UI for tables vs charts
    */
   const renderPanelContent = () => {
-    if (loading) {
-      return (
-        <Box display="flex" justifyContent="center" alignItems="center" height="100%">
-          <CircularProgress sx={{ color: 'primary.main' }} />
-        </Box>
-      );
-    }
+    // Loading state is now handled with overlay instead of replacing content
     
     if (error) {
       return (
@@ -1887,16 +1906,52 @@ const DashboardPanelViewComponent: React.FC<DashboardPanelViewProps> = ({
       <Box sx={{ 
         height: '100%', 
         width: '100%',
-        overflow: 'hidden' // Ensure chart elements don't overflow the container
+        overflow: 'hidden', // Ensure chart elements don't overflow the container
+        position: 'relative' // Enable absolute positioning for loading overlay
       }}>
         <ReactECharts
           ref={chartRef}
           option={getTransformedEChartsOption()}
-          style={{ height: '100%', width: '100%' }}
+          style={{ 
+            height: '100%', 
+            width: '100%',
+            opacity: debouncedLoading ? 0.3 : 1, // Dim the chart when loading
+            transition: 'opacity 0.3s ease-in-out' // Smooth transition
+          }}
           notMerge={true}
           lazyUpdate={true}
           onEvents={onChartEvents}
         />
+        
+        {/* Loading overlay with centered CircularProgress - always rendered for smooth transitions */}
+        <Box
+          sx={{
+            position: 'absolute',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            display: 'flex',
+            justifyContent: 'center',
+            alignItems: 'center',
+            backgroundColor: 'rgba(255, 255, 255, 0.1)', // Subtle overlay background
+            zIndex: 1000, // Ensure it's above the chart
+            pointerEvents: 'none', // Allow interactions with chart when not loading
+            opacity: debouncedLoading ? 1 : 0, // Fade in/out based on debounced loading state
+            visibility: debouncedLoading ? 'visible' : 'hidden', // Hide completely when not loading
+            transition: 'opacity 0.3s ease-in-out, visibility 0.3s ease-in-out' // Smooth fade transition
+          }}
+        >
+          <CircularProgress 
+            sx={{ 
+              color: 'primary.main',
+              width: '40px !important',
+              height: '40px !important',
+              opacity: debouncedLoading ? 1 : 0, // Also fade the spinner itself
+              transition: 'opacity 0.2s ease-in-out' // Slightly faster spinner transition
+            }} 
+          />
+        </Box>
       </Box>
     );
   };

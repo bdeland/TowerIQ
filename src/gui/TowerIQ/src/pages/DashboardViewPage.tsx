@@ -1,6 +1,6 @@
 import { Box, Typography, Alert, CircularProgress } from '@mui/material';
 // Removed react-grid-layout import as we're now using native CSS Grid
-import { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useDashboard, DashboardPanel } from '../contexts/DashboardContext';
 import { useDashboardEdit } from '../contexts/DashboardEditContext';
@@ -12,8 +12,7 @@ import { defaultDashboard } from '../config/defaultDashboard';
 import { databaseHealthDashboard } from '../config/databaseHealthDashboard';
 import { liveRunTrackingDashboard } from '../config/liveRunTrackingDashboard';
 import { DashboardVariableProvider, useDashboardVariable } from '../contexts/DashboardVariableContext';
-import { composeQuery } from '../utils/queryComposer';
-import { API_CONFIG } from '../config/environment';
+import { useDashboardData } from '../hooks/useDashboardData';
 import { useDeveloper } from '../contexts/DeveloperContext';
 
 // Component that handles default dashboard with dynamic data fetching
@@ -31,11 +30,7 @@ function DefaultDashboardContent({ panels, currentDashboard, isEditMode, selecte
   getSelectedPanel: () => DashboardPanel | null;
 }) {
   const { isDevMode } = useDeveloper();
-  const [panelData, setPanelData] = useState<Record<string, any[]>>({});
-  const [isLoading, setIsLoading] = useState(false);
-  const [lastPanelIds, setLastPanelIds] = useState<string>('');
-  const [lastSelectedValues, setLastSelectedValues] = useState<string>('');
-
+  
   // Only use dashboard variables if the dashboard has them
   let selectedValues = {};
   try {
@@ -48,95 +43,26 @@ function DefaultDashboardContent({ panels, currentDashboard, isEditMode, selecte
     selectedValues = {};
   }
 
-  // Create a ref to track if we should force refresh
-  const [forceRefresh, setForceRefresh] = useState(0);
-  const [lastForceRefresh, setLastForceRefresh] = useState(0);
-
-  useEffect(() => {
-    const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
-    
-    // Create a stable identifier for the current panels to prevent infinite loops
-    const currentPanelIds = panels.map(p => p.id).sort().join(',');
-    const selectedValuesString = JSON.stringify(selectedValues);
-    
-    // Only fetch if panels have changed or selectedValues have changed, and we're not already loading
-    // Or if forceRefresh has been triggered
-    if (isLoading || (currentPanelIds === lastPanelIds && selectedValuesString === lastSelectedValues && forceRefresh === lastForceRefresh)) {
-      return;
-    }
-    
-    const fetchAllPanelData = async () => {
-      setIsLoading(true);
-      setLastPanelIds(currentPanelIds);
-      setLastSelectedValues(selectedValuesString);
-      
-      // Update lastForceRefresh to prevent infinite loops
-      setLastForceRefresh(forceRefresh);
-      
-      // Don't reset panel data - preserve existing data to prevent flashing
-      // setPanelData({});
-      
-      // Process panels in batches to avoid overwhelming the server
-      const BATCH_SIZE = 2; // Reduced batch size to be more conservative
-      const DELAY_BETWEEN_BATCHES = 300; // Increased delay between batches
-      const DELAY_BETWEEN_REQUESTS = 150; // Increased delay between individual requests
-      
-      const panelsWithQueries = panels.filter(panel => panel.query);
-      
-      try {
-        for (let i = 0; i < panelsWithQueries.length; i += BATCH_SIZE) {
-          const batch = panelsWithQueries.slice(i, i + BATCH_SIZE);
-          
-          // Process each panel in the batch with a small delay between requests
-          for (const panel of batch) {
-            const finalQuery = composeQuery(panel.query, selectedValues);
-            try {
-              const response = await fetch(`${API_CONFIG.BASE_URL}/query`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ query: finalQuery }),
-              });
-              
-              if (!response.ok) {
-                throw new Error(`Query failed: ${response.statusText}`);
-              }
-              
-              const result = await response.json();
-              // Only update if data has actually changed to prevent unnecessary re-renders
-              setPanelData(prev => {
-                const currentData = prev[panel.id];
-                const newData = result.data;
-                
-                // Compare data arrays to avoid unnecessary updates
-                if (JSON.stringify(currentData) === JSON.stringify(newData)) {
-                  return prev; // No change, return same object
-                }
-                
-                return { ...prev, [panel.id]: newData };
-              });
-            } catch (error) {
-              console.error(`Failed to fetch data for panel ${panel.title}:`, error);
-              setPanelData(prev => ({ ...prev, [panel.id]: [] }));
-            }
-            
-            // Small delay between individual requests to prevent overwhelming
-            if (batch.indexOf(panel) < batch.length - 1) {
-              await delay(DELAY_BETWEEN_REQUESTS);
-            }
-          }
-          
-          // Delay between batches (except for the last batch)
-          if (i + BATCH_SIZE < panelsWithQueries.length) {
-            await delay(DELAY_BETWEEN_BATCHES);
-          }
-        }
-      } finally {
-        setIsLoading(false);
+  // Use the new dashboard data hook
+  const { panelData, loading: isLoading, errors, refetch } = useDashboardData(
+    panels,
+    selectedValues,
+    {
+      enabled: !!currentDashboard,
+      onError: (errors) => {
+        console.error('Dashboard data fetch errors:', errors);
       }
-    };
+    }
+  );
 
-    fetchAllPanelData();
-  }, [selectedValues, panels, isLoading, lastPanelIds, lastSelectedValues, forceRefresh, lastForceRefresh]);
+  // Convert Map to Record for DashboardGrid compatibility
+  const panelDataRecord = React.useMemo(() => {
+    const record: Record<string, any[]> = {};
+    panelData.forEach((result, panelId) => {
+      record[panelId] = result.data;
+    });
+    return record;
+  }, [panelData]);
 
   // Add event listener for database metrics updates with debouncing
   useEffect(() => {
@@ -152,7 +78,7 @@ function DefaultDashboardContent({ panels, currentDashboard, isEditMode, selecte
       
       // Debounce the refresh to prevent rapid successive updates
       debounceTimer = setTimeout(() => {
-        setForceRefresh(Date.now());
+        refetch();
       }, 500); // 500ms debounce
     };
 
@@ -179,7 +105,8 @@ function DefaultDashboardContent({ panels, currentDashboard, isEditMode, selecte
       <Box sx={{ mt: 0 }}>
         <DashboardGrid
           panels={panels}
-          panelData={panelData}
+          panelData={panelDataRecord}
+          isLoading={isLoading}
           isEditMode={isEditMode}
           isEditable={featureFlags.enableAdHocDashboards}
           showMenu={featureFlags.enableAdHocDashboards && !currentDashboard?.is_default}

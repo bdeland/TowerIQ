@@ -1,112 +1,52 @@
 import { Box, Typography } from '@mui/material';
-import { useState, useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useDashboard } from '../contexts/DashboardContext';
 import { DashboardGrid } from '../components/DashboardGrid';
 import { liveRunTrackingDashboard } from '../config/liveRunTrackingDashboard';
-import { composeQuery } from '../utils/queryComposer';
-import { API_CONFIG } from '../config/environment';
+import { useDashboardData } from '../hooks/useDashboardData';
 
 function LiveRunTrackingDashboardContent() {
   const { setCurrentDashboard } = useDashboard();
-  const [panelData, setPanelData] = useState<Record<string, any[]>>({});
-  const [isLoading, setIsLoading] = useState(false);
-  const [lastPanelIds, setLastPanelIds] = useState<string>('');
+  const [panels, setPanels] = useState(liveRunTrackingDashboard.config.panels || []);
 
   const dashboard = liveRunTrackingDashboard;
-  const panels = dashboard.config.panels || [];
+
+  // Use the new dashboard data hook
+  const { panelData, loading: isLoading, errors } = useDashboardData(
+    panels,
+    {}, // No variables for live run tracking dashboard
+    {
+      enabled: true,
+      onError: (errors) => {
+        console.error('Live run tracking dashboard data fetch errors:', errors);
+      }
+    }
+  );
 
   useEffect(() => {
     setCurrentDashboard(dashboard);
-  }, [setCurrentDashboard]);
+    setPanels(dashboard.config.panels || []);
+  }, [setCurrentDashboard, dashboard]);
 
-  useEffect(() => {
-    const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
-    
-    // Constants for batching
-    const BATCH_SIZE = 3;
-    const DELAY_BETWEEN_REQUESTS = 100; // 100ms between individual requests
-    const DELAY_BETWEEN_BATCHES = 300; // 300ms between batches
-
-    const currentPanelIds = panels.map(p => p.id).join(',');
-    if (currentPanelIds === lastPanelIds && isLoading) {
-      return; // Skip if already loading the same panels
-    }
-
-    const fetchAllPanelData = async () => {
-      setIsLoading(true);
-      setLastPanelIds(currentPanelIds);
-
-      // No variables for live run tracking dashboard
-      const selectedValues = {};
-      
-      const panelsWithQueries = panels.filter(panel => panel.query);
-      
-      try {
-        for (let i = 0; i < panelsWithQueries.length; i += BATCH_SIZE) {
-          const batch = panelsWithQueries.slice(i, i + BATCH_SIZE);
-          
-          // Process each panel in the batch with a small delay between requests
-          for (const panel of batch) {
-            const finalQuery = composeQuery(panel.query, selectedValues);
-            try {
-              const response = await fetch(`${API_CONFIG.BASE_URL}/query`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ query: finalQuery }),
-              });
-              
-              if (!response.ok) {
-                throw new Error(`Query failed: ${response.statusText}`);
-              }
-              
-              const result = await response.json();
-              setPanelData(prev => ({ ...prev, [panel.id]: result.data }));
-            } catch (error) {
-              console.error(`Failed to fetch data for panel ${panel.title}:`, error);
-              setPanelData(prev => ({ ...prev, [panel.id]: [] })); // Set empty data on error
-            }
-            
-            // Small delay between individual requests to prevent overwhelming
-            if (batch.indexOf(panel) < batch.length - 1) {
-              await delay(DELAY_BETWEEN_REQUESTS);
-            }
-          }
-          
-          // Delay between batches (except for the last batch)
-          if (i + BATCH_SIZE < panelsWithQueries.length) {
-            await delay(DELAY_BETWEEN_BATCHES);
-          }
-        }
-      } finally {
-        setIsLoading(false);
-      }
-    };
-
-    fetchAllPanelData();
-    
-    // Set up auto-refresh every 5 seconds for live data
-    const refreshInterval = setInterval(fetchAllPanelData, 5000);
-    
-    return () => clearInterval(refreshInterval);
-  }, [panels, isLoading, lastPanelIds]);
-
-  if (!dashboard) {
-    return <Typography sx={{ padding: 3 }}>Loading Live Run Tracking Dashboard...</Typography>;
-  }
+  // Convert Map to Record for DashboardGrid compatibility
+  const panelDataRecord = React.useMemo(() => {
+    const record: Record<string, any[]> = {};
+    panelData.forEach((result, panelId) => {
+      record[panelId] = result.data;
+    });
+    return record;
+  }, [panelData]);
 
   return (
     <Box sx={{ padding: '8px' }} data-content-container="true">
       <DashboardGrid
         panels={panels}
-        panelData={panelData}
+        panelData={panelDataRecord}
         isEditMode={false}
-        isEditable={false}
-        showMenu={false}
-        showFullscreen={false}
-        onLayoutChange={() => {}}
-        onPanelClick={() => {}}
-        onPanelDelete={() => {}}
-        onPanelFullscreenToggle={() => {}}
+        isEditable={false} // Live run tracking dashboard is always read-only
+        showMenu={false} // Explicitly disable panel menus for read-only experience
+        showFullscreen={true}
+        dashboardId={dashboard?.id}
       />
     </Box>
   );

@@ -8,6 +8,7 @@ import { useDeveloper } from '../contexts/DeveloperContext';
 interface DashboardGridProps {
   panels: DashboardPanel[];
   panelData?: Record<string, any[]>; // Optional panel data for pre-fetched data
+  isLoading?: boolean; // Loading state from dashboard level
   isEditMode: boolean;
   isEditable: boolean; // New prop to control edit capabilities
   showMenu: boolean;
@@ -23,6 +24,7 @@ interface DashboardGridProps {
 const DashboardGridComponent = ({
   panels,
   panelData,
+  isLoading = false,
   isEditMode,
   isEditable,
   showMenu,
@@ -180,6 +182,7 @@ const DashboardGridComponent = ({
           <DashboardPanelView 
             panel={panel}
             data={panelData?.[panel.id]}
+            loading={isLoading}
             isEditMode={isEditMode}
             showMenu={showMenu}
             showFullscreen={showFullscreen}
@@ -190,7 +193,7 @@ const DashboardGridComponent = ({
         </div>
       );
     });
-  }, [panels, panelData, isEditMode, isEditable, showMenu, showFullscreen, draggedPanel, isDevMode, onPanelClick, onPanelDelete, onPanelFullscreenToggle, handleDragStart]);
+  }, [panels, panelData, isLoading, isEditMode, isEditable, showMenu, showFullscreen, draggedPanel, isDevMode, onPanelClick, onPanelDelete, onPanelFullscreenToggle, handleDragStart]);
 
   // Handle responsive breakpoint changes and adjust panels
   useEffect(() => {
@@ -283,6 +286,7 @@ export const DashboardGrid = memo(DashboardGridComponent, (prevProps, nextProps)
   // Custom comparison function to determine if re-render is needed
   return (
     prevProps.panels.length === nextProps.panels.length &&
+    prevProps.isLoading === nextProps.isLoading &&
     prevProps.isEditMode === nextProps.isEditMode &&
     prevProps.isEditable === nextProps.isEditable &&
     prevProps.showMenu === nextProps.showMenu &&

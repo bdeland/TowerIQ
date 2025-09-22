@@ -26,8 +26,10 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from tower_iq.core.config import ConfigurationManager
 from tower_iq.core.logging_config import setup_logging
 from tower_iq.core.session import ConnectionState
+from tower_iq.core.sqlmodel_engine import initialize_sqlmodel_engine, get_sqlmodel_session, get_sqlmodel_engine
 from tower_iq.main_controller import MainController
 from tower_iq.services.database_service import DatabaseService
+from tower_iq.models.dashboard_models import QueryService, QueryExecutionError
 
 # Configure logging at module level to ensure it's set up before Uvicorn starts
 def configure_logging():
@@ -144,10 +146,13 @@ class RestoreSuggestion(BaseModel):
 
 class QueryRequest(BaseModel):
     query: str
+    variables: Optional[Dict[str, Any]] = None
 
 class QueryResponse(BaseModel):
     data: List[Dict[str, Any]]
     rowCount: int
+    executionTimeMs: Optional[float] = None
+    cacheHit: bool = False
 
 class QueryPreviewRequest(BaseModel):
     query: str
@@ -170,6 +175,7 @@ class SettingUpdate(BaseModel):
 logger: Any = structlog.get_logger()
 controller: Any = None
 db_service: Any = None
+query_service: Any = None
 
 # Shared device cache for Phase 1.3 of duplication fix
 _device_cache_data: Optional[List[Dict[str, Any]]] = None
@@ -286,6 +292,29 @@ async def lifespan(app: FastAPI):
     
     # Ensure dashboards table exists
     db_service.ensure_dashboards_table_exists()
+    
+    # Initialize SQLModel engine for type-safe queries
+    try:
+        # Get database path from config
+        database_path = str(Path(config.get('database_path', 'data/toweriq.sqlite')))
+        
+        # Initialize SQLModel engine (compatible with SQLCipher)
+        initialize_sqlmodel_engine(database_path)
+        
+        # Create SQLModel tables
+        sqlmodel_engine = get_sqlmodel_engine()
+        sqlmodel_engine.create_tables()
+        
+        # Initialize query service
+        with get_sqlmodel_session() as session:
+            query_service = QueryService(session)
+        
+        logger.info("SQLModel engine and query service initialized successfully")
+        
+    except Exception as e:
+        logger.error(f"Failed to initialize SQLModel: {str(e)}")
+        # Continue without SQLModel - fallback to existing system
+        query_service = None
     
     # Link database service to config manager
     config.link_database_service(db_service)
@@ -1844,7 +1873,68 @@ async def collect_database_metrics():
 @app.post("/api/query", response_model=QueryResponse)
 async def execute_query(request: QueryRequest):
     """Execute a SQL query against the database and return the results."""
+    global query_service, db_service, logger
+    
     try:
+        # Try SQLModel first if available
+        if query_service and db_service:
+            # Basic SQL injection protection - only allow SELECT statements
+            query_stripped = request.query.strip().upper()
+            if not query_stripped.startswith('SELECT'):
+                raise HTTPException(status_code=400, detail="Only SELECT queries are allowed")
+            
+            # Additional protection against dangerous SQL operations
+            dangerous_keywords = ['DROP', 'DELETE', 'UPDATE', 'INSERT', 'CREATE', 'ALTER', 'TRUNCATE', '--', ';']
+            for keyword in dangerous_keywords:
+                if keyword in query_stripped:
+                    raise HTTPException(status_code=400, detail=f"Query contains forbidden keyword: {keyword}")
+            
+            # Enforce LIMIT clause for safety
+            query = request.query.strip()
+            if not query.upper().endswith('LIMIT') and 'LIMIT' not in query.upper():
+                # Check if query already ends with a semicolon
+                if query.endswith(';'):
+                    query = query[:-1] + ' LIMIT 500;'
+                else:
+                    query = query + ' LIMIT 500'
+            
+            # Use SQLModel for type-safe query execution
+            try:
+                with get_sqlmodel_session() as session:
+                    query_service = QueryService(session)
+                    
+                    # Create a dummy panel for query execution
+                    from tower_iq.models.dashboard_models import DashboardPanel
+                    dummy_panel = DashboardPanel(
+                        id="query_endpoint",
+                        dashboard_id="query_endpoint",
+                        title="API Query",
+                        query=query
+                    )
+                    
+                    # Execute with variables if provided
+                    variables = request.variables or {}
+                    result = await query_service.execute_dashboard_query(dummy_panel, variables)
+                    
+                    if logger:
+                        logger.info("Query executed successfully with SQLModel", 
+                                   query=query, 
+                                   row_count=result.row_count,
+                                   execution_time_ms=result.execution_time_ms)
+                    
+                    return QueryResponse(
+                        data=result.data, 
+                        rowCount=result.row_count,
+                        executionTimeMs=result.execution_time_ms,
+                        cacheHit=result.cache_hit
+                    )
+                    
+            except QueryExecutionError as e:
+                if logger:
+                    logger.error("SQLModel query execution failed", query=query, error=str(e))
+                raise HTTPException(status_code=500, detail=f"Query execution failed: {str(e)}")
+        
+        # Fallback to existing system
         if not db_service:
             raise HTTPException(status_code=503, detail="Database service not available")
         
@@ -1871,11 +1961,11 @@ async def execute_query(request: QueryRequest):
             else:
                 query = query + ' LIMIT 500'
         
-        # Execute the query off the event loop thread
+        # Execute the query off the event loop thread (legacy method)
         data = await asyncio.to_thread(db_service.execute_select_query, query)
         
         if logger:
-            logger.info("Query executed successfully", 
+            logger.info("Query executed successfully with legacy system", 
                        query=query, 
                        row_count=len(data))
         
