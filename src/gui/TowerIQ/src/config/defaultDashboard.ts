@@ -178,7 +178,7 @@ export const defaultDashboard: Dashboard = {
         query: `
           SELECT 
             DATE(start_time / 1000, 'unixepoch') as date,
-            SUM(COALESCE(coins_earned, 0)) as total_coins
+            SUM(COALESCE(round_coins, 0)) as total_coins
           FROM runs 
           WHERE start_time IS NOT NULL 
             AND DATE(start_time / 1000, 'unixepoch') >= (
@@ -299,7 +299,7 @@ export const defaultDashboard: Dashboard = {
                 query: `
                   SELECT 
                     DATE(start_time / 1000, 'unixepoch') as date,
-                    SUM(COALESCE(coins_earned, 0)) as total_coins
+                    SUM(COALESCE(round_coins, 0)) as total_coins
                   FROM runs 
                   WHERE start_time IS NOT NULL 
                     AND strftime('%Y', DATE(start_time / 1000, 'unixepoch')) = '{year}'
@@ -315,7 +315,7 @@ export const defaultDashboard: Dashboard = {
                 query: `
                   SELECT 
                     DATE(start_time / 1000, 'unixepoch') as date,
-                    SUM(COALESCE(coins_earned, 0)) as total_coins
+                    SUM(COALESCE(round_coins, 0)) as total_coins
                   FROM runs 
                   WHERE start_time IS NOT NULL 
                     AND strftime('%Y', DATE(start_time / 1000, 'unixepoch')) = '{year}'
@@ -337,7 +337,7 @@ export const defaultDashboard: Dashboard = {
                 query: `
                   SELECT 
                     DATE(start_time / 1000, 'unixepoch') as date,
-                    SUM(COALESCE(coins_earned, 0)) as total_coins
+                    SUM(COALESCE(round_coins, 0)) as total_coins
                   FROM runs 
                   WHERE start_time IS NOT NULL 
                     AND strftime('%Y-%m', DATE(start_time / 1000, 'unixepoch')) = '{year}-{month}'
@@ -353,7 +353,7 @@ export const defaultDashboard: Dashboard = {
                 query: `
                   SELECT 
                     DATE(start_time / 1000, 'unixepoch') as date,
-                    SUM(COALESCE(coins_earned, 0)) as total_coins
+                    SUM(COALESCE(round_coins, 0)) as total_coins
                   FROM runs 
                   WHERE start_time IS NOT NULL 
                     AND DATE(start_time / 1000, 'unixepoch') BETWEEN '{week_start}' AND '{week_end}'
@@ -369,7 +369,7 @@ export const defaultDashboard: Dashboard = {
                 query: `
                   SELECT 
                     strftime('%Y-%m-%d %H:00:00', datetime(start_time / 1000, 'unixepoch')) as hour,
-                    SUM(COALESCE(coins_earned, 0)) as total_coins
+                    SUM(COALESCE(round_coins, 0)) as total_coins
                   FROM runs 
                   WHERE start_time IS NOT NULL 
                     AND DATE(start_time / 1000, 'unixepoch') = '{date}'

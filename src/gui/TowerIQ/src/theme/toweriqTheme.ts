@@ -23,7 +23,7 @@ export const TOWERIQ_COLORS = {
 
   // Border & Divider Colors
   borders: {
-    primary: '#404040',     // Primary borders, dividers, outlines (IMPROVED)
+    primary: '#313238',     // Primary borders, dividers, outlines (IMPROVED)
     interactive: '#555555', // Form elements, interactive borders
     focus: '#39b5e0',      // Focus states, active borders
     subtle: '#2e3136',     // Subtle dividers, deprecated borders

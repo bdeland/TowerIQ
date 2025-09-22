@@ -296,3 +296,30 @@ export function getDataSizeScale(bytes: number, binary: boolean = false): DataSi
   
   return null;
 }
+
+// ============================================================================
+// TIME FORMATTING
+// ============================================================================
+
+/**
+ * Formats time remaining in a readable format (e.g., "1d 37m 12s", "12m 17s", "45s")
+ * @param seconds - The number of seconds to format
+ * @returns Formatted time string
+ */
+export function formatTimeRemaining(seconds: number): string {
+  if (seconds <= 0) return '0s';
+  
+  const days = Math.floor(seconds / 86400);
+  const hours = Math.floor((seconds % 86400) / 3600);
+  const minutes = Math.floor((seconds % 3600) / 60);
+  const secs = Math.floor(seconds % 60);
+  
+  const parts: string[] = [];
+  
+  if (days > 0) parts.push(`${days}d`);
+  if (hours > 0) parts.push(`${hours}h`);
+  if (minutes > 0) parts.push(`${minutes}m`);
+  if (secs > 0 || parts.length === 0) parts.push(`${secs}s`);
+  
+  return parts.join(' ');
+}

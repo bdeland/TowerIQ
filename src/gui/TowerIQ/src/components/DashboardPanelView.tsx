@@ -1253,7 +1253,8 @@ const DashboardPanelViewComponent: React.FC<DashboardPanelViewProps> = ({
     if (chartRef.current) {
       const chart = chartRef.current.getEchartsInstance();
       const option = getTransformedEChartsOption();
-      chart.setOption(option, true);
+      // Use smooth updates instead of force re-render to prevent flashing
+      chart.setOption(option, false);
     }
   }, [queryResult, panel.echartsOption]);
 

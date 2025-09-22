@@ -73,8 +73,8 @@ function DefaultDashboardContent({ panels, currentDashboard, isEditMode, selecte
       // Update lastForceRefresh to prevent infinite loops
       setLastForceRefresh(forceRefresh);
       
-      // Reset panel data when starting fresh fetch
-      setPanelData({});
+      // Don't reset panel data - preserve existing data to prevent flashing
+      // setPanelData({});
       
       // Process panels in batches to avoid overwhelming the server
       const BATCH_SIZE = 2; // Reduced batch size to be more conservative
@@ -102,7 +102,18 @@ function DefaultDashboardContent({ panels, currentDashboard, isEditMode, selecte
               }
               
               const result = await response.json();
-              setPanelData(prev => ({ ...prev, [panel.id]: result.data }));
+              // Only update if data has actually changed to prevent unnecessary re-renders
+              setPanelData(prev => {
+                const currentData = prev[panel.id];
+                const newData = result.data;
+                
+                // Compare data arrays to avoid unnecessary updates
+                if (JSON.stringify(currentData) === JSON.stringify(newData)) {
+                  return prev; // No change, return same object
+                }
+                
+                return { ...prev, [panel.id]: newData };
+              });
             } catch (error) {
               console.error(`Failed to fetch data for panel ${panel.title}:`, error);
               setPanelData(prev => ({ ...prev, [panel.id]: [] }));
@@ -127,23 +138,44 @@ function DefaultDashboardContent({ panels, currentDashboard, isEditMode, selecte
     fetchAllPanelData();
   }, [selectedValues, panels, isLoading, lastPanelIds, lastSelectedValues, forceRefresh, lastForceRefresh]);
 
-  // Add event listener for database metrics updates
+  // Add event listener for database metrics updates with debouncing
   useEffect(() => {
+    let debounceTimer: NodeJS.Timeout;
+    
     const handleDatabaseMetricsUpdate = () => {
       console.log('Database metrics updated, refreshing dashboard panels...');
-      // Use a timestamp to ensure uniqueness and avoid infinite loops
+      
+      // Clear existing timer
+      if (debounceTimer) {
+        clearTimeout(debounceTimer);
+      }
+      
+      // Debounce the refresh to prevent rapid successive updates
+      debounceTimer = setTimeout(() => {
+        setForceRefresh(Date.now());
+      }, 500); // 500ms debounce
+    };
+
+    const handleDashboardRefreshRequested = () => {
+      console.log('Dashboard refresh requested from toolbar...');
       setForceRefresh(Date.now());
     };
 
     window.addEventListener('database-metrics-updated', handleDatabaseMetricsUpdate);
+    window.addEventListener('dashboard-refresh-requested', handleDashboardRefreshRequested);
     
     return () => {
       window.removeEventListener('database-metrics-updated', handleDatabaseMetricsUpdate);
+      window.removeEventListener('dashboard-refresh-requested', handleDashboardRefreshRequested);
+      if (debounceTimer) {
+        clearTimeout(debounceTimer);
+      }
     };
   }, []);
 
   return (
     <Box sx={{ padding: '8px 8px 8px 8px', border: isDevMode ? '2px solid red' : 'none' }} data-content-container="true">
+      
       <Box sx={{ mt: 0 }}>
         <DashboardGrid
           panels={panels}

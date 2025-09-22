@@ -24,6 +24,7 @@ import {
 import { useDashboard } from './DashboardContext';
 import { useDashboardVariable } from './DashboardVariableContext';
 import { API_CONFIG } from '../config/environment';
+import { RefreshButton, RefreshInterval } from '../components/RefreshButton';
 
 interface RenderItem {
   id: string;
@@ -77,6 +78,12 @@ export const HeaderToolbarProvider = ({ children }: { children: ReactNode }) => 
         });
       }
       
+      // Add refresh button to the right side for all dashboard pages
+      rightItems.push({
+        id: 'dashboard-refresh',
+        node: <DashboardRefreshToolbar key="dashboard-refresh" />
+      });
+      
       // Dashboard edit controls (this would need more context from DashboardEditContext)
       // We'll keep this simpler for now
     }
@@ -90,6 +97,8 @@ export const HeaderToolbarProvider = ({ children }: { children: ReactNode }) => 
           node: <DashboardVariablesToolbar key="dashboard-variables" />
         });
       }
+      
+      // Note: No refresh button for panel view pages - they handle their own data fetching
     }
     
     return { secondaryLeft: leftItems, secondaryRight: rightItems };
@@ -439,5 +448,50 @@ function DashboardVariablesToolbar() {
         );
       })}
     </Box>
+  );
+}
+
+function DashboardRefreshToolbar() {
+  const [isRefreshing, setIsRefreshing] = React.useState(false);
+  const [currentInterval, setCurrentInterval] = React.useState<RefreshInterval>({
+    label: 'Off',
+    value: 'off'
+  });
+
+  const handleRefresh = React.useCallback(async () => {
+    try {
+      setIsRefreshing(true);
+      
+      // Dispatch a custom event to trigger dashboard refresh
+      // This will be caught by the DashboardViewPage component
+      window.dispatchEvent(new CustomEvent('dashboard-refresh-requested'));
+      
+      // Add a small delay to show the refreshing state
+      await new Promise(resolve => setTimeout(resolve, 500));
+    } catch (error) {
+      console.error('Failed to refresh dashboard:', error);
+    } finally {
+      setIsRefreshing(false);
+    }
+  }, []);
+
+  const handleIntervalChange = React.useCallback((interval: RefreshInterval) => {
+    setCurrentInterval(interval);
+    
+    // For auto mode, we'll listen for database metrics updates
+    if (interval.value === 'auto') {
+      // The auto refresh will be handled by the existing database-metrics-updated event
+      // in the DashboardViewPage component
+      console.log('Auto refresh enabled - will refresh when new data is available');
+    }
+  }, []);
+
+  return (
+    <RefreshButton
+      onRefresh={handleRefresh}
+      onIntervalChange={handleIntervalChange}
+      isRefreshing={isRefreshing}
+      currentInterval={currentInterval}
+    />
   );
 }
