@@ -4,17 +4,17 @@
 This document provides a comprehensive analysis of the TowerIQ database structure for external analysis.
 
 ## Database Statistics
-- **Database File Size**: 106.8 MB (111,943,680 bytes)
-- **Schema Version**: 1.0 (Database V6 with enhanced monitoring and normalization)
-- **Total Tables**: 14
-- **Total Records**: 1,289,226
-- **Total Runs**: 100
-- **Total Metrics**: 1,222,005
-- **Total Events**: 64,417
+- **Database File Size**: 180.0 KB (184,320 bytes)
+- **Schema Version**: 1.0 (Database V1.0 with normalized schema and integer storage)
+- **Total Tables**: 12
+- **Total Records**: 1,013
+- **Total Runs**: 5
+- **Total Metrics**: 165
+- **Total Events**: 16
 - **Total Logs**: 0
 - **Total Settings**: 1
 - **Total Dashboards**: 0
-- **Total DB Metrics**: 2,639 (database health monitoring data)
+- **Total DB Metrics**: 783 (database health monitoring data)
 - **Total Event Names**: 7 (lookup table)
 - **Total Metric Names**: 15 (lookup table)
 - **Total DB Metric Names**: 7 (lookup table)
@@ -35,7 +35,7 @@ This document provides a comprehensive analysis of the TowerIQ database structur
 | duration_realtime | INTEGER | Real-time duration (milliseconds) |
 | duration_gametime | INTEGER | In-game time duration (scaled by 1000) |
 | final_wave | INTEGER | Last wave reached |
-| coins_earned | INTEGER | Total coins earned (scaled by 1000) |
+| round_coins | INTEGER | Total coins earned in the run |
 | CPH | INTEGER | Coins per hour (scaled by 1000) |
 | round_cells | INTEGER | Round cells value (scaled by 1000) |
 | round_gems | INTEGER | Round gems value (scaled by 1000) |
@@ -53,10 +53,10 @@ This document provides a comprehensive analysis of the TowerIQ database structur
 | id | INTEGER | Auto-incrementing primary key |
 | run_id | BLOB | References runs.run_id |
 | real_timestamp | INTEGER | Real-world timestamp (milliseconds since epoch) |
-| game_timestamp | INTEGER | In-game timestamp (scaled by 1000) |
+| game_duration | INTEGER | In-game duration when metric was recorded (milliseconds) |
 | current_wave | INTEGER | Wave number when metric was recorded |
 | metric_name_id | INTEGER | Foreign key to metric_names table |
-| metric_value | INTEGER | Scaled metric value (precision depends on metric type) |
+| metric_value | INTEGER | Metric value as raw integer |
 
 **Indexes**:
 - `idx_metrics_run_id_name_time` on (run_id, metric_name_id, real_timestamp)
@@ -231,13 +231,13 @@ db_metrics (many) ←→ (1) db_monitored_objects (nullable)
 
 ## Key Observations
 
-1. **High Volume Data**: The metrics table contains over 1.2M records, indicating detailed data collection during gameplay.
+1. **Moderate Data Volume**: The metrics table contains 165 records from 5 game runs, representing a typical development/testing dataset.
 
-2. **Enhanced Database Health Monitoring**: The `db_metrics` table (V6 schema) provides comprehensive database performance and health monitoring with 2,639+ metrics collected using normalized lookup tables.
+2. **Enhanced Database Health Monitoring**: The `db_metrics` table (V1.0 schema) provides comprehensive database performance and health monitoring with 783 metrics collected using normalized lookup tables.
 
 3. **Full Data Normalization**: All string-based identifiers now use foreign keys to lookup tables (`metric_names`, `event_names`, `game_versions`, `db_metric_names`, `db_monitored_objects`) for optimal storage efficiency and data consistency.
 
-4. **Integer-based Precision Storage**: All numeric values use INTEGER storage with scaling factors (typically 1000x) to preserve decimal precision while maintaining storage efficiency.
+4. **Integer-based Storage**: All numeric values use INTEGER storage for optimal performance and storage efficiency. No scaling factors are applied - values are stored as raw integers.
 
 5. **UUID Binary Storage**: Run IDs are stored as BLOB (binary) format for UUIDs, providing efficient storage and indexing.
 
@@ -249,7 +249,7 @@ db_metrics (many) ←→ (1) db_monitored_objects (nullable)
 
 9. **Event Tracking**: The events table captures game events with flexible JSON data storage and normalized event names.
 
-10. **Schema Evolution**: Database has evolved to V6 with significant improvements in monitoring, data normalization, and storage efficiency.
+10. **Schema Evolution**: Database has evolved to V1.0 with complete rewrite featuring normalized lookup tables, BLOB UUID storage, and optimized integer-based data types.
 
 11. **Comprehensive Metadata**: All lookup tables now include rich metadata (display names, descriptions, units) for better data understanding and presentation.
 
@@ -262,13 +262,13 @@ db_metrics (many) ←→ (1) db_monitored_objects (nullable)
 ## Data Summary with Examples
 
 ### Current Database Statistics (Updated)
-- **Total Runs**: 100
-- **Total Metrics**: 1,222,005
-- **Total Events**: 64,417
+- **Total Runs**: 5
+- **Total Metrics**: 165
+- **Total Events**: 16
 - **Total Logs**: 0
 - **Total Settings**: 1
 - **Total Dashboards**: 0
-- **Total DB Metrics**: 2,639
+- **Total DB Metrics**: 783
 - **Total Event Names**: 7
 - **Total Metric Names**: 15
 - **Total DB Metric Names**: 7
@@ -277,7 +277,7 @@ db_metrics (many) ←→ (1) db_monitored_objects (nullable)
 
 ### Sample Data Examples
 
-#### 1. `runs` Table (100 rows)
+#### 1. `runs` Table (5 rows)
 **Sample Records:**
 ```json
 {
@@ -296,9 +296,9 @@ db_metrics (many) ←→ (1) db_monitored_objects (nullable)
   "game_version_id": 1
 }
 ```
-**Note**: All numeric values are stored as integers with scaling factors applied (typically 1000x for decimal precision).
+**Note**: All numeric values are stored as raw integers without scaling factors. Duration values are in milliseconds.
 
-#### 2. `metrics` Table (1,222,005 rows)
+#### 2. `metrics` Table (165 rows)
 **Metric Types Found:**
 - `cash`, `cells`, `coins`, `gems`
 - `round_cash`, `round_cells`, `round_coins`, `round_gems_from_ads_count`
@@ -316,9 +316,9 @@ db_metrics (many) ←→ (1) db_monitored_objects (nullable)
   "metric_value": 28401798583
 }
 ```
-**Note**: `metric_name_id` references the `metric_names` table, and `metric_value` is scaled by 1000x for precision.
+**Note**: `metric_name_id` references the `metric_names` table, and `metric_value` is stored as raw integer.
 
-#### 3. `events` Table (64,417 rows)
+#### 3. `events` Table (16 rows)
 **Event Types Found:**
 - `startNewRound`, `gemBlockTapped`, `adGemClaimed`
 - `gameSpeedChanged`, `gamePaused`, `gameResumed`, `gameOver`
@@ -338,7 +338,7 @@ db_metrics (many) ←→ (1) db_monitored_objects (nullable)
 #### 4. `settings` Table (1 row)
 **Structure Ready:** Table contains application configuration settings.
 
-#### 5. Enhanced `db_metrics` Table (2,639 rows)
+#### 5. Enhanced `db_metrics` Table (783 rows)
 **Purpose:** Database health monitoring metrics collected automatically using normalized structure
 **Sample Metric Types:**
 - `table_size_bytes` - Size of each table in bytes
@@ -415,11 +415,11 @@ db_metrics (many) ←→ (1) db_monitored_objects (nullable)
 
 6. **Time-Series Analysis**: All tables use Unix millisecond timestamps - ideal for time-series analysis and Grafana dashboards.
 
-7. **Schema Evolution**: Database V6 provides enhanced monitoring capabilities with full normalization - consider leveraging these for operational insights.
+7. **Schema Evolution**: Database V1.0 provides enhanced monitoring capabilities with full normalization - consider leveraging these for operational insights.
 
-8. **Data Volume Considerations**: With 1.2M+ metrics records, the normalized structure and proper indexing provide optimal query performance.
+8. **Data Structure Optimization**: The normalized structure with lookup tables and proper indexing provides optimal query performance even as data volume scales.
 
-9. **Precision Handling**: Remember that all numeric values are stored as integers with scaling factors (typically 1000x) - apply appropriate scaling when analyzing data.
+9. **Data Type Handling**: All numeric values are stored as raw integers without scaling factors. Duration values are in milliseconds, currency values are raw integers.
 
 10. **UUID Handling**: Run IDs are stored as BLOB format - use appropriate UUID handling when working with these identifiers.
 

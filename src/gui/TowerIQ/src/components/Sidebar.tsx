@@ -126,6 +126,9 @@ export function Sidebar({
               top: 0,
               height: '100vh',
               zIndex: sidebarDocked ? (theme) => theme.zIndex.drawer : 9999,
+              // Fix background color - remove Paper overlay and set correct color
+              backgroundColor: '#181b1f !important',
+              backgroundImage: 'none !important', // Remove Paper overlay that covers our color
               // Add borders to define sidebar boundaries
               borderLeft: layout.border,
               borderRight: layout.border,

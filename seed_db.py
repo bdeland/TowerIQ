@@ -43,6 +43,7 @@ try:
         METRIC_METADATA = database_schema.METRIC_METADATA
         EVENT_METADATA = database_schema.EVENT_METADATA
         get_tables_to_wipe = database_schema.get_tables_to_wipe
+        SCHEMA_VERSION = database_schema.SCHEMA_VERSION
     else:
         raise ImportError("database_schema.py not found")
         
@@ -50,6 +51,7 @@ except (ImportError, AttributeError) as e:
     # Fallback if schema config is not available
     METRIC_METADATA = {}
     EVENT_METADATA = {}
+    SCHEMA_VERSION = "1.0"
     
     def get_tables_to_wipe():
         return ['events', 'metrics', 'runs', 'game_versions', 'metric_names', 'event_names', 'db_metrics', 'db_metric_names', 'db_monitored_objects']
@@ -80,9 +82,8 @@ GAME_VERSION = "27.0.4"
 SECONDS_PER_WAVE = 30.0  # Game time per wave
 STAGGER_MINUTES = 10  # Minutes between run start times
 
-# INTEGER scaling factors for database storage (to preserve decimal precision)
-SCALING_FACTOR = 1000  # 3 decimal places for most values
-TIME_SCALING_FACTOR = 1000  # For game_duration (milliseconds)
+# Note: Database now stores raw integer values without scaling factors
+# All values are stored as raw integers for optimal performance
 
 # Survival probability parameters
 SURVIVAL_PROB_MIN_WAVE = 0.95  # 95% survival at min_wave
@@ -415,8 +416,8 @@ def generate_run_data(tier: int, min_wave: int, max_wave: int, start_date: datet
         game_ts_sec = float(wave * SECONDS_PER_WAVE)
         real_ts_ms = start_time_ms + int(game_ts_sec * 1000)
         
-        # Scale game timestamp for INTEGER storage
-        game_ts_scaled = int(game_ts_sec * TIME_SCALING_FACTOR)
+        # Game timestamp in milliseconds (no scaling needed)
+        game_ts_ms = int(game_ts_sec * 1000)
 
         # Per-wave deltas with some variability
         base_coins = rng.uniform(BASE_COINS_MIN, BASE_COINS_MAX)
@@ -484,29 +485,29 @@ def generate_run_data(tier: int, min_wave: int, max_wave: int, start_date: datet
                 })
 
         # Build metrics bundle aligned with hook names
-        # Scale all metric values for INTEGER storage
+        # Store raw integer values without scaling
         metrics_data = {
-            "round_coins": int(coins_total * SCALING_FACTOR),
-            "wave_coins": int(wave_coins * SCALING_FACTOR),
-            "coins": int((coins_total * GEMS_TOTAL_MULTIPLIER + rng.uniform(0, GEMS_RANDOM_MAX)) * SCALING_FACTOR),
-            "gems": int(((gem_blocks_count * GEM_BLOCK_VALUE) + (ad_gems_count * AD_GEM_VALUE) + guardian_gems_value) * SCALING_FACTOR),
-            "round_cells": int(cells_total * SCALING_FACTOR),
-            "wave_cells": int(wave_cells * SCALING_FACTOR),
-            "cells": int((cells_total * CELLS_TOTAL_MULTIPLIER + rng.uniform(0, CELLS_RANDOM_MAX)) * SCALING_FACTOR),
-            "round_cash": int(cash_total * SCALING_FACTOR),
-            "cash": int((cash_total + rng.uniform(0, CASH_RANDOM_MAX)) * SCALING_FACTOR),
-            "stones": int(stones_total * SCALING_FACTOR),
-            "round_gems_from_blocks_count": int(gem_blocks_count * SCALING_FACTOR),
-            "round_gems_from_blocks_value": int((gem_blocks_count * GEM_BLOCK_VALUE) * SCALING_FACTOR),
-            "round_gems_from_ads_count": int(ad_gems_count * SCALING_FACTOR),
-            "round_gems_from_ads_value": int((ad_gems_count * AD_GEM_VALUE) * SCALING_FACTOR),
-            "round_gems_from_guardian": int(guardian_gems_value * SCALING_FACTOR),
+            "round_coins": int(coins_total),
+            "wave_coins": int(wave_coins),
+            "coins": int(coins_total * GEMS_TOTAL_MULTIPLIER + rng.uniform(0, GEMS_RANDOM_MAX)),
+            "gems": int((gem_blocks_count * GEM_BLOCK_VALUE) + (ad_gems_count * AD_GEM_VALUE) + guardian_gems_value),
+            "round_cells": int(cells_total),
+            "wave_cells": int(wave_cells),
+            "cells": int(cells_total * CELLS_TOTAL_MULTIPLIER + rng.uniform(0, CELLS_RANDOM_MAX)),
+            "round_cash": int(cash_total),
+            "cash": int(cash_total + rng.uniform(0, CASH_RANDOM_MAX)),
+            "stones": int(stones_total),
+            "round_gems_from_blocks_count": int(gem_blocks_count),
+            "round_gems_from_blocks_value": int(gem_blocks_count * GEM_BLOCK_VALUE),
+            "round_gems_from_ads_count": int(ad_gems_count),
+            "round_gems_from_ads_value": int(ad_gems_count * AD_GEM_VALUE),
+            "round_gems_from_guardian": int(guardian_gems_value),
         }
 
         metrics.append({
             "run_id": run_id,
             "real_timestamp": real_ts_ms,
-            "game_duration": game_ts_scaled,  # Use scaled duration in milliseconds
+            "game_duration": game_ts_ms,  # Duration in milliseconds
             "current_wave": wave,
             "metrics": metrics_data,
         })
@@ -557,12 +558,12 @@ def generate_run_data(tier: int, min_wave: int, max_wave: int, start_date: datet
         "game_version": game_version,
         "tier": tier,
         "final_wave": final_wave,
-        "round_coins": int(coins_earned * SCALING_FACTOR),  # Scale for INTEGER storage
+        "round_coins": int(coins_earned),  # Raw integer value
         "duration_realtime": duration_realtime,
-        "duration_gametime": int(duration_gametime * SCALING_FACTOR),  # Scale for INTEGER storage
-        "round_cells": int(cells_total * SCALING_FACTOR),  # Scale for INTEGER storage
-        "round_gems": int(((gem_blocks_count * GEM_BLOCK_VALUE) + (ad_gems_count * AD_GEM_VALUE) + guardian_gems_value) * SCALING_FACTOR),  # Scale for INTEGER storage
-        "round_cash": int(cash_total * SCALING_FACTOR),  # Scale for INTEGER storage
+        "duration_gametime": int(duration_gametime * 1000),  # Convert to milliseconds
+        "round_cells": int(cells_total),  # Raw integer value
+        "round_gems": int((gem_blocks_count * GEM_BLOCK_VALUE) + (ad_gems_count * AD_GEM_VALUE) + guardian_gems_value),  # Raw integer value
+        "round_cash": int(cash_total),  # Raw integer value
         "events": events,
         "metrics": metrics
     }

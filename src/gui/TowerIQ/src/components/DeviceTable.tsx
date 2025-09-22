@@ -9,7 +9,6 @@ import {
   Table,
   TableBody,
   TableCell,
-  TableContainer,
   TableHead,
   TableRow,
   Radio,
@@ -42,14 +41,7 @@ export function DeviceTable({
   getDeviceStatusTooltip
 }: DeviceTableProps) {
   return (
-    <TableContainer sx={{ 
-      maxHeight: 300,
-      borderRadius: 0.5,
-      border: 1,
-      borderColor: 'divider',
-      mt: 2,
-    }}>
-      <Table stickyHeader size="small">
+    <Table stickyHeader size="small">
         <TableHead>
           <TableRow>
             <TableCell>Select</TableCell>
@@ -145,6 +137,5 @@ export function DeviceTable({
           )}
         </TableBody>
       </Table>
-    </TableContainer>
   );
 }

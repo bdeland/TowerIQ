@@ -36,7 +36,17 @@ export function Header({
       position="fixed" 
       color="default"
       sx={{ 
-        ...layoutStyles.appBar, 
+        ...layoutStyles.appBar,
+        backgroundColor: '#181b1f !important',
+        backgroundImage: 'none !important', // Remove the Paper overlay that's covering our color
+        '&.MuiAppBar-root': {
+          backgroundColor: '#181b1f !important',
+          backgroundImage: 'none !important',
+        },
+        '&.MuiAppBar-colorDefault': {
+          backgroundColor: '#181b1f !important',
+          backgroundImage: 'none !important',
+        },
         borderLeft: sidebarDocked ? 'none' : layout.border, 
         borderRight: layout.border 
       }}>

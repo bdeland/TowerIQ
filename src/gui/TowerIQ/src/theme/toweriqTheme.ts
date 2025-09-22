@@ -400,31 +400,37 @@ const themeOptions: ThemeOptions = {
       },
     },
     
-    // AppBar styling - following Material-UI best practices
+    // AppBar styling - using object-based overrides for MUI v7 compatibility
     MuiAppBar: {
       styleOverrides: {
-        root: ({ theme }) => ({
-          backgroundColor: TOWERIQ_COLORS.navigation.headerBg,
+        root: {
+          backgroundColor: `${TOWERIQ_COLORS.navigation.headerBg} !important`,
+          backgroundImage: 'none !important', // Remove Paper overlay that covers background color
           boxShadow: 'none',
           borderColor: TOWERIQ_COLORS.borders.primary,
           // Override the default dark theme background specifically
           '&.MuiAppBar-colorPrimary': {
-            backgroundColor: TOWERIQ_COLORS.navigation.headerBg,
+            backgroundColor: `${TOWERIQ_COLORS.navigation.headerBg} !important`,
+            backgroundImage: 'none !important',
           },
           // Ensure it works for any color variant
           '&.MuiAppBar-colorDefault': {
-            backgroundColor: TOWERIQ_COLORS.navigation.headerBg,
+            backgroundColor: `${TOWERIQ_COLORS.navigation.headerBg} !important`,
+            backgroundImage: 'none !important',
           },
           '&.MuiAppBar-colorSecondary': {
-            backgroundColor: TOWERIQ_COLORS.navigation.headerBg,
+            backgroundColor: `${TOWERIQ_COLORS.navigation.headerBg} !important`,
+            backgroundImage: 'none !important',
           },
           '&.MuiAppBar-colorInherit': {
-            backgroundColor: TOWERIQ_COLORS.navigation.headerBg,
+            backgroundColor: `${TOWERIQ_COLORS.navigation.headerBg} !important`,
+            backgroundImage: 'none !important',
           },
           '&.MuiAppBar-colorTransparent': {
-            backgroundColor: TOWERIQ_COLORS.navigation.headerBg,
+            backgroundColor: `${TOWERIQ_COLORS.navigation.headerBg} !important`,
+            backgroundImage: 'none !important',
           },
-        }),
+        },
       },
     },
     
@@ -433,6 +439,7 @@ const themeOptions: ThemeOptions = {
       styleOverrides: {
         paper: {
           backgroundColor: `${TOWERIQ_COLORS.navigation.background} !important`, // Force override Material-UI defaults
+          backgroundImage: 'none !important', // Remove Paper overlay that covers background color
           borderColor: TOWERIQ_COLORS.borders.primary,
         },
       },
@@ -650,14 +657,13 @@ const themeOptions: ThemeOptions = {
   },
 };
 
-// Create and export the theme using proper composition as per MUI docs
-// First, create the base theme with palette and basic options
-let toweriqTheme = createTheme(themeOptions);
+// Create and export the theme - single creation to avoid composition issues
+const toweriqTheme = createTheme(themeOptions);
 
-// Then, compose additional theme options that depend on the base theme
-toweriqTheme = createTheme(toweriqTheme, {
-  // Additional theme composition can go here if needed
-  // This ensures proper theme inheritance and composition
+// Debug: Log theme creation
+console.log('TowerIQ Theme created:', {
+  headerBg: TOWERIQ_COLORS.navigation.headerBg,
+  appBarOverrides: toweriqTheme.components?.MuiAppBar?.styleOverrides?.root
 });
 
 // Export individual color and style constants for use in components

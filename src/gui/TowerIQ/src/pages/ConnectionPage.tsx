@@ -361,7 +361,6 @@ export function ConnectionPage() {
               ).length} of {processes.length} processes
             </Typography>
           }
-          sx={{ backgroundColor: 'background.default' }}
         >
           <ProcessTable
             processes={processes}
@@ -380,7 +379,6 @@ export function ConnectionPage() {
           onRefresh={handleRefreshDevices}
           refreshDisabled={devicesLoading}
           refreshSpinning={devicesLoading}
-          sx={{ backgroundColor: 'background.default' }}
         >
           <DeviceInformation selectedDevice={selectedDevice} />
         </SectionCard>
@@ -392,7 +390,6 @@ export function ConnectionPage() {
           onRefresh={() => selectedDevice && loadFridaStatus(selectedDevice.id)}
           refreshDisabled={!selectedDevice || fridaStatusLoading}
           refreshSpinning={fridaStatusLoading}
-          sx={{ backgroundColor: 'background.default' }}
         >
           <FridaServerControls
             selectedDevice={selectedDevice}
@@ -414,7 +411,6 @@ export function ConnectionPage() {
           onRefresh={handleRefreshDevices}
           refreshDisabled={isAdbRestarting}
           refreshSpinning={isAdbRestarting}
-          sx={{ backgroundColor: 'background.default' }}
         >
           <AdbServerControls
             adbStatus={adbStatus}
@@ -429,7 +425,6 @@ export function ConnectionPage() {
         <SectionCard
           title="Available Hook Scripts"
           infoTooltip="Hook scripts are JavaScript code that gets injected into the target application to monitor and intercept specific functions. These scripts can capture game data, modify behavior, or log events in real-time."
-          sx={{ backgroundColor: 'background.default' }}
         >
           <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
             Select a hook script to inject into the target application. Scripts are loaded from the scripts folder and contain metadata about their target application and supported versions.
