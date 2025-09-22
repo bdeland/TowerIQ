@@ -12,7 +12,12 @@ export function composeQuery(rawQuery: string, variables: Record<string, any>): 
     let tierClause = '';
     if (Array.isArray(tierValue) && tierValue.length > 0 && !tierValue.includes('all')) {
       const safeTiers = tierValue.map(t => typeof t === 'number' ? t : `'${String(t)}'`).join(',');
-      tierClause = `WHERE tier IN (${safeTiers})`;
+      // Check if there's already a WHERE clause in the query
+      if (finalQuery.toLowerCase().includes('where')) {
+        tierClause = `AND tier IN (${safeTiers})`;
+      } else {
+        tierClause = `WHERE tier IN (${safeTiers})`;
+      }
     }
     finalQuery = finalQuery.replace('${tier_filter}', tierClause);
   }

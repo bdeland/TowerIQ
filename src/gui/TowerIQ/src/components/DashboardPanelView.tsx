@@ -36,6 +36,7 @@ import ReactECharts from 'echarts-for-react';
 // Internal imports for dashboard context, navigation, and utilities
 import { DashboardPanel } from '../contexts/DashboardContext';
 import { useNavigate } from 'react-router-dom';
+import { useDashboardVariable } from '../contexts/DashboardVariableContext';
 import { applyTransformations } from '../services/transformationService';
 import { grafanaToECharts, mergeWithEChartsOption } from '../utils/grafanaToECharts';
 import { API_CONFIG } from '../config/environment';
@@ -1330,11 +1331,25 @@ const DashboardPanelViewComponent: React.FC<DashboardPanelViewProps> = ({
     const dashboardIndex = pathSegments.findIndex(segment => segment === 'dashboard' || segment === 'dashboards');
     const dashboardId = dashboardIndex !== -1 && pathSegments[dashboardIndex + 1] ? pathSegments[dashboardIndex + 1] : null;
     
+    // Get current dashboard variables if available
+    let variablesParam = '';
+    try {
+      // Try to access dashboard variables from context
+      const dashboardVariableContext = useDashboardVariable();
+      if (dashboardVariableContext.selectedValues) {
+        const variables = encodeURIComponent(JSON.stringify(dashboardVariableContext.selectedValues));
+        variablesParam = `?variables=${variables}`;
+      }
+    } catch (error) {
+      // Dashboard variable context not available, continue without variables
+      console.log('Dashboard variables not available for fullscreen view');
+    }
+    
     if (dashboardId) {
-      navigate(`/dashboard/${dashboardId}/panels/${panel.id}/view`);
+      navigate(`/dashboard/${dashboardId}/panels/${panel.id}/view${variablesParam}`);
     } else {
       // Fallback to old URL structure if dashboard ID not found
-      navigate(`/panels/${panel.id}/view`);
+      navigate(`/panels/${panel.id}/view${variablesParam}`);
     }
   };
 
@@ -1404,11 +1419,25 @@ const DashboardPanelViewComponent: React.FC<DashboardPanelViewProps> = ({
       const dashboardIndex = pathSegments.findIndex(segment => segment === 'dashboard' || segment === 'dashboards');
       const dashboardId = dashboardIndex !== -1 && pathSegments[dashboardIndex + 1] ? pathSegments[dashboardIndex + 1] : null;
       
+      // Get current dashboard variables if available
+      let variablesParam = '';
+      try {
+        // Try to access dashboard variables from context
+        const dashboardVariableContext = useDashboardVariable();
+        if (dashboardVariableContext.selectedValues) {
+          const variables = encodeURIComponent(JSON.stringify(dashboardVariableContext.selectedValues));
+          variablesParam = `?variables=${variables}`;
+        }
+      } catch (error) {
+        // Dashboard variable context not available, continue without variables
+        console.log('Dashboard variables not available for fullscreen view');
+      }
+      
       if (dashboardId) {
-        navigate(`/dashboard/${dashboardId}/panels/${panel.id}/view`);
+        navigate(`/dashboard/${dashboardId}/panels/${panel.id}/view${variablesParam}`);
       } else {
         // Fallback to old URL structure if dashboard ID not found
-        navigate(`/panels/${panel.id}/view`);
+        navigate(`/panels/${panel.id}/view${variablesParam}`);
       }
     }
   };

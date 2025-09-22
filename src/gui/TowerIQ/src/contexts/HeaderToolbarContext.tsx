@@ -55,6 +55,9 @@ export const HeaderToolbarProvider = ({ children }: { children: ReactNode }) => 
       });
     }
     
+    // Check if we're on a panel view page first (more specific condition)
+    const isPanelViewPage = pathname.includes('/panels/') && pathname.includes('/view');
+    
     if (pathname.startsWith('/dashboard/') || pathname.startsWith('/dashboards/')) {
       const dashboardId = params.id;
       
@@ -65,8 +68,9 @@ export const HeaderToolbarProvider = ({ children }: { children: ReactNode }) => 
           node: <DatabaseHealthToolbar key="database-health" />
         });
       }
-      // Dashboard variables for default dashboards with variables  
-      else if (currentDashboard?.is_default && currentDashboard?.variables && currentDashboard.variables.length > 0) {
+      // Dashboard variables for default dashboards with variables - but only if NOT on panel view page
+      // (panel view pages will handle their own variables below)
+      else if (!isPanelViewPage && currentDashboard?.is_default && currentDashboard?.variables && currentDashboard.variables.length > 0) {
         leftItems.push({
           id: 'dashboard-variables',
           node: <DashboardVariablesToolbar key="dashboard-variables" />
@@ -75,6 +79,17 @@ export const HeaderToolbarProvider = ({ children }: { children: ReactNode }) => 
       
       // Dashboard edit controls (this would need more context from DashboardEditContext)
       // We'll keep this simpler for now
+    }
+    
+    // Panel view pages - show dashboard variables if the panel belongs to a dashboard with variables
+    if (isPanelViewPage) {
+      // Show dashboard variables for any default dashboard with variables
+      if (currentDashboard?.is_default && currentDashboard?.variables && currentDashboard.variables.length > 0) {
+        leftItems.push({
+          id: 'dashboard-variables',
+          node: <DashboardVariablesToolbar key="dashboard-variables" />
+        });
+      }
     }
     
     return { secondaryLeft: leftItems, secondaryRight: rightItems };

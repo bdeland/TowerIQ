@@ -31,7 +31,7 @@ import { ConnectionPage } from './pages/ConnectionPage';
 import SplashScreen from './components/SplashScreen';
 import { Header } from './components/Header';
 import { Sidebar } from './components/Sidebar';
-import { DashboardProvider } from './contexts/DashboardContext';
+import { DashboardProvider, useDashboard } from './contexts/DashboardContext';
 import { DashboardEditProvider } from './contexts/DashboardEditContext';
 import { DashboardVariableProvider } from './contexts/DashboardVariableContext';
 import { DeveloperProvider } from './contexts/DeveloperContext';
@@ -72,15 +72,33 @@ const navigationItems = [
 ];
 
 // Main layout component with navigation
+// Component that determines if we need DashboardVariableProvider
+function DashboardVariableWrapper({ children }: { children: React.ReactNode }) {
+  const location = useLocation();
+  const { currentDashboard } = useDashboard();
+  
+  // Check if we're on a dashboard or panel view page that has variables
+  const needsVariableProvider = 
+    (location.pathname.startsWith('/dashboard/') && currentDashboard?.is_default && currentDashboard?.variables && currentDashboard.variables.length > 0) ||
+    (location.pathname.includes('/panels/') && location.pathname.includes('/view') && currentDashboard?.is_default && currentDashboard?.variables && currentDashboard.variables.length > 0);
+  
+  if (needsVariableProvider) {
+    return (
+      <DashboardVariableProvider>
+        {children}
+      </DashboardVariableProvider>
+    );
+  }
+  
+  return <>{children}</>;
+}
+
 function DashboardLayout() {
   // Updated state management according to requirements
   //TODO fix the stupid sidebar transition when undocking
   const [sidebarHidden, setSidebarHidden] = useState(true); // Manages the hidden state - default to hidden
   const [sidebarDocked, setSidebarDocked] = useState(false); // Manages the docked state
   const location = useLocation();
-  
-  // Check if we're viewing the default dashboard
-  const isDefaultDashboard = location.pathname === '/dashboard/default-dashboard';
   
   // Check if we're on the PanelEditPage to remove bottom padding
   const isPanelEditPage = location.pathname.includes('/dashboard/') && location.pathname.includes('/panels/') && location.pathname.includes('/edit');
@@ -244,16 +262,11 @@ function DashboardLayout() {
     </ThemeProvider>
   );
 
-  // Wrap with DashboardVariableProvider if viewing the default dashboard
-  if (isDefaultDashboard) {
-    return (
-      <DashboardVariableProvider>
-        {layoutContent}
-      </DashboardVariableProvider>
-    );
-  }
-
-  return layoutContent;
+  return (
+    <DashboardVariableWrapper>
+      {layoutContent}
+    </DashboardVariableWrapper>
+  );
 }
 
 function App() {
