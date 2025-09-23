@@ -57,6 +57,9 @@ export function ConnectionPage() {
     flowState,
     statusMessage,
     errorMessage,
+    setFlowState,
+    setStatusMessage,
+    setErrorMessage,
     handleStartMonitoring,
     handleStopMonitoring
   } = useConnectionFlow();
@@ -93,12 +96,13 @@ export function ConnectionPage() {
   // Connection state management
   const {
     selectedDevice,
+    setSelectedDevice,
     connectionStatus
   } = useConnectionState({ 
     devices, 
-    setFlowState: () => {}, // These are managed by useConnectionFlow now
-    setStatusMessage: () => {},
-    setErrorMessage: () => {}
+    setFlowState,
+    setStatusMessage,
+    setErrorMessage
   });
 
   // ============================================================================
@@ -122,14 +126,14 @@ export function ConnectionPage() {
       
       loadProcessesForDevice();
     }
-  }, [selectedDevice, getProcesses, setProcesses, setProcessesLoading]);
+  }, [selectedDevice?.id]); // Only depend on device ID, not the entire object or unstable functions
 
   // Load Frida status when device is selected
   useEffect(() => {
     if (selectedDevice) {
       loadFridaStatus(selectedDevice.id);
     }
-  }, [selectedDevice, loadFridaStatus]);
+  }, [selectedDevice?.id]); // Only depend on device ID, not the entire object or unstable functions
 
   // ============================================================================
   // EVENT HANDLERS - Simplified handlers using custom hooks
@@ -137,8 +141,8 @@ export function ConnectionPage() {
   
   // Handle device selection from the device table
   const handleDeviceSelection = (device: any) => {
-    // Device selection is now handled by useConnectionState
     console.log('Device selected:', device.id);
+    setSelectedDevice(device);
   };
 
   // Frida server operation handlers
@@ -147,6 +151,8 @@ export function ConnectionPage() {
       try {
         setFridaError(null);
         await provisionFridaServer(selectedDevice.id);
+        // Add a small delay to allow backend to update status
+        await new Promise(resolve => setTimeout(resolve, 1000));
         await loadFridaStatus(selectedDevice.id);
       } catch (err) {
         const errorMsg = err instanceof Error ? err.message : 'Unknown error';
@@ -160,6 +166,8 @@ export function ConnectionPage() {
       try {
         setFridaError(null);
         await startFridaServer(selectedDevice.id);
+        // Add a small delay to allow backend to update status
+        await new Promise(resolve => setTimeout(resolve, 1000));
         await loadFridaStatus(selectedDevice.id);
       } catch (err) {
         const errorMsg = err instanceof Error ? err.message : 'Unknown error';
@@ -173,6 +181,8 @@ export function ConnectionPage() {
       try {
         setFridaError(null);
         await stopFridaServer(selectedDevice.id);
+        // Add a small delay to allow backend to update status
+        await new Promise(resolve => setTimeout(resolve, 1000));
         await loadFridaStatus(selectedDevice.id);
       } catch (err) {
         const errorMsg = err instanceof Error ? err.message : 'Unknown error';
@@ -186,6 +196,8 @@ export function ConnectionPage() {
       try {
         setFridaError(null);
         await removeFridaServer(selectedDevice.id);
+        // Add a small delay to allow backend to update status
+        await new Promise(resolve => setTimeout(resolve, 1000));
         await loadFridaStatus(selectedDevice.id);
       } catch (err) {
         const errorMsg = err instanceof Error ? err.message : 'Unknown error';

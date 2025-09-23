@@ -192,9 +192,11 @@ export function useConnectionState({
         }
       }
     }
-    // Clear selected device if backend shows disconnected
-    else if (!status?.session.is_connected && !status?.session.current_device && selectedDevice) {
-      console.log('ConnectionPage: Clearing selected device due to disconnection');
+    // Only clear selected device if there's an actual disconnection error
+    // Don't clear on manual selection when backend isn't connected yet
+    else if (!status?.session.is_connected && !status?.session.current_device && selectedDevice && 
+             status?.session.connection_state === 'error') {
+      console.log('ConnectionPage: Clearing selected device due to connection error');
       setSelectedDevice(null);
     }
   }, [status?.session.is_connected, status?.session.current_device, devices, selectedDevice]);
