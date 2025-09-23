@@ -18,7 +18,11 @@ import {
   DialogContent,
   DialogActions,
   Button,
-  Tooltip
+  Tooltip,
+  Drawer,
+  Divider,
+  Paper,
+  Chip
 } from '@mui/material';
 // Material-UI icons for various actions (menu, fullscreen, edit, etc.)
 import { 
@@ -29,7 +33,9 @@ import {
   Fullscreen as FullscreenIcon,
   FullscreenExit as FullscreenExitIcon,
   ArrowBack as ArrowBackIcon,
-  SettingsBackupRestore as SettingsBackupRestoreIcon
+  SettingsBackupRestore as SettingsBackupRestoreIcon,
+  BugReport as BugReportIcon,
+  DataObject as DataObjectIcon
 } from '@mui/icons-material';
 // ECharts React wrapper for rendering charts
 import ReactECharts from 'echarts-for-react';
@@ -37,11 +43,16 @@ import ReactECharts from 'echarts-for-react';
 import { DashboardPanel } from '../contexts/DashboardContext';
 import { useNavigate } from 'react-router-dom';
 import { useDashboardVariable } from '../contexts/DashboardVariableContext';
+import { useDeveloper } from '../contexts/DeveloperContext';
 import { applyTransformations } from '../services/transformationService';
 import { grafanaToECharts, mergeWithEChartsOption } from '../utils/grafanaToECharts';
 import { API_CONFIG } from '../config/environment';
 import { getCategoricalColor } from '../utils/colorPalette';
 import { formatCurrency, formatNumber } from '../utils/formattingUtils';
+import { composeQuery } from '../utils/queryComposer';
+import { format } from 'sql-formatter';
+import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
+import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
 
 // ============================================================================
 // TYPE DEFINITIONS - Props and data structures
@@ -54,6 +65,7 @@ import { formatCurrency, formatNumber } from '../utils/formattingUtils';
 interface DashboardPanelViewProps {
   panel: DashboardPanel;                    // The panel configuration and data
   data?: any[];                            // Pre-fetched data to use instead of fetching
+  error?: string;                          // Error message from data fetching
   loading?: boolean;                       // External loading state from parent dashboard
   onClick?: () => void;                    // Callback when panel is clicked (edit mode)
   isEditMode?: boolean;                    // Whether panel is in edit mode
@@ -106,6 +118,7 @@ const getTierColor = (tier: number, availableTiers: number[]): string => {
 const DashboardPanelViewComponent: React.FC<DashboardPanelViewProps> = ({ 
   panel, 
   data,
+  error: externalError,
   loading: externalLoading = false,
   onClick, 
   isEditMode = false,
@@ -121,6 +134,7 @@ const DashboardPanelViewComponent: React.FC<DashboardPanelViewProps> = ({
   // ============================================================================
   
   const navigate = useNavigate(); // React Router navigation hook
+  const { isDevMode } = useDeveloper(); // Developer mode context
   
   // Core data and loading states
   const [queryResult, setQueryResult] = useState<QueryResult>({ data: [] }); // Query results from backend
@@ -153,6 +167,7 @@ const DashboardPanelViewComponent: React.FC<DashboardPanelViewProps> = ({
   // UI interaction states
   const [menuOpen, setMenuOpen] = useState(false); // Context menu visibility
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false); // Delete confirmation dialog
+  const [debugDrawerOpen, setDebugDrawerOpen] = useState(false); // Debug drawer visibility
   
   // Drilldown functionality states
   const [isDrilldown, setIsDrilldown] = useState(false); // Whether currently in drilldown mode
@@ -804,11 +819,13 @@ const DashboardPanelViewComponent: React.FC<DashboardPanelViewProps> = ({
       const columns = Object.keys(firstRow);
       
       // Debug logging
-      console.log('Chart data structure:', {
-        firstRow,
-        columns,
-        dataLength: data.length
-      });
+      if (import.meta.env.DEV) {
+        console.log('Chart data structure:', {
+          firstRow,
+          columns,
+          dataLength: data.length
+        });
+      }
       
       // Try to find appropriate columns for different chart types
       const mapping: any = {};
@@ -839,7 +856,9 @@ const DashboardPanelViewComponent: React.FC<DashboardPanelViewProps> = ({
         mapping.label = mapping.xAxis;
       }
       
-      console.log('Column mapping:', mapping);
+      if (import.meta.env.DEV) {
+        console.log('Column mapping:', mapping);
+      }
       
       return mapping;
     };
@@ -982,11 +1001,17 @@ const DashboardPanelViewComponent: React.FC<DashboardPanelViewProps> = ({
       case 'treemap': {
         // TREEMAP PANEL: Hierarchical data visualization with nested rectangles
         const mapping = getColumnMapping(queryResult.data);
-        console.log('🌳 Processing treemap data:', queryResult.data);
-        console.log('🌳 Column mapping:', mapping);
+        if (import.meta.env.DEV) {
+          console.log('🌳 Processing treemap data:', queryResult.data);
+        }
+        if (import.meta.env.DEV) {
+          console.log('🌳 Column mapping:', mapping);
+        }
         
         if (!queryResult.data || queryResult.data.length === 0) {
-          console.log('🌳 No data available for treemap');
+          if (import.meta.env.DEV) {
+            console.log('🌳 No data available for treemap');
+          }
           return {
             ...baseOption,
             series: [{
@@ -1002,14 +1027,16 @@ const DashboardPanelViewComponent: React.FC<DashboardPanelViewProps> = ({
         const treemapData = queryResult.data.map(row => {
           const name = row[mapping.label] || row[mapping.xAxis] || 'Unknown';
           const value = Number(row[mapping.yAxis]) || 0;
-          console.log('🌳 Processing row:', { name, value, originalRow: row });
+          // Row processing happens silently unless in dev mode
           return {
             name: name,
             value: value
           };
         }).filter(item => item.value > 0); // Filter out zero values
         
-        console.log('🌳 Processed treemap data:', treemapData);
+        if (import.meta.env.DEV) {
+          console.log('🌳 Processed treemap data:', treemapData);
+        }
         
         return {
           ...baseOption,
@@ -1023,7 +1050,9 @@ const DashboardPanelViewComponent: React.FC<DashboardPanelViewProps> = ({
 
       case 'calendar': {
         // CALENDAR PANEL: Heatmap showing data over calendar dates (supports hierarchical drilldown)
-        console.log('📅 Processing calendar data:', queryResult.data);
+        if (import.meta.env.DEV) {
+          console.log('📅 Processing calendar data:', queryResult.data);
+        }
         
         // Check if we're in calendar drilldown mode and if it's the final level (day -> hourly bar chart)
         if (isDrilldown && panel.echartsOption.drilldown?.type === 'calendar_hierarchical') {
@@ -1078,7 +1107,9 @@ const DashboardPanelViewComponent: React.FC<DashboardPanelViewProps> = ({
         const dataToProcess = isDrilldown && drilldownData.length > 0 ? drilldownData : queryResult.data;
         
         if (!dataToProcess || dataToProcess.length === 0) {
-          console.log('📅 No data available for calendar');
+          if (import.meta.env.DEV) {
+            console.log('📅 No data available for calendar');
+          }
           return {
             ...baseOption,
             calendar: {
@@ -1100,8 +1131,10 @@ const DashboardPanelViewComponent: React.FC<DashboardPanelViewProps> = ({
         }
         
         const mapping = getColumnMapping(dataToProcess);
-        console.log('📅 Column mapping:', mapping);
-        console.log('📅 Sample data row:', dataToProcess[0]);
+        if (import.meta.env.DEV) {
+          console.log('📅 Column mapping:', mapping);
+          console.log('📅 Sample data row:', dataToProcess[0]);
+        }
         
         // Calendar data should be in format [[date, value], [date, value], ...]
         const calendarData = dataToProcess
@@ -1110,14 +1143,17 @@ const DashboardPanelViewComponent: React.FC<DashboardPanelViewProps> = ({
             // Ensure date is in YYYY-MM-DD format
             const dateStr = row[mapping.xAxis];
             const value = Number(row[mapping.yAxis]) || 0;
-            console.log('📅 Processing row:', { date: dateStr, value });
             return [dateStr, value];
           });
         
-        console.log('📅 Processed calendar data:', calendarData);
+        if (import.meta.env.DEV) {
+          console.log('📅 Processed calendar data:', calendarData);
+        }
         
         if (calendarData.length === 0) {
-          console.log('📅 No valid data points after processing');
+          if (import.meta.env.DEV) {
+            console.log('📅 No valid data points after processing');
+          }
           return {
             ...baseOption,
             calendar: {
@@ -1143,7 +1179,9 @@ const DashboardPanelViewComponent: React.FC<DashboardPanelViewProps> = ({
         const validDates = dates.filter(d => !isNaN(d.getTime()));
         
         if (validDates.length === 0) {
-          console.log('📅 No valid dates found');
+          if (import.meta.env.DEV) {
+            console.log('📅 No valid dates found');
+          }
           return {
             ...baseOption,
             calendar: {
@@ -1200,12 +1238,14 @@ const DashboardPanelViewComponent: React.FC<DashboardPanelViewProps> = ({
             : [minDate.getFullYear(), maxDate.getFullYear()];
         }
         
-        console.log('📅 Final configuration:', {
-          dateRange: calendarRange,
-          valueRange: [minValue, maxValue],
-          dataPoints: calendarData.length,
-          drilldownLevel: calendarDrilldownLevel
-        });
+        if (import.meta.env.DEV) {
+          console.log('📅 Final configuration:', {
+            dateRange: calendarRange,
+            valueRange: [minValue, maxValue],
+            dataPoints: calendarData.length,
+            drilldownLevel: calendarDrilldownLevel
+          });
+        }
         
         return {
           ...baseOption,
@@ -1424,6 +1464,20 @@ const DashboardPanelViewComponent: React.FC<DashboardPanelViewProps> = ({
    */
   const handleDeleteCancel = () => {
     setDeleteDialogOpen(false);
+  };
+
+  /**
+   * Handles opening the debug drawer
+   */
+  const handleDebugClick = () => {
+    setDebugDrawerOpen(true);
+  };
+
+  /**
+   * Handles closing the debug drawer
+   */
+  const handleDebugDrawerClose = () => {
+    setDebugDrawerOpen(false);
   };
 
   /**
@@ -1677,7 +1731,7 @@ const DashboardPanelViewComponent: React.FC<DashboardPanelViewProps> = ({
             color: 'text.secondary',
             borderRadius: 0.25,
             ml: 'auto', // Push to the right
-            mr: showFullscreen ? 0.5 : 0, // Small margin if fullscreen button follows
+            mr: (isDevMode || showFullscreen) ? 0.5 : 0, // Small margin if debug or fullscreen button follows
             '&:hover': {
               backgroundColor: 'action.hover',
               color: 'text.primary'
@@ -1685,6 +1739,28 @@ const DashboardPanelViewComponent: React.FC<DashboardPanelViewProps> = ({
           }}
         >
           <SettingsBackupRestoreIcon fontSize="small" />
+        </IconButton>
+      )}
+      
+      {/* Debug button - only show in development mode */}
+      {isDevMode && (
+        <IconButton
+          size="small"
+          onClick={handleDebugClick}
+          aria-label="Debug panel"
+          sx={{ 
+            padding: '4px',
+            color: 'text.secondary',
+            borderRadius: 0.25,
+            ml: (!isDrilldown || !isChartModified) ? 'auto' : 0, // Push to the right if no reset button
+            mr: showFullscreen ? 0.5 : 0, // Small margin if fullscreen button follows
+            '&:hover': {
+              backgroundColor: 'action.hover',
+              color: 'text.primary'
+            }
+          }}
+        >
+          <BugReportIcon fontSize="small" />
         </IconButton>
       )}
       
@@ -1839,6 +1915,314 @@ const DashboardPanelViewComponent: React.FC<DashboardPanelViewProps> = ({
   );
 
   /**
+   * Debug Drawer Component
+   * Shows query transformation information and panel debug details
+   * Only visible in development mode
+   */
+  const DebugDrawer = () => {
+    // Get dashboard variables for query transformation
+    let selectedValues = {};
+    try {
+      const dashboardVariableContext = useDashboardVariable();
+      selectedValues = dashboardVariableContext.selectedValues;
+    } catch (error) {
+      // Dashboard variable context not available, use empty values
+      selectedValues = {};
+    }
+
+    // Transform the query to show the difference
+    const originalQuery = panel.query || '';
+    const transformedQuery = originalQuery ? composeQuery(originalQuery, selectedValues) : '';
+
+    // Debug logging
+    if (import.meta.env.DEV) {
+      console.log('Debug drawer - Panel query info:', {
+        panelId: panel.id,
+        hasQuery: !!panel.query,
+        queryLength: originalQuery.length,
+        queryPreview: originalQuery.substring(0, 100),
+        transformedLength: transformedQuery.length
+      });
+    }
+
+    // Helper function to format SQL queries
+    const formatSqlQuery = (query: string): string => {
+      if (!query.trim()) return query;
+      
+      try {
+        // First, temporarily replace placeholders to make the query parseable
+        let tempQuery = query;
+        const placeholders: { [key: string]: string } = {};
+        
+        // Find and replace placeholders like ${variable_name}
+        const placeholderMatches = query.match(/\$\{[^}]+\}/g) || [];
+        placeholderMatches.forEach((placeholder, index) => {
+          const tempReplacement = `PLACEHOLDER_${index}`;
+          placeholders[tempReplacement] = placeholder;
+          tempQuery = tempQuery.replace(placeholder, tempReplacement);
+        });
+        
+        // Format the query with SQLite dialect
+        const formatted = format(tempQuery, {
+          language: 'sqlite',
+          keywordCase: 'upper',
+          linesBetweenQueries: 2,
+          indentStyle: 'standard'
+        });
+        
+        // Restore the original placeholders
+        let finalQuery = formatted;
+        Object.entries(placeholders).forEach(([temp, original]) => {
+          finalQuery = finalQuery.replace(new RegExp(temp, 'g'), original);
+        });
+        
+        if (import.meta.env.DEV) {
+          console.log('SQL formatted successfully for panel:', panel.id);
+        }
+        return finalQuery;
+      } catch (error) {
+        // If formatting fails, return original query with basic cleanup
+        console.warn('SQL formatting failed for panel:', panel.id, 'Error:', error);
+        // At least provide basic indentation cleanup
+        return query
+          .replace(/\s+/g, ' ') // Replace multiple spaces with single space
+          .replace(/,\s*/g, ',\n    ') // Add line breaks after commas
+          .replace(/\bFROM\b/gi, '\nFROM')
+          .replace(/\bWHERE\b/gi, '\nWHERE')
+          .replace(/\bORDER BY\b/gi, '\nORDER BY')
+          .replace(/\bGROUP BY\b/gi, '\nGROUP BY')
+          .replace(/\bHAVING\b/gi, '\nHAVING')
+          .trim();
+      }
+    };
+
+    return (
+      <Drawer
+        anchor="right"
+        open={debugDrawerOpen}
+        onClose={handleDebugDrawerClose}
+        sx={{
+          '& .MuiDrawer-paper': {
+            width: 500,
+            padding: 2,
+            backgroundColor: 'background.paper'
+          }
+        }}
+      >
+        <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+          {/* Header */}
+          <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
+            <BugReportIcon sx={{ mr: 1, color: 'primary.main' }} />
+            <Typography variant="h6" component="h2">
+              Panel Debug Information
+            </Typography>
+          </Box>
+          
+          <Divider sx={{ mb: 2 }} />
+
+          {/* Panel Information */}
+          <Box sx={{ mb: 3 }}>
+            <Typography variant="subtitle1" sx={{ fontWeight: 600, mb: 1 }}>
+              Panel Details
+            </Typography>
+            <Paper sx={{ p: 2, backgroundColor: 'background.default', border: '1px solid', borderColor: 'divider' }}>
+              <Typography variant="body2" sx={{ mb: 1, color: 'text.primary' }}>
+                <strong>ID:</strong> {panel.id}
+              </Typography>
+              <Typography variant="body2" sx={{ mb: 1, color: 'text.primary' }}>
+                <strong>Title:</strong> {panel.title}
+              </Typography>
+              <Typography variant="body2" sx={{ mb: 1, color: 'text.primary' }}>
+                <strong>Type:</strong> {panel.type}
+              </Typography>
+              {panel.columnMapping && (
+                <Typography variant="body2" sx={{ color: 'text.primary' }}>
+                  <strong>Column Mapping:</strong> {JSON.stringify(panel.columnMapping, null, 2)}
+                </Typography>
+              )}
+            </Paper>
+          </Box>
+
+          {/* Query Transformation */}
+          <Box sx={{ mb: 3 }}>
+            <Typography variant="subtitle1" sx={{ fontWeight: 600, mb: 1 }}>
+              Query Transformation
+            </Typography>
+            
+            {/* Variables */}
+            {Object.keys(selectedValues).length > 0 && (
+              <Box sx={{ mb: 2 }}>
+                <Typography variant="body2" sx={{ fontWeight: 500, mb: 1 }}>
+                  Variables:
+                </Typography>
+                <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
+                  {Object.entries(selectedValues).map(([key, value]) => (
+                    <Box
+                      key={key}
+                      sx={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        backgroundColor: '#e06339',
+                        color: 'white',
+                        borderRadius: '16px',
+                        padding: '4px 12px',
+                        fontSize: '0.8125rem',
+                        fontWeight: 500,
+                        gap: 1
+                      }}
+                    >
+                      {/* Icon */}
+                      <DataObjectIcon sx={{ fontSize: '14px', color: 'white' }} />
+                      
+                      {/* Vertical divider */}
+                      <Box
+                        sx={{
+                          width: '1px',
+                          height: '16px',
+                          backgroundColor: 'rgba(255, 255, 255, 0.3)',
+                          flexShrink: 0
+                        }}
+                      />
+                      
+                      {/* Variable name */}
+                      <Typography
+                        variant="body2"
+                        sx={{
+                          color: 'white',
+                          fontSize: 'inherit',
+                          fontWeight: 'inherit',
+                          lineHeight: 1
+                        }}
+                      >
+                        {key}
+                      </Typography>
+                    </Box>
+                  ))}
+                </Box>
+              </Box>
+            )}
+
+            {/* Original Query */}
+            <Box sx={{ mb: 2 }}>
+              <Typography variant="body2" sx={{ fontWeight: 500, mb: 1 }}>
+                Original Query:
+              </Typography>
+              <Paper 
+                sx={{ 
+                  p: 0, 
+                  backgroundColor: 'background.default',
+                  overflow: 'auto',
+                  border: '1px solid',
+                  borderColor: 'divider'
+                }}
+              >
+                {originalQuery.trim() ? (
+                  <SyntaxHighlighter
+                    language="sql"
+                    style={vscDarkPlus}
+                    customStyle={{
+                      margin: 0,
+                      padding: '16px',
+                      backgroundColor: 'transparent',
+                      fontSize: '0.875rem'
+                    }}
+                    wrapLongLines={true}
+                  >
+                    {formatSqlQuery(originalQuery)}
+                  </SyntaxHighlighter>
+                ) : (
+                  <Box sx={{ p: 2, color: 'text.secondary', fontStyle: 'italic' }}>
+                    No query defined
+                  </Box>
+                )}
+              </Paper>
+            </Box>
+
+            {/* Transformed Query */}
+            {originalQuery && (
+              <Box sx={{ mb: 2 }}>
+                <Typography variant="body2" sx={{ fontWeight: 500, mb: 1 }}>
+                  Transformed Query:
+                </Typography>
+                <Paper 
+                  sx={{ 
+                    p: 0, 
+                    backgroundColor: 'background.default',
+                    overflow: 'auto',
+                    border: '1px solid',
+                    borderColor: 'divider'
+                  }}
+                >
+                  <SyntaxHighlighter
+                    language="sql"
+                    style={vscDarkPlus}
+                    customStyle={{
+                      margin: 0,
+                      padding: '16px',
+                      backgroundColor: 'transparent',
+                      fontSize: '0.875rem'
+                    }}
+                    wrapLongLines={true}
+                  >
+                    {formatSqlQuery(transformedQuery)}
+                  </SyntaxHighlighter>
+                </Paper>
+              </Box>
+            )}
+          </Box>
+
+          {/* Data Information */}
+          <Box sx={{ mb: 3 }}>
+            <Typography variant="subtitle1" sx={{ fontWeight: 600, mb: 1 }}>
+              Data Information
+            </Typography>
+            <Paper sx={{ p: 2, backgroundColor: 'background.default', border: '1px solid', borderColor: 'divider' }}>
+              {loading ? (
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
+                  <CircularProgress size={16} />
+                  <Typography variant="body2" sx={{ color: 'text.primary' }}>
+                    <strong>Loading data...</strong>
+                  </Typography>
+                </Box>
+              ) : (
+                <>
+                  <Typography variant="body2" sx={{ mb: 1, color: 'text.primary' }}>
+                    <strong>Rows:</strong> {queryResult.data?.length || 0}
+                  </Typography>
+                  {queryResult.data?.length > 0 && (
+                    <Typography variant="body2" sx={{ mb: 1, color: 'text.primary' }}>
+                      <strong>Columns:</strong> {Object.keys(queryResult.data[0]).join(', ')}
+                    </Typography>
+                  )}
+                </>
+              )}
+              <Typography variant="body2" sx={{ color: 'text.primary' }}>
+                <strong>Status:</strong> {loading ? 'Loading...' : 'Ready'}
+              </Typography>
+              {error && (
+                <Typography variant="body2" sx={{ color: 'error.main' }}>
+                  <strong>Error:</strong> {error}
+                </Typography>
+              )}
+            </Paper>
+          </Box>
+
+          {/* Close button */}
+          <Box sx={{ mt: 'auto', pt: 2 }}>
+            <Button 
+              variant="contained" 
+              onClick={handleDebugDrawerClose}
+              fullWidth
+            >
+              Close
+            </Button>
+          </Box>
+        </Box>
+      </Drawer>
+    );
+  };
+
+  /**
    * Renders panel content based on type and state
    * Handles loading states, errors, and different chart types
    * Returns appropriate UI for tables vs charts
@@ -1846,11 +2230,28 @@ const DashboardPanelViewComponent: React.FC<DashboardPanelViewProps> = ({
   const renderPanelContent = () => {
     // Loading state is now handled with overlay instead of replacing content
     
-    if (error) {
+    // Check for external error first, then internal error
+    const displayError = externalError || error;
+    if (displayError) {
       return (
-        <Box p={2}>
-          <Alert severity="error">
-            {error}
+        <Box p={2} display="flex" justifyContent="center" alignItems="center" height="100%">
+          <Alert 
+            severity="error" 
+            sx={{ 
+              width: '100%', 
+              maxWidth: '400px',
+              '& .MuiAlert-message': {
+                fontSize: '0.875rem',
+                lineHeight: 1.4
+              }
+            }}
+          >
+            <strong>Failed to load data</strong>
+            <br />
+            {displayError.includes('CORS') 
+              ? 'Backend server is not running. Please start the server using start_toweriq.py'
+              : displayError
+            }
           </Alert>
         </Box>
       );
@@ -2002,6 +2403,7 @@ const DashboardPanelViewComponent: React.FC<DashboardPanelViewProps> = ({
       </Box>
 
       <ContextMenu />
+      <DebugDrawer />
     </Box>
   );
 };

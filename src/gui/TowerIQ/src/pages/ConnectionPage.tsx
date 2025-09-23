@@ -10,7 +10,7 @@
  * - Connection flow orchestration
  */
 
-import React, { useEffect } from 'react';
+import React, { useEffect, useCallback } from 'react';
 import {
   Box,
   Button,
@@ -44,7 +44,6 @@ export function ConnectionPage() {
   
   // Backend API hook
   const { 
-    loading, 
     provisionFridaServer,
     startFridaServer,
     stopFridaServer,
@@ -70,13 +69,11 @@ export function ConnectionPage() {
     processes,
     hookScripts,
     selectedHookScript,
-    scriptStatus,
     fridaStatus,
     adbStatus,
     processSearchTerm,
     devicesLoading,
     processesLoading,
-    scriptStatusLoading,
     fridaStatusLoading,
     isAdbRestarting,
     fridaError,
@@ -96,8 +93,7 @@ export function ConnectionPage() {
   // Connection state management
   const {
     selectedDevice,
-    setSelectedDevice,
-    connectionStatus
+    setSelectedDevice
   } = useConnectionState({ 
     devices, 
     setFlowState,
@@ -106,34 +102,54 @@ export function ConnectionPage() {
   });
 
   // ============================================================================
+  // UTILITY FUNCTIONS
+  // ============================================================================
+  
+  // Standardized error handling utility
+  // Extracts error message from various error types consistently
+  const getErrorMessage = useCallback((err: unknown, defaultMessage: string): string => {
+    if (err instanceof Error) {
+      return err.message;
+    }
+    if (typeof err === 'string') {
+      return err;
+    }
+    return defaultMessage;
+  }, []);
+
+  // ============================================================================
   // EFFECTS - Simplified effects for specific functionality
   // ============================================================================
+  
+  // Reusable function for loading processes
+  const loadProcessesForDevice = useCallback(async (deviceId: string) => {
+    try {
+      setProcessesLoading(true);
+      const processList = await getProcesses(deviceId);
+      setProcesses(processList);
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 
+                          typeof err === 'string' ? err : 
+                          'Failed to load processes for device';
+      console.error(errorMessage, err);
+    } finally {
+      setProcessesLoading(false);
+    }
+  }, [getProcesses, setProcesses, setProcessesLoading]);
   
   // Load processes when device becomes connected
   useEffect(() => {
     if (selectedDevice) {
-      const loadProcessesForDevice = async () => {
-        try {
-          setProcessesLoading(true);
-          const processList = await getProcesses(selectedDevice.id);
-          setProcesses(processList);
-        } catch (err) {
-          console.error('Failed to load processes for device:', err);
-        } finally {
-          setProcessesLoading(false);
-        }
-      };
-      
-      loadProcessesForDevice();
+      loadProcessesForDevice(selectedDevice.id);
     }
-  }, [selectedDevice?.id]); // Only depend on device ID, not the entire object or unstable functions
+  }, [selectedDevice?.id]); // Only depend on device ID to prevent constant re-renders
 
   // Load Frida status when device is selected
   useEffect(() => {
     if (selectedDevice) {
       loadFridaStatus(selectedDevice.id);
     }
-  }, [selectedDevice?.id]); // Only depend on device ID, not the entire object or unstable functions
+  }, [selectedDevice?.id]); // Only depend on device ID to prevent constant re-renders
 
   // ============================================================================
   // EVENT HANDLERS - Simplified handlers using custom hooks
@@ -155,7 +171,9 @@ export function ConnectionPage() {
         await new Promise(resolve => setTimeout(resolve, 1000));
         await loadFridaStatus(selectedDevice.id);
       } catch (err) {
-        const errorMsg = err instanceof Error ? err.message : 'Unknown error';
+        const errorMsg = err instanceof Error ? err.message : 
+                        typeof err === 'string' ? err : 
+                        'Unknown error';
         setFridaError(`Failed to provision Frida server: ${errorMsg}`);
       }
     }
@@ -170,7 +188,9 @@ export function ConnectionPage() {
         await new Promise(resolve => setTimeout(resolve, 1000));
         await loadFridaStatus(selectedDevice.id);
       } catch (err) {
-        const errorMsg = err instanceof Error ? err.message : 'Unknown error';
+        const errorMsg = err instanceof Error ? err.message : 
+                        typeof err === 'string' ? err : 
+                        'Unknown error';
         setFridaError(`Failed to start Frida server: ${errorMsg}`);
       }
     }
@@ -185,7 +205,9 @@ export function ConnectionPage() {
         await new Promise(resolve => setTimeout(resolve, 1000));
         await loadFridaStatus(selectedDevice.id);
       } catch (err) {
-        const errorMsg = err instanceof Error ? err.message : 'Unknown error';
+        const errorMsg = err instanceof Error ? err.message : 
+                        typeof err === 'string' ? err : 
+                        'Unknown error';
         setFridaError(`Failed to stop Frida server: ${errorMsg}`);
       }
     }
@@ -200,7 +222,9 @@ export function ConnectionPage() {
         await new Promise(resolve => setTimeout(resolve, 1000));
         await loadFridaStatus(selectedDevice.id);
       } catch (err) {
-        const errorMsg = err instanceof Error ? err.message : 'Unknown error';
+        const errorMsg = err instanceof Error ? err.message : 
+                        typeof err === 'string' ? err : 
+                        'Unknown error';
         setFridaError(`Failed to remove Frida server: ${errorMsg}`);
       }
     }
@@ -349,19 +373,7 @@ export function ConnectionPage() {
         {/* PROCESS SELECTION SECTION */}
         <SectionCard
           title="Available Processes"
-          onRefresh={async () => {
-            if (selectedDevice) {
-              try {
-                setProcessesLoading(true);
-                const processList = await getProcesses(selectedDevice.id);
-                setProcesses(processList);
-              } catch (err) {
-                console.error('Failed to load processes:', err);
-              } finally {
-                setProcessesLoading(false);
-              }
-            }
-          }}
+          onRefresh={() => selectedDevice && loadProcessesForDevice(selectedDevice.id)}
           refreshDisabled={!selectedDevice || processesLoading}
           refreshSpinning={processesLoading}
           additionalHeaderItems={
@@ -403,12 +415,12 @@ export function ConnectionPage() {
           refreshDisabled={!selectedDevice || fridaStatusLoading}
           refreshSpinning={fridaStatusLoading}
         >
+          {/* FridaServerControls - loading state now derived from session */}
           <FridaServerControls
             selectedDevice={selectedDevice}
             fridaStatus={fridaStatus}
             fridaStatusLoading={fridaStatusLoading}
             fridaError={fridaError}
-            loading={loading}
             onProvisionFrida={handleProvisionFrida}
             onStartFrida={handleStartFrida}
             onStopFrida={handleStopFrida}

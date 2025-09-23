@@ -50,11 +50,11 @@ export class DashboardDataService {
   
   constructor(config?: Partial<DashboardDataServiceConfig>) {
     this.config = {
-      batchSize: 6,
+      batchSize: 1, // Load panels one by one to prevent one bad panel from blocking others
       delayBetweenRequests: 100,
-      delayBetweenBatches: 200,
+      delayBetweenBatches: 300, // Slightly longer delay between individual panels
       cacheTTL: 5 * 60 * 1000, // 5 minutes
-      maxRetries: 3,
+      maxRetries: 1, // Only try once, no retries to prevent infinite loading loops
       retryDelay: 1000,
       ...config
     };
@@ -75,13 +75,18 @@ export class DashboardDataService {
     // Check cache first
     const cached = this.cache.get(cacheKey);
     if (cached && this.isCacheValid(cached)) {
-      console.log(`DashboardDataService: Cache hit for panel ${panelId}`);
+      // Only log cache hits in development mode
+      if (import.meta.env.DEV) {
+        console.log(`DashboardDataService: Cache hit for panel ${panelId}`);
+      }
       return { ...cached, cacheHit: true };
     }
     
     // Check for pending request (deduplication)
     if (this.pendingRequests.has(cacheKey)) {
-      console.log(`DashboardDataService: Deduplicating request for panel ${panelId}`);
+      if (import.meta.env.DEV) {
+        console.log(`DashboardDataService: Deduplicating request for panel ${panelId}`);
+      }
       return this.pendingRequests.get(cacheKey)!;
     }
     
@@ -99,7 +104,39 @@ export class DashboardDataService {
   }
   
   /**
-   * Fetch data for all panels in a dashboard with batching
+   * Fetch data for a single panel individually (for better error isolation)
+   */
+  async fetchSinglePanel(
+    panel: DashboardPanel,
+    variables: Record<string, any> = {}
+  ): Promise<PanelDataResult> {
+    if (!panel.query) {
+      return {
+        data: [],
+        loading: false,
+        error: 'No query defined for panel',
+        timestamp: Date.now(),
+        cacheHit: false
+      };
+    }
+    
+    try {
+      return await this.fetchPanelData(panel.id, panel.query, variables);
+    } catch (error) {
+      console.error(`DashboardDataService: Error fetching single panel ${panel.id}:`, error);
+      return {
+        data: [],
+        loading: false,
+        error: error instanceof Error ? error.message : 'Unknown error',
+        timestamp: Date.now(),
+        cacheHit: false
+      };
+    }
+  }
+
+  /**
+   * Fetch data for all panels in a dashboard with sequential loading
+   * This prevents one bad panel from blocking others and allows better error isolation
    */
   async fetchAllPanels(
     panels: DashboardPanel[], 
@@ -108,105 +145,145 @@ export class DashboardDataService {
     const results = new Map<string, PanelDataResult>();
     const panelsWithQueries = panels.filter(panel => panel.query);
     
-    console.log(`DashboardDataService: Fetching data for ${panelsWithQueries.length} panels`);
+    if (import.meta.env.DEV) {
+      console.log(`DashboardDataService: Fetching data sequentially for ${panelsWithQueries.length} panels`);
+    }
     
-    // Process panels in batches
-    for (let i = 0; i < panelsWithQueries.length; i += this.config.batchSize) {
-      const batch = panelsWithQueries.slice(i, i + this.config.batchSize);
+    // Process panels one by one for better error isolation
+    for (let i = 0; i < panelsWithQueries.length; i++) {
+      const panel = panelsWithQueries[i];
       
-      // Fetch all panels in the batch concurrently
-      const batchPromises = batch.map(panel => 
-        this.fetchPanelData(panel.id, panel.query!, variables)
-          .then(result => ({ panelId: panel.id, result }))
-          .catch(error => ({ 
-            panelId: panel.id, 
-            result: { 
-              data: [], 
-              loading: false, 
-              error: error.message, 
-              timestamp: Date.now(), 
-              cacheHit: false 
-            } 
-          }))
-      );
-      
-      const batchResults = await Promise.all(batchPromises);
-      
-      // Store results
-      batchResults.forEach(({ panelId, result }) => {
-        results.set(panelId, result);
-      });
-      
-      // Delay between batches (except for the last batch)
-      if (i + this.config.batchSize < panelsWithQueries.length) {
-        await this.delay(this.config.delayBetweenBatches);
+      try {
+        if (import.meta.env.DEV) {
+          console.log(`DashboardDataService: Fetching panel ${i + 1}/${panelsWithQueries.length}: ${panel.id}`);
+        }
+        
+        const result = await this.fetchPanelData(panel.id, panel.query!, variables);
+        results.set(panel.id, result);
+        
+        // Small delay between panels to prevent overwhelming the server
+        if (i < panelsWithQueries.length - 1) {
+          await this.delay(this.config.delayBetweenBatches);
+        }
+        
+      } catch (error) {
+        console.error(`DashboardDataService: Error fetching panel ${panel.id}:`, error);
+        
+        // Store error result for this panel, but continue with others
+        results.set(panel.id, {
+          data: [],
+          loading: false,
+          error: error instanceof Error ? error.message : 'Unknown error',
+          timestamp: Date.now(),
+          cacheHit: false
+        });
       }
+    }
+    
+    if (import.meta.env.DEV) {
+      const errorCount = Array.from(results.values()).filter(r => r.error).length;
+      const successCount = results.size - errorCount;
+      console.log(`DashboardDataService: Completed loading ${results.size} panels (${successCount} success, ${errorCount} errors)`);
     }
     
     return results;
   }
   
   /**
-   * Execute a query with retry logic
+   * Execute a query with improved error handling and no retries to prevent infinite loops
    */
   private async executeQueryWithRetry(
     panelId: string, 
     query: string, 
     variables: Record<string, any>
   ): Promise<PanelDataResult> {
-    let lastError: Error | null = null;
-    
-    for (let attempt = 1; attempt <= this.config.maxRetries; attempt++) {
-      try {
-        console.log(`DashboardDataService: Executing query for panel ${panelId} (attempt ${attempt})`);
-        
-        const response = await fetch(`${API_CONFIG.BASE_URL}/query`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ query, variables }),
-        });
-        
-        if (!response.ok) {
-          throw new Error(`Query failed: ${response.statusText}`);
-        }
-        
-        const result: QueryResponse = await response.json();
-        
-        console.log(`DashboardDataService: Query successful for panel ${panelId}, ${result.rowCount} rows`);
-        
+    try {
+      if (import.meta.env.DEV) {
+        console.log(`DashboardDataService: Executing query for panel ${panelId}`);
+      }
+      
+      // Check for unresolved placeholders before making the request
+      if (query.includes('${')) {
+        const unresolved = query.match(/\$\{[^}]+\}/g);
+        const errorMessage = `Query contains unresolved placeholders: ${unresolved?.join(', ')}`;
+        console.warn(`DashboardDataService: ${errorMessage} for panel ${panelId}`);
         return {
-          data: result.data || [],
+          data: [],
           loading: false,
-          error: null,
+          error: errorMessage,
           timestamp: Date.now(),
           cacheHit: false
         };
-        
-      } catch (error) {
-        lastError = error instanceof Error ? error : new Error(String(error));
-        console.error(`DashboardDataService: Query failed for panel ${panelId} (attempt ${attempt}):`, lastError.message);
-        
-        // Don't retry on client errors (4xx)
-        if (error instanceof Error && 'status' in error && 
-            typeof error.status === 'number' && error.status >= 400 && error.status < 500) {
-          break;
-        }
-        
-        // Wait before retry (except on last attempt)
-        if (attempt < this.config.maxRetries) {
-          await this.delay(this.config.retryDelay * attempt); // Exponential backoff
-        }
       }
+      
+      const response = await fetch(`${API_CONFIG.BASE_URL}/query`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ query, variables }),
+      });
+      
+      if (!response.ok) {
+        let errorMessage = `HTTP ${response.status}: ${response.statusText}`;
+        
+        // Try to get more detailed error from response body
+        try {
+          const errorData = await response.json();
+          if (errorData.detail) {
+            errorMessage = errorData.detail;
+          } else if (errorData.message) {
+            errorMessage = errorData.message;
+          }
+        } catch (e) {
+          // Ignore JSON parsing errors, use the status text
+        }
+        
+        // Log specific error types for debugging
+        if (response.status >= 500) {
+          console.error(`DashboardDataService: Server error for panel ${panelId}:`, errorMessage);
+        } else if (response.status >= 400) {
+          console.error(`DashboardDataService: Client error for panel ${panelId}:`, errorMessage);
+        }
+        
+        throw new Error(errorMessage);
+      }
+      
+      const result: QueryResponse = await response.json();
+      
+      if (import.meta.env.DEV) {
+        console.log(`DashboardDataService: Query successful for panel ${panelId}, ${result.rowCount || result.data?.length || 0} rows`);
+      }
+      
+      return {
+        data: result.data || [],
+        loading: false,
+        error: null,
+        timestamp: Date.now(),
+        cacheHit: false
+      };
+      
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
+      
+      // Enhanced error logging for debugging
+      if (import.meta.env.DEV) {
+        console.error(`DashboardDataService: Query execution failed for panel ${panelId}:`, {
+          error: errorMessage,
+          query: query.substring(0, 200) + (query.length > 200 ? '...' : ''),
+          variables
+        });
+      } else {
+        console.error(`DashboardDataService: Query failed for panel ${panelId}:`, errorMessage);
+      }
+      
+      // Return error state immediately - no retries to prevent infinite loading loops
+      return {
+        data: [],
+        loading: false,
+        error: errorMessage,
+        timestamp: Date.now(),
+        cacheHit: false
+      };
     }
-    
-    // All retries failed
-    return {
-      data: [],
-      loading: false,
-      error: lastError?.message || 'Query execution failed',
-      timestamp: Date.now(),
-      cacheHit: false
-    };
   }
   
   /**

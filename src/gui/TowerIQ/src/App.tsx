@@ -78,9 +78,13 @@ function DashboardVariableWrapper({ children }: { children: React.ReactNode }) {
   const { currentDashboard } = useDashboard();
   
   // Check if we're on a dashboard or panel view page that has variables
+  // Also check URL path directly for default dashboard to avoid race conditions
+  const isDefaultDashboard = location.pathname.includes('/dashboard/default-dashboard') || 
+                            (currentDashboard?.id === 'default-dashboard');
+  
   const needsVariableProvider = 
-    (location.pathname.startsWith('/dashboard/') && currentDashboard?.is_default && currentDashboard?.variables && currentDashboard.variables.length > 0) ||
-    (location.pathname.includes('/panels/') && location.pathname.includes('/view') && currentDashboard?.is_default && currentDashboard?.variables && currentDashboard.variables.length > 0);
+    (location.pathname.startsWith('/dashboard/') && isDefaultDashboard) ||
+    (location.pathname.includes('/panels/') && location.pathname.includes('/view') && isDefaultDashboard);
   
   if (needsVariableProvider) {
     return (

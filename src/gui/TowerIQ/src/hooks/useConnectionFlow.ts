@@ -51,6 +51,8 @@ export function useConnectionFlow() {
       
     } catch (err) {
       console.error('Frida auto-provision failed:', err);
+      const errorMessage = err instanceof Error ? err.message : 'Unknown error during Frida setup';
+      console.error('Frida setup error details:', errorMessage);
       return false;
     }
   }, [getFridaStatus, provisionFridaServer, startFridaServer]);
@@ -80,6 +82,10 @@ export function useConnectionFlow() {
       setStatusMessage(`Searching for target process: ${TARGET_PROCESS_NAME}...`);
       
       const processList = await getProcesses(selectedDevice.id);
+      if (!processList || !Array.isArray(processList)) {
+        throw new Error('Failed to retrieve process list from device. Please check device connection.');
+      }
+      
       const targetProcess = processList.find(p => p.package === TARGET_PROCESS_PACKAGE);
       
       if (!targetProcess) {
@@ -92,7 +98,7 @@ export function useConnectionFlow() {
       
       const isFridaReady = await handleAutoProvisionFrida(selectedDevice);
       if (!isFridaReady) {
-        throw new Error('Failed to configure Frida server. Please check device connection and try again.');
+        throw new Error('Failed to configure Frida server. Please check device connection and ensure Frida server can be installed and started.');
       }
 
       // 4. Start Hook

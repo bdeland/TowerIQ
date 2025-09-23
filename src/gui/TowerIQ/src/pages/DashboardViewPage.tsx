@@ -106,6 +106,7 @@ function DefaultDashboardContent({ panels, currentDashboard, isEditMode, selecte
         <DashboardGrid
           panels={panels}
           panelData={panelDataRecord}
+          panelErrors={errors}
           isLoading={isLoading}
           isEditMode={isEditMode}
           isEditable={featureFlags.enableAdHocDashboards}

@@ -8,6 +8,7 @@ import { useDeveloper } from '../contexts/DeveloperContext';
 interface DashboardGridProps {
   panels: DashboardPanel[];
   panelData?: Record<string, any[]>; // Optional panel data for pre-fetched data
+  panelErrors?: Map<string, string>; // Panel errors map
   isLoading?: boolean; // Loading state from dashboard level
   isEditMode: boolean;
   isEditable: boolean; // New prop to control edit capabilities
@@ -24,6 +25,7 @@ interface DashboardGridProps {
 const DashboardGridComponent = ({
   panels,
   panelData,
+  panelErrors,
   isLoading = false,
   isEditMode,
   isEditable,
@@ -182,6 +184,7 @@ const DashboardGridComponent = ({
           <DashboardPanelView 
             panel={panel}
             data={panelData?.[panel.id]}
+            error={panelErrors?.get(panel.id)}
             loading={isLoading}
             isEditMode={isEditMode}
             showMenu={showMenu}
@@ -193,7 +196,7 @@ const DashboardGridComponent = ({
         </div>
       );
     });
-  }, [panels, panelData, isLoading, isEditMode, isEditable, showMenu, showFullscreen, draggedPanel, isDevMode, onPanelClick, onPanelDelete, onPanelFullscreenToggle, handleDragStart]);
+  }, [panels, panelData, panelErrors, isLoading, isEditMode, isEditable, showMenu, showFullscreen, draggedPanel, isDevMode, onPanelClick, onPanelDelete, onPanelFullscreenToggle, handleDragStart]);
 
   // Handle responsive breakpoint changes and adjust panels
   useEffect(() => {

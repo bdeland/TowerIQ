@@ -42,6 +42,8 @@ export const useDashboardData = (
   // Use refs to track the latest values and prevent stale closures
   const panelsRef = useRef(panels);
   const variablesRef = useRef(variables);
+  const isInitialMount = useRef(true);
+  const lastFetchKey = useRef<string>('');
   
   // Update refs when values change
   panelsRef.current = panels;
@@ -53,11 +55,25 @@ export const useDashboardData = (
       return;
     }
     
+    // Generate a key to prevent duplicate fetches
+    const fetchKey = `${panelsRef.current.map(p => p.id).sort().join(',')}:${JSON.stringify(variablesRef.current)}`;
+    if (fetchKey === lastFetchKey.current && !isInitialMount.current) {
+      if (import.meta.env.DEV) {
+        console.log('useDashboardData: Skipping duplicate fetch');
+      }
+      return;
+    }
+    
+    lastFetchKey.current = fetchKey;
+    isInitialMount.current = false;
+    
     setLoading(true);
     setErrors(new Map());
     
     try {
-      console.log(`useDashboardData: Fetching data for ${panelsRef.current.length} panels`);
+      if (import.meta.env.DEV) {
+        console.log(`useDashboardData: Fetching data for ${panelsRef.current.length} panels`);
+      }
       
       const results = await dashboardDataService.fetchAllPanels(
         panelsRef.current,
@@ -111,15 +127,10 @@ export const useDashboardData = (
     return panelData.get(panelId);
   }, [panelData]);
   
-  // Fetch data when dependencies change
+  // Fetch data when dependencies change - using JSON.stringify for deep comparison
   useEffect(() => {
     fetchAllData();
-  }, [
-    // Use JSON.stringify for panels to detect changes in panel array
-    JSON.stringify(panels.map(p => ({ id: p.id, query: p.query }))),
-    JSON.stringify(variables),
-    enabled
-  ]);
+  }, [JSON.stringify(panels.map(p => ({ id: p.id, query: p.query }))), JSON.stringify(variables), enabled, fetchAllData]);
   
   // Set up refetch interval if specified
   useEffect(() => {

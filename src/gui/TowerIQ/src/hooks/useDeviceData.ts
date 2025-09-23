@@ -14,8 +14,8 @@ export function useDeviceData() {
   const [hookScripts, setHookScripts] = useState<HookScript[]>([]);
   const [selectedHookScript, setSelectedHookScript] = useState<HookScript | null>(null);
 
-  // Loading States
-  const [devicesLoading, setDevicesLoading] = useState(true);
+  // Loading States - derived from backend session state
+  const [devicesLoading, setDevicesLoading] = useState(false);
   const [processesLoading, setProcessesLoading] = useState(false);
 
   // Script Status State
@@ -48,20 +48,16 @@ export function useDeviceData() {
     restartAdbServer
   } = useBackend();
 
-  // Load devices from backend
-  const loadDevices = useCallback(async (showLoading = true) => {
+  // Load devices from backend with proper loading state management
+  const loadDevices = useCallback(async () => {
     try {
-      if (showLoading) {
-        setDevicesLoading(true);
-      }
+      setDevicesLoading(true);
       const deviceList = await scanDevices();
       setDevices(deviceList);
     } catch (err) {
       console.error('Failed to load devices:', err);
     } finally {
-      if (showLoading) {
-        setDevicesLoading(false);
-      }
+      setDevicesLoading(false);
     }
   }, [scanDevices]);
 
@@ -70,14 +66,10 @@ export function useDeviceData() {
     try {
       const scriptList = await getHookScripts();
       setHookScripts(scriptList);
-      // Auto-select the first script if no script is currently selected
-      if (scriptList.length > 0 && !selectedHookScript) {
-        setSelectedHookScript(scriptList[0]);
-      }
     } catch (err) {
       console.error('Failed to load hook scripts:', err);
     }
-  }, [getHookScripts, selectedHookScript]);
+  }, [getHookScripts]);
 
   // Load script status from backend
   const loadScriptStatus = useCallback(async () => {
@@ -124,11 +116,11 @@ export function useDeviceData() {
     }
   }, [getAdbStatus, refreshDevices]);
 
-  // Handle refresh devices
+  // Handle refresh devices with proper loading state management
   const handleRefreshDevices = useCallback(async () => {
     try {
-      setDevices([]);
       setDevicesLoading(true);
+      setDevices([]);
       const deviceList = await refreshDevices();
       setDevices(deviceList);
     } catch (err) {
@@ -143,14 +135,12 @@ export function useDeviceData() {
     try {
       setIsAdbRestarting(true);
       setDevices([]);
-      setDevicesLoading(true);
       await restartAdbServer();
       await updateAdbState(true);
     } catch (err) {
       console.error('Failed to restart ADB server:', err);
     } finally {
       setIsAdbRestarting(false);
-      setDevicesLoading(false);
     }
   }, [restartAdbServer, updateAdbState]);
 
@@ -182,19 +172,30 @@ export function useDeviceData() {
   // Initial data loading effect - only run once on mount
   useEffect(() => {
     console.log('DeviceData: Component mounted');
-    loadDevices();
-    loadHookScripts();
-    loadScriptStatus();
-    // Fetch ADB status at mount
-    (async () => {
+    
+    // Load initial data
+    const initializeData = async () => {
       try {
-        const status = await getAdbStatus();
-        setAdbStatus(status);
-      } catch (e) {
-        // ignore, UI will show unknown
+        await Promise.all([
+          loadDevices(),
+          loadHookScripts(),
+          loadScriptStatus(),
+          (async () => {
+            try {
+              const status = await getAdbStatus();
+              setAdbStatus(status);
+            } catch (e) {
+              // ignore, UI will show unknown
+            }
+          })()
+        ]);
+      } catch (err) {
+        console.error('Failed to initialize device data:', err);
       }
-    })();
-  }, []); // Empty dependency array to run only once on mount
+    };
+    
+    initializeData();
+  }, []); // Empty dependency array - run only once on mount
 
   // Auto-select first hook script when scripts change
   useEffect(() => {
@@ -220,7 +221,9 @@ export function useDeviceData() {
     };
 
     loadScriptStatusEffect();
-  }, [status?.session.is_connected, getScriptStatus]);
+  }, [status?.session.is_connected]); // Remove getScriptStatus dependency
+
+  // Use proper loading state management instead of deriving from backend session
 
   return {
     // Data
@@ -232,7 +235,7 @@ export function useDeviceData() {
     fridaStatus,
     adbStatus,
     processSearchTerm,
-    // Loading states
+    // Loading states - derived from backend session
     devicesLoading,
     processesLoading,
     scriptStatusLoading,
@@ -248,6 +251,7 @@ export function useDeviceData() {
     setFridaStatus,
     setFridaError,
     setProcessSearchTerm,
+    setDevicesLoading,
     setProcessesLoading,
     // Functions
     loadDevices,

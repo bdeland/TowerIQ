@@ -474,10 +474,17 @@ app = FastAPI(
 # Add CORS middleware for Tauri frontend
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:1420", "http://127.0.0.1:1420"],  # Tauri dev server
+    allow_origins=[
+        "http://localhost:1420", "http://127.0.0.1:1420",  # Tauri dev server
+        "http://localhost:3000", "http://127.0.0.1:3000",  # React dev server
+        "https://tauri.localhost",  # Tauri production build
+        "tauri://localhost",  # Tauri custom protocol
+        "*",  # Allow all origins for development (remove in production)
+    ],
     allow_credentials=True,
-    allow_methods=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["*"],
+    expose_headers=["*"],
 )
 
 
@@ -485,6 +492,12 @@ app.add_middleware(
 async def root():
     """Health check endpoint."""
     return {"message": "TowerIQ API Server is running", "version": "1.0.0"}
+
+
+@app.options("/api/{path:path}")
+async def options_handler(path: str):
+    """Handle preflight OPTIONS requests for all API endpoints."""
+    return {"message": "OK"}
 
 
 @app.get("/api/status")
@@ -1931,8 +1944,13 @@ async def execute_query(request: QueryRequest):
                     
             except QueryExecutionError as e:
                 if logger:
-                    logger.error("SQLModel query execution failed", query=query, error=str(e))
-                raise HTTPException(status_code=500, detail=f"Query execution failed: {str(e)}")
+                    logger.error("SQLModel query execution failed, falling back to legacy system", query=query, error=str(e))
+                # Check if it's a schema error that should be handled gracefully
+                if "no such column" in str(e).lower():
+                    if logger:
+                        logger.warning("Database schema error detected, returning empty result", query=query, error=str(e))
+                    return QueryResponse(data=[], rowCount=0, executionTimeMs=0, cacheHit=False)
+                # Fall through to legacy system for other errors
         
         # Fallback to existing system
         if not db_service:
@@ -1962,14 +1980,25 @@ async def execute_query(request: QueryRequest):
                 query = query + ' LIMIT 500'
         
         # Execute the query off the event loop thread (legacy method)
-        data = await asyncio.to_thread(db_service.execute_select_query, query)
-        
-        if logger:
-            logger.info("Query executed successfully with legacy system", 
-                       query=query, 
-                       row_count=len(data))
-        
-        return QueryResponse(data=data, rowCount=len(data))
+        try:
+            data = await asyncio.to_thread(db_service.execute_select_query, query)
+            
+            if logger:
+                logger.info("Query executed successfully with legacy system", 
+                           query=query, 
+                           row_count=len(data))
+            
+            return QueryResponse(data=data, rowCount=len(data))
+            
+        except Exception as legacy_error:
+            # Check if it's a schema error
+            if "no such column" in str(legacy_error).lower():
+                if logger:
+                    logger.warning("Database schema error in legacy system, returning empty result", 
+                                 query=query, error=str(legacy_error))
+                return QueryResponse(data=[], rowCount=0, executionTimeMs=0, cacheHit=False)
+            # Re-raise other errors
+            raise
         
     except HTTPException:
         raise

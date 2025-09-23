@@ -158,7 +158,6 @@ const stopGlobalPolling = () => {
 
 export const useBackend = () => {
   const [status, setStatus] = useState<BackendStatus | null>(globalStatus);
-  const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const isInitialized = useRef(false);
 
@@ -170,7 +169,6 @@ export const useBackend = () => {
 
   const getStatus = useCallback(async (): Promise<BackendStatus> => {
     try {
-      setLoading(true);
       setError(null);
       const result = await invoke<BackendStatus>('get_backend_status');
       updateStatusState(result);
@@ -179,14 +177,11 @@ export const useBackend = () => {
       const errorMessage = err instanceof Error ? err.message : 'Unknown error';
       setError(errorMessage);
       throw new Error(errorMessage);
-    } finally {
-      setLoading(false);
     }
   }, [updateStatusState]);
 
   const connectDevice = async (deviceSerial: string): Promise<any> => {
     try {
-      setLoading(true);
       setError(null);
       const result = await invoke('connect_device', { deviceSerial });
       // Refresh status after connection
@@ -196,14 +191,11 @@ export const useBackend = () => {
       const errorMessage = err instanceof Error ? err.message : 'Unknown error';
       setError(errorMessage);
       throw new Error(errorMessage);
-    } finally {
-      setLoading(false);
     }
   };
 
   const disconnectDevice = async (): Promise<any> => {
     try {
-      setLoading(true);
       setError(null);
       const result = await invoke('disconnect_device');
       // Refresh status after disconnection
@@ -213,8 +205,6 @@ export const useBackend = () => {
       const errorMessage = err instanceof Error ? err.message : 'Unknown error';
       setError(errorMessage);
       throw new Error(errorMessage);
-    } finally {
-      setLoading(false);
     }
   };
 
@@ -224,7 +214,6 @@ export const useBackend = () => {
     testModeGenerate: boolean = false
   ): Promise<any> => {
     try {
-      setLoading(true);
       setError(null);
       const result = await invoke('set_test_mode', {
         testMode,
@@ -238,8 +227,6 @@ export const useBackend = () => {
       const errorMessage = err instanceof Error ? err.message : 'Unknown error';
       setError(errorMessage);
       throw new Error(errorMessage);
-    } finally {
-      setLoading(false);
     }
   };
 
@@ -271,7 +258,6 @@ export const useBackend = () => {
 
   const scanDevices = async (): Promise<Device[]> => {
     try {
-      setLoading(true);
       setError(null);
       
       // Use cache with longer TTL to reduce automatic refreshing
@@ -298,14 +284,11 @@ export const useBackend = () => {
       console.error('Device scanning failed:', errorMessage);
       // Return empty array instead of throwing to prevent UI from breaking
       return [];
-    } finally {
-      setLoading(false);
     }
   };
 
   const refreshDevices = async (): Promise<Device[]> => {
     try {
-      setLoading(true);
       setError(null);
       
       // Force refresh by invalidating cache and making new request
@@ -332,14 +315,11 @@ export const useBackend = () => {
       console.error('Device refresh failed:', errorMessage);
       // Return empty array instead of throwing to prevent UI from breaking
       return [];
-    } finally {
-      setLoading(false);
     }
   };
 
   const getProcesses = async (deviceId: string): Promise<Process[]> => {
     try {
-      setLoading(true);
       setError(null);
       
       // Cache processes for 10 seconds per device
@@ -363,14 +343,11 @@ export const useBackend = () => {
       const errorMessage = err instanceof Error ? err.message : 'Unknown error';
       setError(errorMessage);
       throw new Error(errorMessage);
-    } finally {
-      setLoading(false);
     }
   };
 
   const getHookScripts = async (): Promise<HookScript[]> => {
     try {
-      setLoading(true);
       setError(null);
       
       // Cache hook scripts for 30 seconds (they don't change often)
@@ -388,8 +365,6 @@ export const useBackend = () => {
       const errorMessage = err instanceof Error ? err.message : 'Unknown error';
       setError(errorMessage);
       throw new Error(errorMessage);
-    } finally {
-      setLoading(false);
     }
   };
 
@@ -399,7 +374,6 @@ export const useBackend = () => {
     hookScriptContent?: string
   ): Promise<any> => {
     try {
-      setLoading(true);
       setError(null);
       
       // For now, use the existing connect_device method
@@ -412,14 +386,11 @@ export const useBackend = () => {
       const errorMessage = err instanceof Error ? err.message : 'Unknown error';
       setError(errorMessage);
       throw new Error(errorMessage);
-    } finally {
-      setLoading(false);
     }
   };
 
   const getFridaStatus = async (deviceId: string): Promise<FridaStatus> => {
     try {
-      setLoading(true);
       setError(null);
       
       // Cache Frida status for 15 seconds per device
@@ -439,14 +410,11 @@ export const useBackend = () => {
       const errorMessage = err instanceof Error ? err.message : 'Unknown error';
       setError(errorMessage);
       throw new Error(errorMessage);
-    } finally {
-      setLoading(false);
     }
   };
 
   const provisionFridaServer = async (deviceId: string): Promise<any> => {
     try {
-      setLoading(true);
       setError(null);
       const result = await invoke('provision_frida_server', { deviceId });
       
@@ -458,14 +426,11 @@ export const useBackend = () => {
       const errorMessage = err instanceof Error ? err.message : 'Unknown error';
       setError(errorMessage);
       throw new Error(errorMessage);
-    } finally {
-      setLoading(false);
     }
   };
 
   const startFridaServer = async (deviceId: string): Promise<any> => {
     try {
-      setLoading(true);
       setError(null);
       const result = await invoke('start_frida_server', { deviceId });
       
@@ -477,14 +442,11 @@ export const useBackend = () => {
       const errorMessage = err instanceof Error ? err.message : 'Unknown error';
       setError(errorMessage);
       throw new Error(errorMessage);
-    } finally {
-      setLoading(false);
     }
   };
 
   const stopFridaServer = async (deviceId: string): Promise<any> => {
     try {
-      setLoading(true);
       setError(null);
       const result = await invoke('stop_frida_server', { deviceId });
       
@@ -496,14 +458,11 @@ export const useBackend = () => {
       const errorMessage = err instanceof Error ? err.message : 'Unknown error';
       setError(errorMessage);
       throw new Error(errorMessage);
-    } finally {
-      setLoading(false);
     }
   };
 
   const installFridaServer = async (deviceId: string): Promise<any> => {
     try {
-      setLoading(true);
       setError(null);
       const result = await invoke('install_frida_server', { deviceId });
       
@@ -515,14 +474,11 @@ export const useBackend = () => {
       const errorMessage = err instanceof Error ? err.message : 'Unknown error';
       setError(errorMessage);
       throw new Error(errorMessage);
-    } finally {
-      setLoading(false);
     }
   };
 
   const removeFridaServer = async (deviceId: string): Promise<any> => {
     try {
-      setLoading(true);
       setError(null);
       const result = await invoke('remove_frida_server', { deviceId });
       
@@ -534,14 +490,11 @@ export const useBackend = () => {
       const errorMessage = err instanceof Error ? err.message : 'Unknown error';
       setError(errorMessage);
       throw new Error(errorMessage);
-    } finally {
-      setLoading(false);
     }
   };
 
   const activateHook = async (deviceId: string, processInfo: any, scriptId: string): Promise<any> => {
     try {
-      setLoading(true);
       setError(null);
       const result = await invoke('activate_hook', { deviceId, processInfo, scriptId });
       
@@ -553,14 +506,11 @@ export const useBackend = () => {
       const errorMessage = err instanceof Error ? err.message : 'Unknown error';
       setError(errorMessage);
       throw new Error(errorMessage);
-    } finally {
-      setLoading(false);
     }
   };
 
   const deactivateHook = async (deviceId: string, processInfo: any): Promise<any> => {
     try {
-      setLoading(true);
       setError(null);
       const result = await invoke('deactivate_hook', { deviceId, processInfo });
       
@@ -572,14 +522,11 @@ export const useBackend = () => {
       const errorMessage = err instanceof Error ? err.message : 'Unknown error';
       setError(errorMessage);
       throw new Error(errorMessage);
-    } finally {
-      setLoading(false);
     }
   };
 
   const getScriptStatus = async (): Promise<ScriptStatus> => {
     try {
-      setLoading(true);
       setError(null);
       
       // Cache script status for 3 seconds (frequently changing data)
@@ -596,15 +543,12 @@ export const useBackend = () => {
       const errorMessage = err instanceof Error ? err.message : 'Unknown error';
       setError(errorMessage);
       throw new Error(errorMessage);
-    } finally {
-      setLoading(false);
     }
   };
 
   // ADB Server Management Methods
   const startAdbServer = async (): Promise<any> => {
     try {
-      setLoading(true);
       setError(null);
       const result = await invoke('start_adb_server');
       return result;
@@ -612,14 +556,11 @@ export const useBackend = () => {
       const errorMessage = err instanceof Error ? err.message : 'Unknown error';
       setError(errorMessage);
       throw new Error(errorMessage);
-    } finally {
-      setLoading(false);
     }
   };
 
   const killAdbServer = async (): Promise<any> => {
     try {
-      setLoading(true);
       setError(null);
       const result = await invoke('kill_adb_server');
       return result;
@@ -627,14 +568,11 @@ export const useBackend = () => {
       const errorMessage = err instanceof Error ? err.message : 'Unknown error';
       setError(errorMessage);
       throw new Error(errorMessage);
-    } finally {
-      setLoading(false);
     }
   };
 
   const restartAdbServer = async (): Promise<any> => {
     try {
-      setLoading(true);
       setError(null);
       const result = await invoke('restart_adb_server');
       return result;
@@ -642,14 +580,11 @@ export const useBackend = () => {
       const errorMessage = err instanceof Error ? err.message : 'Unknown error';
       setError(errorMessage);
       throw new Error(errorMessage);
-    } finally {
-      setLoading(false);
     }
   };
 
   const getAdbStatus = async (): Promise<AdbStatus> => {
     try {
-      setLoading(true);
       setError(null);
       
       // Cache ADB status for 10 seconds
@@ -667,14 +602,11 @@ export const useBackend = () => {
       setError(errorMessage);
       // Return a safe default to allow UI to render
       return { running: false, version: null, error: errorMessage };
-    } finally {
-      setLoading(false);
     }
   };
 
   return {
     status,
-    loading,
     error,
     getStatus,
     connectDevice,

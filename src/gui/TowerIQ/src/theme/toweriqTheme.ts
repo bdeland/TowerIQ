@@ -33,6 +33,7 @@ export const TOWERIQ_COLORS = {
   brand: {
     primary: '#39b5e0',    // Main brand color - TowerIQ blue
     secondary: '#e18b3d',  // Secondary brand color - warm orange
+    tertiary: '#e06339',   // Tertiary brand color - warm red-orange
   },
 
   accent: {
@@ -210,6 +211,11 @@ const themeOptions: ThemeOptions = {
       dark: TOWERIQ_COLORS.button.secondaryActive,
       light: TOWERIQ_COLORS.button.secondaryHover,
     },
+    // Add custom brand colors to palette
+    tertiary: {
+      main: TOWERIQ_COLORS.brand.tertiary,
+      contrastText: '#ffffff',
+    } as any, // TypeScript workaround for custom palette colors
     background: {
       default: TOWERIQ_COLORS.backgrounds.main,
       paper: TOWERIQ_COLORS.backgrounds.paper,
@@ -343,6 +349,7 @@ const themeOptions: ThemeOptions = {
           
           '--tiq-brand-primary': TOWERIQ_COLORS.brand.primary,
           '--tiq-brand-secondary': TOWERIQ_COLORS.brand.secondary,
+          '--tiq-brand-tertiary': TOWERIQ_COLORS.brand.tertiary,
           
           '--tiq-text-primary': TOWERIQ_COLORS.text.primary,
           '--tiq-text-secondary': TOWERIQ_COLORS.text.secondary,

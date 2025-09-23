@@ -101,7 +101,7 @@ export const usePanelData = (
   // Fetch data when dependencies change
   useEffect(() => {
     fetchData();
-  }, [panelId, query, JSON.stringify(variables), enabled]);
+  }, [panelId, query, enabled, fetchData]);
   
   // Set up refetch interval if specified
   useEffect(() => {

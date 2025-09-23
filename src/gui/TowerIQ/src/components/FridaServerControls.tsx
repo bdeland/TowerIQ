@@ -2,6 +2,7 @@
  * FridaServerControls.tsx - Frida server management component
  * 
  * Handles Frida server installation, start, stop, and status display
+ * Updated to remove frontend loading state management
  */
 
 import React from 'react';
@@ -19,7 +20,6 @@ interface FridaServerControlsProps {
   fridaStatus: FridaStatus | null;
   fridaStatusLoading: boolean;
   fridaError: string | null;
-  loading: boolean;
   onProvisionFrida: () => Promise<void>;
   onStartFrida: () => Promise<void>;
   onStopFrida: () => Promise<void>;
@@ -31,7 +31,6 @@ export function FridaServerControls({
   fridaStatus,
   fridaStatusLoading,
   fridaError,
-  loading,
   onProvisionFrida,
   onStartFrida,
   onStopFrida,
@@ -177,15 +176,12 @@ export function FridaServerControls({
             variant="outlined"
             size="small"
             onClick={onProvisionFrida}
-            disabled={!selectedDevice || loading || (fridaStatus?.is_installed === true)}
+            disabled={!selectedDevice || (fridaStatus?.is_installed === true)}
             title={fridaStatus?.is_installed ? 'Frida server is already installed' : undefined}
             sx={{ minWidth: 160 }}
           >
             Install Frida Server
           </Button>
-          {loading && (
-            <CircularProgress size={16} sx={{ position: 'absolute', top: '50%', left: '50%', mt: '-8px', ml: '-8px' }} />
-          )}
         </Box>
         
         <Box sx={{ position: 'relative' }}>
@@ -193,7 +189,7 @@ export function FridaServerControls({
             variant="outlined"
             size="small"
             onClick={onStartFrida}
-            disabled={!selectedDevice || loading || !fridaStatus?.is_installed || fridaStatus?.is_running === true}
+            disabled={!selectedDevice || !fridaStatus?.is_installed || fridaStatus?.is_running === true}
             title={
               !fridaStatus?.is_installed ? 'Frida server must be installed first' :
               fridaStatus?.is_running ? 'Frida server is already running' : undefined
@@ -202,9 +198,6 @@ export function FridaServerControls({
           >
             Start Frida Server
           </Button>
-          {loading && (
-            <CircularProgress size={16} sx={{ position: 'absolute', top: '50%', left: '50%', mt: '-8px', ml: '-8px' }} />
-          )}
         </Box>
         
         <Box sx={{ position: 'relative' }}>
@@ -212,15 +205,12 @@ export function FridaServerControls({
             variant="outlined"
             size="small"
             onClick={onStopFrida}
-            disabled={!selectedDevice || loading || !fridaStatus?.is_running}
+            disabled={!selectedDevice || !fridaStatus?.is_running}
             title={!fridaStatus?.is_running ? 'Frida server is not running' : undefined}
             sx={{ minWidth: 160 }}
           >
             Stop Frida Server
           </Button>
-          {loading && (
-            <CircularProgress size={16} sx={{ position: 'absolute', top: '50%', left: '50%', mt: '-8px', ml: '-8px' }} />
-          )}
         </Box>
         
         <Box sx={{ position: 'relative' }}>
@@ -228,15 +218,12 @@ export function FridaServerControls({
             variant="outlined"
             size="small"
             onClick={onRemoveFrida}
-            disabled={!selectedDevice || loading || !fridaStatus?.is_installed}
+            disabled={!selectedDevice || !fridaStatus?.is_installed}
             title={!fridaStatus?.is_installed ? 'Frida server is not installed' : undefined}
             sx={{ minWidth: 160 }}
           >
             Remove Frida Server
           </Button>
-          {loading && (
-            <CircularProgress size={16} sx={{ position: 'absolute', top: '50%', left: '50%', mt: '-8px', ml: '-8px' }} />
-          )}
         </Box>
       </Box>
 

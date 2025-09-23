@@ -80,7 +80,16 @@ class QueryService:
             
             # Execute with SQLModel session for better error handling
             result = self.session.exec(text(final_query))
-            data = [dict(row._mapping) for row in result]
+            data = []
+            for row in result:
+                row_dict = {}
+                for key, value in row._mapping.items():
+                    # Handle BLOB data by converting to hex string
+                    if isinstance(value, bytes):
+                        row_dict[key] = value.hex()
+                    else:
+                        row_dict[key] = value
+                data.append(row_dict)
             
             execution_time = (time.time() - start_time) * 1000
             
@@ -114,10 +123,17 @@ class QueryService:
         """
         Compose query with variable substitution.
         
-        This replaces the existing composeQuery logic from the frontend,
-        providing server-side variable substitution for type safety.
+        This handles simple variable substitution for queries that haven't been
+        composed by the frontend. If the query contains complex template variables
+        like ${tier_filter}, it assumes the frontend has already composed it.
         """
         if not variables:
+            return query
+        
+        # Check if query contains complex template variables that should be handled by frontend
+        complex_templates = ['${tier_filter}', '${limit_clause}']
+        if any(template in query for template in complex_templates):
+            # Query has been composed by frontend, return as-is
             return query
             
         # Simple variable substitution - replace ${variable} with values
