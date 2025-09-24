@@ -290,8 +290,11 @@ async def lifespan(app: FastAPI):
     db_service = DatabaseService(config, logger)
     db_service.connect()
     
-    # Ensure dashboards table exists
+    # Ensure dashboards table exists (legacy)
     db_service.ensure_dashboards_table_exists()
+    
+    # Ensure v2 dashboard system tables exist
+    db_service.ensure_v2_tables_exist()
     
     # Initialize SQLModel engine for type-safe queries
     try:
@@ -318,6 +321,14 @@ async def lifespan(app: FastAPI):
     
     # Link database service to config manager
     config.link_database_service(db_service)
+    
+    # Initialize data source manager for v2 dashboard system
+    try:
+        from tower_iq.services.data_source_executors import initialize_default_data_source
+        await initialize_default_data_source(database_path)
+        logger.info("Data source manager initialized successfully")
+    except Exception as e:
+        logger.error(f"Failed to initialize data source manager: {str(e)}")
     
     # Initialize main controller (do not start message loop until a script is injected)
     controller = MainController(config, logger, db_service=db_service)
@@ -2006,6 +2017,367 @@ async def execute_query(request: QueryRequest):
         if logger:
             logger.error("Error executing query", query=request.query, error=str(e))
         raise HTTPException(status_code=500, detail=f"Query execution failed: {str(e)}")
+
+
+# ============================================================================
+# V2 API ENDPOINTS - New Hierarchical Dashboard System
+# ============================================================================
+
+from tower_iq.models.dashboard_config_models import (
+    DashboardConfig, DashboardMetadata, DashboardListResponse,
+    CreateDashboardRequest, UpdateDashboardRequest,
+    DataSourceConfig, DataSourceCreateRequest, DataSourceUpdateRequest,
+    VariableOptionsRequest, VariableOption, MigrationStatus
+)
+import json
+
+
+@app.get("/api/v2/dashboards", response_model=DashboardListResponse)
+async def list_dashboards_v2():
+    """List all dashboards with metadata only (v2 API)"""
+    try:
+        if not db_service:
+            raise HTTPException(status_code=503, detail="Database service not available")
+        
+        # Query dashboard_configs table for metadata
+        cursor = db_service.sqlite_conn.cursor()
+        cursor.execute("""
+            SELECT id, name, description, tags, created_at, updated_at, created_by, is_system
+            FROM dashboard_configs
+            ORDER BY created_at DESC
+        """)
+        
+        rows = cursor.fetchall()
+        dashboards = []
+        
+        for row in rows:
+            tags = json.loads(row[3]) if row[3] else []
+            metadata = DashboardMetadata(
+                id=row[0],
+                name=row[1],
+                description=row[2],
+                tags=tags,
+                created_at=datetime.fromisoformat(row[4]),
+                updated_at=datetime.fromisoformat(row[5]),
+                created_by=row[6],
+                is_system=bool(row[7])
+            )
+            dashboards.append(metadata)
+        
+        if logger:
+            logger.info("Listed dashboards v2", count=len(dashboards))
+        
+        return DashboardListResponse(dashboards=dashboards, total=len(dashboards))
+        
+    except Exception as e:
+        if logger:
+            logger.error("Error listing dashboards v2", error=str(e))
+        raise HTTPException(status_code=500, detail=f"Failed to list dashboards: {str(e)}")
+
+
+@app.get("/api/v2/dashboards/{dashboard_id}", response_model=DashboardConfig)
+async def get_dashboard_v2(dashboard_id: str):
+    """Get complete dashboard configuration (v2 API)"""
+    try:
+        if not db_service:
+            raise HTTPException(status_code=503, detail="Database service not available")
+        
+        cursor = db_service.sqlite_conn.cursor()
+        cursor.execute("""
+            SELECT id, name, description, tags, config, created_at, updated_at, created_by, is_system
+            FROM dashboard_configs
+            WHERE id = ?
+        """, (dashboard_id,))
+        
+        row = cursor.fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Dashboard not found")
+        
+        # Parse the stored JSON config
+        config_json = json.loads(row[4])
+        
+        if logger:
+            logger.info("Retrieved dashboard v2", dashboard_id=dashboard_id)
+        
+        return DashboardConfig(**config_json)
+        
+    except json.JSONDecodeError as e:
+        if logger:
+            logger.error("Invalid dashboard config JSON", dashboard_id=dashboard_id, error=str(e))
+        raise HTTPException(status_code=500, detail="Dashboard configuration is corrupted")
+    except HTTPException:
+        raise
+    except Exception as e:
+        if logger:
+            logger.error("Error getting dashboard v2", dashboard_id=dashboard_id, error=str(e))
+        raise HTTPException(status_code=500, detail=f"Failed to get dashboard: {str(e)}")
+
+
+@app.post("/api/v2/dashboards", response_model=DashboardConfig)
+async def create_dashboard_v2(request: CreateDashboardRequest):
+    """Create new dashboard from complete configuration (v2 API)"""
+    try:
+        if not db_service:
+            raise HTTPException(status_code=503, detail="Database service not available")
+        
+        import uuid
+        dashboard_id = str(uuid.uuid4())
+        now = datetime.now()
+        
+        # Store the complete config as JSON
+        config_json = request.config.model_dump()
+        
+        cursor = db_service.sqlite_conn.cursor()
+        cursor.execute("""
+            INSERT INTO dashboard_configs 
+            (id, name, description, tags, config, created_at, updated_at, created_by, is_system)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            dashboard_id,
+            request.name,
+            request.description,
+            json.dumps(request.tags),
+            json.dumps(config_json),
+            now.isoformat(),
+            now.isoformat(),
+            request.config.metadata.created_by or "system",
+            request.is_system
+        ))
+        
+        db_service.sqlite_conn.commit()
+        
+        if logger:
+            logger.info("Created dashboard v2", dashboard_id=dashboard_id, name=request.name)
+        
+        return request.config
+        
+    except Exception as e:
+        if logger:
+            logger.error("Error creating dashboard v2", error=str(e))
+        raise HTTPException(status_code=500, detail=f"Failed to create dashboard: {str(e)}")
+
+
+@app.put("/api/v2/dashboards/{dashboard_id}", response_model=DashboardConfig)
+async def update_dashboard_v2(dashboard_id: str, request: UpdateDashboardRequest):
+    """Update dashboard configuration (v2 API)"""
+    try:
+        if not db_service:
+            raise HTTPException(status_code=503, detail="Database service not available")
+        
+        # First check if dashboard exists
+        cursor = db_service.sqlite_conn.cursor()
+        cursor.execute("SELECT id FROM dashboard_configs WHERE id = ?", (dashboard_id,))
+        if not cursor.fetchone():
+            raise HTTPException(status_code=404, detail="Dashboard not found")
+        
+        # Build update query dynamically
+        updates = []
+        params = []
+        
+        if request.name is not None:
+            updates.append("name = ?")
+            params.append(request.name)
+            
+        if request.description is not None:
+            updates.append("description = ?")
+            params.append(request.description)
+            
+        if request.tags is not None:
+            updates.append("tags = ?")
+            params.append(json.dumps(request.tags))
+            
+        if request.config is not None:
+            updates.append("config = ?")
+            params.append(json.dumps(request.config.model_dump()))
+        
+        if updates:
+            updates.append("updated_at = ?")
+            params.append(datetime.now().isoformat())
+            params.append(dashboard_id)
+            
+            query = f"UPDATE dashboard_configs SET {', '.join(updates)} WHERE id = ?"
+            cursor.execute(query, params)
+            db_service.sqlite_conn.commit()
+        
+        # Return updated dashboard
+        return await get_dashboard_v2(dashboard_id)
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        if logger:
+            logger.error("Error updating dashboard v2", dashboard_id=dashboard_id, error=str(e))
+        raise HTTPException(status_code=500, detail=f"Failed to update dashboard: {str(e)}")
+
+
+@app.delete("/api/v2/dashboards/{dashboard_id}")
+async def delete_dashboard_v2(dashboard_id: str):
+    """Delete dashboard (v2 API)"""
+    try:
+        if not db_service:
+            raise HTTPException(status_code=503, detail="Database service not available")
+        
+        cursor = db_service.sqlite_conn.cursor()
+        cursor.execute("DELETE FROM dashboard_configs WHERE id = ?", (dashboard_id,))
+        
+        if cursor.rowcount == 0:
+            raise HTTPException(status_code=404, detail="Dashboard not found")
+        
+        db_service.sqlite_conn.commit()
+        
+        if logger:
+            logger.info("Deleted dashboard v2", dashboard_id=dashboard_id)
+        
+        return {"message": "Dashboard deleted successfully"}
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        if logger:
+            logger.error("Error deleting dashboard v2", dashboard_id=dashboard_id, error=str(e))
+        raise HTTPException(status_code=500, detail=f"Failed to delete dashboard: {str(e)}")
+
+
+# ============================================================================
+# V2 Data Source Endpoints
+# ============================================================================
+
+@app.get("/api/v2/data-sources", response_model=List[DataSourceConfig])
+async def list_data_sources():
+    """List all data sources"""
+    try:
+        if not db_service:
+            raise HTTPException(status_code=503, detail="Database service not available")
+        
+        cursor = db_service.sqlite_conn.cursor()
+        cursor.execute("""
+            SELECT id, name, type, config, credentials, is_active, created_at
+            FROM data_sources
+            WHERE is_active = 1
+            ORDER BY name
+        """)
+        
+        rows = cursor.fetchall()
+        data_sources = []
+        
+        for row in rows:
+            config = json.loads(row[3])
+            credentials = json.loads(row[4]) if row[4] else None
+            
+            data_source = DataSourceConfig(
+                id=row[0],
+                name=row[1],
+                type=row[2],
+                config=config,
+                credentials=credentials,
+                is_active=bool(row[5])
+            )
+            data_sources.append(data_source)
+        
+        return data_sources
+        
+    except Exception as e:
+        if logger:
+            logger.error("Error listing data sources", error=str(e))
+        raise HTTPException(status_code=500, detail=f"Failed to list data sources: {str(e)}")
+
+
+@app.post("/api/v2/data-sources", response_model=DataSourceConfig)
+async def create_data_source(request: DataSourceCreateRequest):
+    """Create new data source"""
+    try:
+        if not db_service:
+            raise HTTPException(status_code=503, detail="Database service not available")
+        
+        import uuid
+        data_source_id = str(uuid.uuid4())
+        
+        cursor = db_service.sqlite_conn.cursor()
+        cursor.execute("""
+            INSERT INTO data_sources (id, name, type, config, credentials, is_active)
+            VALUES (?, ?, ?, ?, ?, ?)
+        """, (
+            data_source_id,
+            request.name,
+            request.type,
+            json.dumps(request.config),
+            json.dumps(request.credentials) if request.credentials else None,
+            request.is_active
+        ))
+        
+        db_service.sqlite_conn.commit()
+        
+        return DataSourceConfig(
+            id=data_source_id,
+            name=request.name,
+            type=request.type,
+            config=request.config,
+            credentials=request.credentials,
+            is_active=request.is_active
+        )
+        
+    except Exception as e:
+        if logger:
+            logger.error("Error creating data source", error=str(e))
+        raise HTTPException(status_code=500, detail=f"Failed to create data source: {str(e)}")
+
+
+# ============================================================================
+# V2 Query Endpoint with Data Source Routing
+# ============================================================================
+
+@app.post("/api/v2/query")
+async def execute_query_v2(request: QueryRequest):
+    """Execute query against specified data source (v2 API)"""
+    try:
+        # For now, route all queries to the default SQLite data source
+        # This will be enhanced with the data source abstraction layer
+        
+        # Use the existing query endpoint logic but with v2 enhancements
+        return await execute_query(request)
+        
+    except Exception as e:
+        if logger:
+            logger.error("Error executing query v2", error=str(e))
+        raise HTTPException(status_code=500, detail=f"Failed to execute query: {str(e)}")
+
+
+@app.post("/api/v2/variables/{variable_name}/options", response_model=List[VariableOption])
+async def get_variable_options(variable_name: str, request: VariableOptionsRequest):
+    """Execute variable option query and return formatted options"""
+    try:
+        if not db_service:
+            raise HTTPException(status_code=503, detail="Database service not available")
+        
+        # Execute the options query
+        query_request = QueryRequest(query=request.query, variables=request.dependencies or {})
+        query_response = await execute_query(query_request)
+        
+        # Transform results into VariableOption format
+        options = []
+        for row in query_response.data:
+            if isinstance(row, dict):
+                # Assume first column is value, second is label (if exists)
+                keys = list(row.keys())
+                value = row[keys[0]]
+                label = row[keys[1]] if len(keys) > 1 else str(value)
+            else:
+                # Handle array format
+                value = row[0] if len(row) > 0 else ""
+                label = row[1] if len(row) > 1 else str(value)
+            
+            options.append(VariableOption(label=str(label), value=value))
+        
+        if logger:
+            logger.info("Generated variable options", variable_name=variable_name, count=len(options))
+        
+        return options
+        
+    except Exception as e:
+        if logger:
+            logger.error("Error getting variable options", variable_name=variable_name, error=str(e))
+        raise HTTPException(status_code=500, detail=f"Failed to get variable options: {str(e)}")
+
 
 def start_server(host: str = "127.0.0.1", port: int = 8000):
     """Start the FastAPI server."""

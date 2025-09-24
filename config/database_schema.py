@@ -720,6 +720,32 @@ TABLE_DEFINITIONS: Dict[str, str] = {
         )
     """,
     
+    "dashboard_configs": """
+        CREATE TABLE IF NOT EXISTS dashboard_configs (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            description TEXT,
+            tags TEXT DEFAULT '[]',
+            config TEXT NOT NULL,  -- Complete DashboardConfig as JSON
+            created_at TEXT DEFAULT (datetime('now', 'localtime')),
+            updated_at TEXT DEFAULT (datetime('now', 'localtime')),
+            created_by TEXT,
+            is_system BOOLEAN DEFAULT 0
+        )
+    """,
+    
+    "data_sources": """
+        CREATE TABLE IF NOT EXISTS data_sources (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            type TEXT NOT NULL,  -- 'sqlite', 'postgresql', 'prometheus', 'rest_api'
+            config TEXT NOT NULL,  -- Type-specific configuration as JSON
+            credentials TEXT,      -- Encrypted connection details as JSON
+            is_active BOOLEAN DEFAULT 1,
+            created_at TEXT DEFAULT (datetime('now', 'localtime'))
+        )
+    """,
+    
     "db_metric_names": """
         CREATE TABLE IF NOT EXISTS db_metric_names (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -757,6 +783,10 @@ INDEX_DEFINITIONS: Dict[str, str] = {
     "idx_settings_category": "CREATE INDEX IF NOT EXISTS idx_settings_category ON settings(category)",
     "idx_dashboards_uid": "CREATE INDEX IF NOT EXISTS idx_dashboards_uid ON dashboards(uid)",
     "idx_dashboards_title": "CREATE INDEX IF NOT EXISTS idx_dashboards_title ON dashboards(title)",
+    "idx_dashboard_configs_name": "CREATE INDEX IF NOT EXISTS idx_dashboard_configs_name ON dashboard_configs(name)",
+    "idx_dashboard_configs_system": "CREATE INDEX IF NOT EXISTS idx_dashboard_configs_system ON dashboard_configs(is_system)",
+    "idx_data_sources_type": "CREATE INDEX IF NOT EXISTS idx_data_sources_type ON data_sources(type)",
+    "idx_data_sources_active": "CREATE INDEX IF NOT EXISTS idx_data_sources_active ON data_sources(is_active)",
     "idx_db_metrics_time_metric": "CREATE INDEX IF NOT EXISTS idx_db_metrics_time_metric ON db_metrics(timestamp, metric_id)"
 }
 
@@ -800,6 +830,8 @@ def get_table_creation_order() -> List[str]:
         "logs",
         "settings",
         "dashboards",
+        "dashboard_configs",
+        "data_sources",
         "db_metric_names",
         "db_monitored_objects",
         "db_metrics"

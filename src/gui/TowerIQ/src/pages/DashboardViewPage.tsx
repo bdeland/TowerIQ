@@ -1,6 +1,6 @@
 import { Box, Typography, Alert, CircularProgress } from '@mui/material';
 // Removed react-grid-layout import as we're now using native CSS Grid
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, Suspense } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useDashboard, DashboardPanel } from '../contexts/DashboardContext';
 import { useDashboardEdit } from '../contexts/DashboardEditContext';
@@ -14,6 +14,9 @@ import { liveRunTrackingDashboard } from '../config/liveRunTrackingDashboard';
 import { DashboardVariableProvider, useDashboardVariable } from '../contexts/DashboardVariableContext';
 import { useDashboardData } from '../hooks/useDashboardData';
 import { useDeveloper } from '../contexts/DeveloperContext';
+
+// Import new dashboard components for feature flag support
+import { NewDashboardViewPage } from './NewDashboardViewPage';
 
 // Component that handles default dashboard with dynamic data fetching
 function DefaultDashboardContent({ panels, currentDashboard, isEditMode, selectedPanelId, setSelectedPanelId, onLayoutChange, onPanelClick, onPanelDelete, onUpdatePanel, onDeletePanel, getSelectedPanel }: {
@@ -130,7 +133,8 @@ function DefaultDashboardContent({ panels, currentDashboard, isEditMode, selecte
   );
 }
 
-export function DashboardViewPage() {
+// Legacy DashboardViewPage component (will be used when feature flag is disabled)
+function LegacyDashboardViewPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { fetchDashboard, currentDashboard, setCurrentDashboard, updateDashboard, createDashboard, fetchDashboards, loading, error, clearError } = useDashboard();
@@ -509,3 +513,26 @@ export function DashboardViewPage() {
 
   return dashboardContent;
 }
+
+// Feature flag controlled wrapper - this will become the main export
+export function DashboardViewPageWrapper() {
+  // Check if the dashboard refactor feature flag is enabled
+  if (featureFlags.dashboardRefactorEnabled) {
+    return (
+      <Suspense fallback={
+        <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '50vh' }}>
+          <CircularProgress />
+        </Box>
+      }>
+        <NewDashboardViewPage />
+      </Suspense>
+    );
+  }
+  
+  // Use legacy implementation when feature flag is disabled
+  return <LegacyDashboardViewPage />;
+}
+
+// Export the wrapper as the default DashboardViewPage
+// This maintains backward compatibility while enabling the feature flag system
+export { DashboardViewPageWrapper as DashboardViewPage };

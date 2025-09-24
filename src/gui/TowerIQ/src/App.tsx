@@ -36,6 +36,7 @@ import { DashboardEditProvider } from './contexts/DashboardEditContext';
 import { DashboardVariableProvider } from './contexts/DashboardVariableContext';
 import { DeveloperProvider } from './contexts/DeveloperContext';
 import { HeaderToolbarProvider } from './contexts/HeaderToolbarContext';
+import { NewDashboardProvider } from './contexts/NewDashboardContext';
 import { toweriqTheme, colors, spacing } from './theme';
 
 import './App.css';
@@ -320,9 +321,11 @@ function App() {
       <Router>
         <DeveloperProvider>
           <DashboardProvider>
-            <DashboardEditProvider>
-              <DashboardLayout />
-            </DashboardEditProvider>
+            <NewDashboardProvider>
+              <DashboardEditProvider>
+                <DashboardLayout />
+              </DashboardEditProvider>
+            </NewDashboardProvider>
           </DashboardProvider>
         </DeveloperProvider>
       </Router>

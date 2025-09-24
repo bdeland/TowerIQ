@@ -205,7 +205,7 @@ export const defaultDashboard: Dashboard = {
         type: 'table',
         title: 'Recent Runs',
         gridPos: { x: 5, y: 10, w: 8, h: 4 },
-        query: "SELECT run_id, tier, final_wave, CPH, duration_gametime FROM runs ${tier_filter} ORDER BY start_time DESC ${limit_clause}",
+        query: "SELECT hex(run_id) as run_id, tier, final_wave, CPH, duration_gametime FROM runs ${tier_filter} ORDER BY start_time DESC ${limit_clause}",
         echartsOption: {}
       },
       {

@@ -44,6 +44,8 @@ try:
         EVENT_METADATA = database_schema.EVENT_METADATA
         DB_METRIC_METADATA = database_schema.DB_METRIC_METADATA
         get_full_schema_script = database_schema.get_full_schema_script
+        TABLE_DEFINITIONS = database_schema.TABLE_DEFINITIONS
+        INDEX_DEFINITIONS = database_schema.INDEX_DEFINITIONS
     else:
         raise ImportError("database_schema.py not found")
         
@@ -53,6 +55,8 @@ except (ImportError, AttributeError) as e:
     METRIC_METADATA = {}
     EVENT_METADATA = {}
     DB_METRIC_METADATA = {}
+    TABLE_DEFINITIONS = {}
+    INDEX_DEFINITIONS = {}
     
     def get_full_schema_script():
         return ""  # Fallback to empty schema
@@ -2586,4 +2590,53 @@ class DatabaseService:
                 
         except Exception as e:
             self.logger.error("Error ensuring dashboards table exists", error=str(e))
+            return False
+    
+    def ensure_v2_tables_exist(self) -> bool:
+        """Ensure the v2 dashboard system tables exist, create them if they don't."""
+        if not self.sqlite_conn:
+            return False
+        
+        try:
+            # Use global schema definitions loaded at module import
+            
+            # Tables to create for v2 system
+            v2_tables = ['dashboard_configs', 'data_sources']
+            
+            for table_name in v2_tables:
+                # Check if table exists
+                cursor = self.sqlite_conn.execute(
+                    "SELECT name FROM sqlite_master WHERE type='table' AND name=?", 
+                    (table_name,)
+                )
+                table_exists = cursor.fetchone() is not None
+                
+                if not table_exists:
+                    self.logger.info(f"Creating {table_name} table for v2 system")
+                    
+                    # Get table definition from schema
+                    table_sql = TABLE_DEFINITIONS.get(table_name)
+                    if table_sql:
+                        self.sqlite_conn.execute(table_sql)
+                        
+                        # Create associated indexes
+                        for index_name, index_sql in INDEX_DEFINITIONS.items():
+                            if table_name in index_sql:
+                                try:
+                                    self.sqlite_conn.execute(index_sql)
+                                except Exception as index_error:
+                                    self.logger.warning(f"Could not create index {index_name}", error=str(index_error))
+                        
+                        self.logger.info(f"{table_name} table created successfully")
+                    else:
+                        self.logger.error(f"No schema definition found for table {table_name}")
+                        return False
+                else:
+                    self.logger.debug(f"{table_name} table already exists")
+            
+            self.sqlite_conn.commit()
+            return True
+            
+        except Exception as e:
+            self.logger.error("Error ensuring v2 tables exist", error=str(e))
             return False

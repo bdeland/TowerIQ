@@ -33,7 +33,8 @@
     "react-router-dom": "^6.30.1",
     "react-syntax-highlighter": "^15.6.6",
     "react-use": "^17.6.0",
-    "sql-formatter": "^15.6.6"
+    "sql-formatter": "^15.6.6",
+    "zod": "^4.1.11"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2",
