@@ -13,12 +13,10 @@ interface DashboardGridProps {
   isEditMode: boolean;
   isEditable: boolean; // New prop to control edit capabilities
   showMenu: boolean;
-  showFullscreen: boolean;
   dashboardId?: string; // Add dashboard ID for layout caching
   onLayoutChange?: (panels: DashboardPanel[]) => void;
   onPanelClick?: (panelId: string) => void;
   onPanelDelete?: (panelId: string) => void;
-  onPanelFullscreenToggle?: (panelId: string) => void;
   enableResponsive?: boolean; // New prop to enable/disable responsive behavior
 }
 
@@ -30,11 +28,9 @@ const DashboardGridComponent = ({
   isEditMode,
   isEditable,
   showMenu,
-  showFullscreen,
   onLayoutChange,
   onPanelClick,
   onPanelDelete,
-  onPanelFullscreenToggle,
   enableResponsive = true
 }: DashboardGridProps) => {
   const [draggedPanel, setDraggedPanel] = useState<string | null>(null);
@@ -188,15 +184,13 @@ const DashboardGridComponent = ({
             loading={isLoading}
             isEditMode={isEditMode}
             showMenu={showMenu}
-            showFullscreen={showFullscreen}
             onClick={() => onPanelClick?.(panel.id)}
             onDelete={onPanelDelete}
-            onFullscreenToggle={onPanelFullscreenToggle}
           />
         </div>
       );
     });
-  }, [panels, panelData, panelErrors, isLoading, isEditMode, isEditable, showMenu, showFullscreen, draggedPanel, isDevMode, onPanelClick, onPanelDelete, onPanelFullscreenToggle, handleDragStart]);
+  }, [panels, panelData, panelErrors, isLoading, isEditMode, isEditable, showMenu, draggedPanel, isDevMode, onPanelClick, onPanelDelete, handleDragStart]);
 
   // Handle responsive breakpoint changes and adjust panels
   useEffect(() => {

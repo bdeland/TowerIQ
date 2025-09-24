@@ -4,7 +4,7 @@
   useMemo,
   ReactNode,
 } from 'react';
-import { useLocation, useParams } from 'react-router-dom';
+import { useLocation, useParams, useNavigate } from 'react-router-dom';
 import {
   Box,
   Button,
@@ -20,6 +20,8 @@ import {
 import {
   Refresh as RefreshIcon,
   Close as CloseIcon,
+  ArrowBack as ArrowBackIcon,
+  Restore as RestoreIcon,
 } from '@mui/icons-material';
 import { useDashboard } from './DashboardContext';
 import { useDashboardVariable } from './DashboardVariableContext';
@@ -78,6 +80,12 @@ export const HeaderToolbarProvider = ({ children }: { children: ReactNode }) => 
         });
       }
       
+      // Add reset button to the right side for dashboard pages (before refresh button)
+      rightItems.push({
+        id: 'dashboard-reset',
+        node: <DashboardResetToolbar key="dashboard-reset" />
+      });
+      
       // Add refresh button to the right side for all dashboard pages
       rightItems.push({
         id: 'dashboard-refresh',
@@ -97,6 +105,18 @@ export const HeaderToolbarProvider = ({ children }: { children: ReactNode }) => 
           node: <DashboardVariablesToolbar key="dashboard-variables" />
         });
       }
+      
+      // Add Back to Dashboard button first (leftmost position)
+      rightItems.push({
+        id: 'back-to-dashboard',
+        node: <BackToDashboardToolbar key="back-to-dashboard" />
+      });
+      
+      // Add reset button after Back to Dashboard button
+      rightItems.push({
+        id: 'dashboard-reset',
+        node: <DashboardResetToolbar key="dashboard-reset" />
+      });
       
       // Note: No refresh button for panel view pages - they handle their own data fetching
     }
@@ -493,5 +513,128 @@ function DashboardRefreshToolbar() {
       isRefreshing={isRefreshing}
       currentInterval={currentInterval}
     />
+  );
+}
+
+function BackToDashboardToolbar() {
+  const navigate = useNavigate();
+  const { dashboardId } = useParams<{ dashboardId: string }>();
+
+  const handleBackToDashboard = () => {
+    // Always use dashboardId from URL params if available
+    if (dashboardId) {
+      navigate(`/dashboards/${dashboardId}`);
+    } else {
+      // Fallback: try to extract dashboardId from current path
+      const pathSegments = window.location.pathname.split('/').filter(Boolean);
+      const dashboardIndex = pathSegments.findIndex(segment => segment === 'dashboards');
+      const extractedDashboardId = dashboardIndex !== -1 && pathSegments[dashboardIndex + 1] ? pathSegments[dashboardIndex + 1] : null;
+      
+      if (extractedDashboardId) {
+        navigate(`/dashboards/${extractedDashboardId}`);
+      } else {
+        navigate('/dashboards');
+      }
+    }
+  };
+
+  return (
+    <Button
+      variant="outlined"
+      size="small"
+      startIcon={<ArrowBackIcon sx={{ fontSize: '16px' }} />}
+      onClick={handleBackToDashboard}
+      sx={{
+        color: '#e18b3d', // Orange color
+        borderColor: '#e18b3d', // Orange border
+        height: '30px',
+        fontSize: '0.75rem',
+        padding: '0 12px',
+        '&:hover': {
+          borderColor: '#d17a2a', // Darker orange on hover
+          backgroundColor: 'rgba(225, 139, 61, 0.1)', // Orange background on hover
+          color: '#d17a2a', // Darker orange text on hover
+        },
+      }}
+    >
+      Back to Dashboard
+    </Button>
+  );
+}
+
+function DashboardResetToolbar() {
+  const [hasModifications, setHasModifications] = React.useState(false);
+
+  React.useEffect(() => {
+    const handlePanelModified = () => {
+      setHasModifications(true);
+    };
+
+    const handlePanelReset = () => {
+      // Check if any panels still have modifications
+      // We'll use a small delay to allow all panels to update their state
+      setTimeout(() => {
+        window.dispatchEvent(new CustomEvent('check-panel-modifications'));
+      }, 100);
+    };
+
+    const handleModificationCheck = (event: any) => {
+      // If no panels respond with modifications, hide the reset button
+      setHasModifications(false);
+    };
+
+    const handlePanelHasModifications = () => {
+      setHasModifications(true);
+    };
+
+    // Listen for panel modification events
+    window.addEventListener('panel-modified', handlePanelModified);
+    window.addEventListener('panel-reset', handlePanelReset);
+    window.addEventListener('check-panel-modifications', handleModificationCheck);
+    window.addEventListener('panel-has-modifications', handlePanelHasModifications);
+
+    // Initial check for existing modifications
+    window.dispatchEvent(new CustomEvent('check-panel-modifications'));
+
+    return () => {
+      window.removeEventListener('panel-modified', handlePanelModified);
+      window.removeEventListener('panel-reset', handlePanelReset);
+      window.removeEventListener('check-panel-modifications', handleModificationCheck);
+      window.removeEventListener('panel-has-modifications', handlePanelHasModifications);
+    };
+  }, []);
+
+  const handleReset = () => {
+    // Dispatch a custom event to trigger dashboard reset
+    // This will be caught by dashboard components that need to reset their state
+    window.dispatchEvent(new CustomEvent('dashboard-reset-requested'));
+  };
+
+  // Only render the button if there are modifications
+  if (!hasModifications) {
+    return null;
+  }
+
+  return (
+    <Button
+      variant="outlined"
+      size="small"
+      startIcon={<RestoreIcon sx={{ fontSize: '16px' }} />}
+      onClick={handleReset}
+      sx={{
+        color: '#e18b3d', // Orange color
+        borderColor: '#e18b3d', // Orange border
+        height: '30px',
+        fontSize: '0.75rem',
+        padding: '0 12px',
+        '&:hover': {
+          borderColor: '#d17a2a', // Darker orange on hover
+          backgroundColor: 'rgba(225, 139, 61, 0.1)', // Orange background on hover
+          color: '#d17a2a', // Darker orange text on hover
+        },
+      }}
+    >
+      Reset
+    </Button>
   );
 }

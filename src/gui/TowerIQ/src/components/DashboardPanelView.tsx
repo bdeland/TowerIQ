@@ -30,10 +30,9 @@ import {
   Visibility as ViewIcon,
   Edit as EditIcon,
   Delete as DeleteIcon,
-  Fullscreen as FullscreenIcon,
-  FullscreenExit as FullscreenExitIcon,
   ArrowBack as ArrowBackIcon,
   SettingsBackupRestore as SettingsBackupRestoreIcon,
+  Restore as RestoreIcon,
   BugReport as BugReportIcon
 } from '@mui/icons-material';
 // ECharts React wrapper for rendering charts
@@ -66,11 +65,9 @@ interface DashboardPanelViewProps {
   onClick?: () => void;                    // Callback when panel is clicked (edit mode)
   isEditMode?: boolean;                    // Whether panel is in edit mode
   showMenu?: boolean;                      // Whether to show the context menu button
-  showFullscreen?: boolean;                // Whether to show the fullscreen button
   onDelete?: (panelId: string) => void;    // Callback when panel is deleted
   onEdit?: (panelId: string) => void;      // Callback when panel is edited
   onDataFetched?: (data: any[]) => void;   // Callback when data is fetched
-  onFullscreenToggle?: (panelId: string) => void; // Callback for fullscreen toggle
 }
 
 /**
@@ -119,11 +116,9 @@ const DashboardPanelViewComponent: React.FC<DashboardPanelViewProps> = ({
   onClick, 
   isEditMode = false,
   showMenu = true,
-  showFullscreen = false,
   onDelete,
   onEdit,
-  onDataFetched,
-  onFullscreenToggle
+  onDataFetched
 }) => {
   // ============================================================================
   // HOOKS AND STATE MANAGEMENT
@@ -181,7 +176,8 @@ const DashboardPanelViewComponent: React.FC<DashboardPanelViewProps> = ({
   // Chart interaction state
   const [isChartModified, setIsChartModified] = useState(false); // Whether chart has been zoomed/panned
   
-
+  // Check if we're in fullscreen mode
+  const isInFullscreen = window.location.pathname.includes('/panels/') && window.location.pathname.includes('/view');
 
   // ============================================================================
   // DATA FETCHING FUNCTIONS
@@ -497,6 +493,50 @@ const DashboardPanelViewComponent: React.FC<DashboardPanelViewProps> = ({
       }
     };
   }, []);
+
+  /**
+   * Effect to listen for dashboard reset events from the header
+   * Resets panel state when the reset button is clicked in the header
+   */
+  useEffect(() => {
+    const handleDashboardReset = () => {
+      // Only reset if this panel has modifications and is not in fullscreen
+      if (!isInFullscreen && (isDrilldown || isChartModified)) {
+        handleResetAll();
+        // Emit event that this panel was reset
+        window.dispatchEvent(new CustomEvent('panel-reset'));
+      }
+    };
+
+    const handleModificationCheck = () => {
+      // Respond if this panel has modifications
+      if (!isInFullscreen && (isDrilldown || isChartModified)) {
+        window.dispatchEvent(new CustomEvent('panel-has-modifications'));
+      }
+    };
+
+    window.addEventListener('dashboard-reset-requested', handleDashboardReset);
+    window.addEventListener('check-panel-modifications', handleModificationCheck);
+    
+    return () => {
+      window.removeEventListener('dashboard-reset-requested', handleDashboardReset);
+      window.removeEventListener('check-panel-modifications', handleModificationCheck);
+    };
+  }, [isInFullscreen, isDrilldown, isChartModified]);
+
+  /**
+   * Effect to emit modification events when panel state changes
+   * Notifies the header when panels become modified or unmodified
+   */
+  useEffect(() => {
+    // Only emit for non-fullscreen panels
+    if (!isInFullscreen) {
+      if (isDrilldown || isChartModified) {
+        // Panel is now modified
+        window.dispatchEvent(new CustomEvent('panel-modified'));
+      }
+    }
+  }, [isInFullscreen, isDrilldown, isChartModified]);
   
   /**
    * Chart event handlers for ECharts interactions
@@ -1477,44 +1517,14 @@ const DashboardPanelViewComponent: React.FC<DashboardPanelViewProps> = ({
   };
 
   /**
-   * Toggles fullscreen mode for the panel
-   * Detects current state and navigates accordingly
+   * Handles resetting all modifications (drilldown or zoom/pan)
+   * Decides between drilldown reset and chart reset based on current state
    */
-  const handleFullscreenToggle = () => {
-    // Check if we're already in fullscreen mode (PanelViewPage)
-    const isInFullscreen = window.location.pathname.includes('/panels/') && window.location.pathname.includes('/view');
-    
-    if (isInFullscreen) {
-      // We're in fullscreen mode, exit by going back to dashboard
-      if (onFullscreenToggle) {
-        onFullscreenToggle(panel.id);
-      }
+  const handleResetAll = () => {
+    if (isDrilldown) {
+      handleBackToOriginal();
     } else {
-      // We're in dashboard mode, enter fullscreen by navigating to PanelViewPage
-      const pathSegments = window.location.pathname.split('/').filter(Boolean);
-      const dashboardIndex = pathSegments.findIndex(segment => segment === 'dashboard' || segment === 'dashboards');
-      const dashboardId = dashboardIndex !== -1 && pathSegments[dashboardIndex + 1] ? pathSegments[dashboardIndex + 1] : null;
-      
-      // Get current dashboard variables if available
-      let variablesParam = '';
-      try {
-        // Try to access dashboard variables from context
-        const dashboardVariableContext = useDashboardVariable();
-        if (dashboardVariableContext.selectedValues) {
-          const variables = encodeURIComponent(JSON.stringify(dashboardVariableContext.selectedValues));
-          variablesParam = `?variables=${variables}`;
-        }
-      } catch (error) {
-        // Dashboard variable context not available, continue without variables
-        console.log('Dashboard variables not available for fullscreen view');
-      }
-      
-      if (dashboardId) {
-        navigate(`/dashboards/${dashboardId}/panels/${panel.id}/view${variablesParam}`);
-      } else {
-        // Fallback to old URL structure if dashboard ID not found
-        navigate(`/panels/${panel.id}/view${variablesParam}`);
-      }
+      handleChartReset();
     }
   };
 
@@ -1532,9 +1542,9 @@ const DashboardPanelViewComponent: React.FC<DashboardPanelViewProps> = ({
       sx={{ 
         display: 'flex', 
         alignItems: 'center', 
-        justifyContent: (showMenu || showFullscreen) ? 'space-between' : 'flex-start',
+        justifyContent: 'flex-start',
         paddingLeft: '8px',
-        paddingRight: (showMenu || showFullscreen) ? '0px' : '8px',
+        paddingRight: '8px',
         paddingTop: '4px',
         paddingBottom: '4px',
         backgroundColor: 'background.paper',
@@ -1542,11 +1552,7 @@ const DashboardPanelViewComponent: React.FC<DashboardPanelViewProps> = ({
         maxHeight: '28px',
         borderTopLeftRadius: 'inherit',
         borderTopRightRadius: 'inherit',
-        position: 'relative', // Ensure proper positioning context
-        '&:hover .fullscreen-button': {
-          opacity: 1,
-          visibility: 'visible'
-        }
+        position: 'relative' // Ensure proper positioning context
       }}
     >
       {isDrilldown && (
@@ -1555,7 +1561,17 @@ const DashboardPanelViewComponent: React.FC<DashboardPanelViewProps> = ({
           onClick={panel.echartsOption.drilldown?.type === 'calendar_hierarchical' 
             ? handleCalendarDrilldownBack 
             : handleBackToOriginal}
-          sx={{ mr: 1 }}
+          sx={{ 
+            mr: 1,
+            height: '28px',
+            borderRadius: 0.25,
+            padding: '4px',
+            color: 'text.secondary',
+            '&:hover': {
+              backgroundColor: 'action.hover',
+              color: 'text.primary'
+            }
+          }}
           aria-label="Back"
         >
           <ArrowBackIcon fontSize="small" />
@@ -1714,27 +1730,6 @@ const DashboardPanelViewComponent: React.FC<DashboardPanelViewProps> = ({
         </Tooltip>
       )}
       
-      {/* Reset button - only show when chart is modified and in drilldown mode */}
-      {isDrilldown && isChartModified && (
-        <IconButton
-          size="small"
-          onClick={handleChartReset}
-          aria-label="Reset zoom and pan"
-          sx={{ 
-            padding: '4px',
-            color: 'text.secondary',
-            borderRadius: 0.25,
-            ml: 'auto', // Push to the right
-            mr: (isDevMode || showFullscreen) ? 0.5 : 0, // Small margin if debug or fullscreen button follows
-            '&:hover': {
-              backgroundColor: 'action.hover',
-              color: 'text.primary'
-            }
-          }}
-        >
-          <SettingsBackupRestoreIcon fontSize="small" />
-        </IconButton>
-      )}
       
       {/* Debug button - only show in development mode */}
       {isDevMode && (
@@ -1746,8 +1741,8 @@ const DashboardPanelViewComponent: React.FC<DashboardPanelViewProps> = ({
             padding: '4px',
             color: 'text.secondary',
             borderRadius: 0.25,
-            ml: (!isDrilldown || !isChartModified) ? 'auto' : 0, // Push to the right if no reset button
-            mr: showFullscreen ? 0.5 : 0, // Small margin if fullscreen button follows
+            ml: 'auto', // Push to the right
+            mr: showMenu ? 0.5 : 0, // Small margin if menu button follows
             '&:hover': {
               backgroundColor: 'action.hover',
               color: 'text.primary'
@@ -1758,33 +1753,8 @@ const DashboardPanelViewComponent: React.FC<DashboardPanelViewProps> = ({
         </IconButton>
       )}
       
-      {showFullscreen ? (
-        <IconButton
-          id={`panel-fullscreen-button-${panel.id}`}
-          className="fullscreen-button"
-          size="small"
-          onClick={handleFullscreenToggle}
-          aria-label={window.location.pathname.includes('/panels/') && window.location.pathname.includes('/view') ? "Exit fullscreen" : "Enter fullscreen"}
-          sx={{ 
-            padding: '4px',
-            color: 'text.secondary',
-            borderRadius: 0.25, // Rectangle shape instead of circle
-            position: 'relative', // Ensure proper positioning context
-            opacity: 0,
-            visibility: 'hidden',
-            transition: 'opacity 0.2s ease, visibility 0.2s ease',
-            '&:hover': {
-              backgroundColor: 'action.hover',
-              color: 'text.primary'
-            }
-          }}
-        >
-          {window.location.pathname.includes('/panels/') && window.location.pathname.includes('/view') ? 
-            <FullscreenExitIcon fontSize="small" /> : 
-            <FullscreenIcon fontSize="small" />
-          }
-        </IconButton>
-      ) : showMenu && (
+      {/* Three-dots menu - always show when showMenu is true */}
+      {showMenu && (
         <IconButton
           id={`panel-menu-button-${panel.id}`}
           size="small"
@@ -1797,6 +1767,7 @@ const DashboardPanelViewComponent: React.FC<DashboardPanelViewProps> = ({
             color: 'text.secondary',
             borderRadius: 0.25, // Rectangle shape instead of circle
             position: 'relative', // Ensure proper positioning context
+            ml: 'auto', // Push to the right
             '&:hover': {
               backgroundColor: 'action.hover',
               color: 'text.primary'
@@ -1841,21 +1812,22 @@ const DashboardPanelViewComponent: React.FC<DashboardPanelViewProps> = ({
           >
             <MenuItem 
               onClick={handleView} 
+              disabled={isInFullscreen}
               sx={{ 
                 fontSize: '0.875rem',
-                color: 'text.primary',
+                color: isInFullscreen ? 'text.disabled' : 'text.primary',
                 '&:hover': {
-                  backgroundColor: 'action.hover'
+                  backgroundColor: isInFullscreen ? 'transparent' : 'action.hover'
                 }
               }}
             >
-              <ListItemIcon sx={{ minWidth: '32px', color: 'text.secondary' }}>
+              <ListItemIcon sx={{ minWidth: '32px', color: isInFullscreen ? 'text.disabled' : 'text.secondary' }}>
                 <ViewIcon fontSize="small" />
               </ListItemIcon>
               <ListItemText primary="View" />
             </MenuItem>
             <MenuItem 
-              onClick={handleEdit} 
+              onClick={handleDebugClick} 
               sx={{ 
                 fontSize: '0.875rem',
                 color: 'text.primary',
@@ -1865,24 +1837,9 @@ const DashboardPanelViewComponent: React.FC<DashboardPanelViewProps> = ({
               }}
             >
               <ListItemIcon sx={{ minWidth: '32px', color: 'text.secondary' }}>
-                <EditIcon fontSize="small" />
+                <BugReportIcon fontSize="small" />
               </ListItemIcon>
-              <ListItemText primary="Edit" />
-            </MenuItem>
-            <MenuItem 
-              onClick={handleRemove} 
-              sx={{ 
-                fontSize: '0.875rem', 
-                color: 'error.main',
-                '&:hover': {
-                  backgroundColor: 'action.hover'
-                }
-              }}
-            >
-              <ListItemIcon sx={{ minWidth: '32px' }}>
-                <DeleteIcon fontSize="small" color="error" />
-              </ListItemIcon>
-              <ListItemText primary="Remove" />
+              <ListItemText primary="Inspect" />
             </MenuItem>
           </MenuList>
         </Box>

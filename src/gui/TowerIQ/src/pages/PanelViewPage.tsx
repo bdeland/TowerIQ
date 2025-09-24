@@ -159,10 +159,6 @@ export function PanelViewPage() {
     }
   };
 
-  const handleFullscreenToggle = () => {
-    // Exit fullscreen by going back to dashboard
-    handleBackToDashboard();
-  };
 
   if (loading) {
     return (
@@ -203,13 +199,12 @@ export function PanelViewPage() {
             panel={panel}
             data={panelData}
             isEditMode={false}
-            showFullscreen={true}
+            showMenu={true}
             onEdit={handleEdit}
             onDelete={() => {
               // Navigate back to dashboard after delete
               handleBackToDashboard();
             }}
-            onFullscreenToggle={handleFullscreenToggle}
           />
         </Box>
       </Box>

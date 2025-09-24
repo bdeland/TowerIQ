@@ -84,7 +84,7 @@ function DefaultDashboardContent({ panels, currentDashboard, isEditMode, selecte
 
     const handleDashboardRefreshRequested = () => {
       console.log('Dashboard refresh requested from toolbar...');
-      setForceRefresh(Date.now());
+      refetch();
     };
 
     window.addEventListener('database-metrics-updated', handleDatabaseMetricsUpdate);
@@ -110,8 +110,7 @@ function DefaultDashboardContent({ panels, currentDashboard, isEditMode, selecte
           isLoading={isLoading}
           isEditMode={isEditMode}
           isEditable={featureFlags.enableAdHocDashboards}
-          showMenu={featureFlags.enableAdHocDashboards && !currentDashboard?.is_default}
-          showFullscreen={currentDashboard?.is_default || false}
+          showMenu={true}
           dashboardId={currentDashboard?.id}
           onLayoutChange={onLayoutChange}
           onPanelClick={onPanelClick}
@@ -470,8 +469,7 @@ export function DashboardViewPage() {
           panels={panels}
           isEditMode={isEditMode}
           isEditable={featureFlags.enableAdHocDashboards}
-          showMenu={featureFlags.enableAdHocDashboards && !currentDashboard?.is_default}
-          showFullscreen={currentDashboard?.is_default || false}
+          showMenu={true}
           dashboardId={currentDashboard?.id}
           onLayoutChange={onLayoutChange}
           onPanelClick={handlePanelClick}
