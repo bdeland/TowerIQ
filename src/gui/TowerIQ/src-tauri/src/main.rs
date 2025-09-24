@@ -2,5 +2,5 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 fn main() {
-    toweriq_lib::run()
+    tower_iq_lib::run()
 }

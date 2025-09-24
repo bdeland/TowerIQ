@@ -34,8 +34,7 @@ import {
   FullscreenExit as FullscreenExitIcon,
   ArrowBack as ArrowBackIcon,
   SettingsBackupRestore as SettingsBackupRestoreIcon,
-  BugReport as BugReportIcon,
-  DataObject as DataObjectIcon
+  BugReport as BugReportIcon
 } from '@mui/icons-material';
 // ECharts React wrapper for rendering charts
 import ReactECharts from 'echarts-for-react';
@@ -49,10 +48,7 @@ import { grafanaToECharts, mergeWithEChartsOption } from '../utils/grafanaToECha
 import { API_CONFIG } from '../config/environment';
 import { getCategoricalColor } from '../utils/colorPalette';
 import { formatCurrency, formatNumber } from '../utils/formattingUtils';
-import { composeQuery } from '../utils/queryComposer';
-import { format } from 'sql-formatter';
-import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
-import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
+import DebugDrawer from './DebugDrawer';
 
 // ============================================================================
 // TYPE DEFINITIONS - Props and data structures
@@ -1914,313 +1910,6 @@ const DashboardPanelViewComponent: React.FC<DashboardPanelViewProps> = ({
     </>
   );
 
-  /**
-   * Debug Drawer Component
-   * Shows query transformation information and panel debug details
-   * Only visible in development mode
-   */
-  const DebugDrawer = () => {
-    // Get dashboard variables for query transformation
-    let selectedValues = {};
-    try {
-      const dashboardVariableContext = useDashboardVariable();
-      selectedValues = dashboardVariableContext.selectedValues;
-    } catch (error) {
-      // Dashboard variable context not available, use empty values
-      selectedValues = {};
-    }
-
-    // Transform the query to show the difference
-    const originalQuery = panel.query || '';
-    const transformedQuery = originalQuery ? composeQuery(originalQuery, selectedValues) : '';
-
-    // Debug logging
-    if (import.meta.env.DEV) {
-      console.log('Debug drawer - Panel query info:', {
-        panelId: panel.id,
-        hasQuery: !!panel.query,
-        queryLength: originalQuery.length,
-        queryPreview: originalQuery.substring(0, 100),
-        transformedLength: transformedQuery.length
-      });
-    }
-
-    // Helper function to format SQL queries
-    const formatSqlQuery = (query: string): string => {
-      if (!query.trim()) return query;
-      
-      try {
-        // First, temporarily replace placeholders to make the query parseable
-        let tempQuery = query;
-        const placeholders: { [key: string]: string } = {};
-        
-        // Find and replace placeholders like ${variable_name}
-        const placeholderMatches = query.match(/\$\{[^}]+\}/g) || [];
-        placeholderMatches.forEach((placeholder, index) => {
-          const tempReplacement = `PLACEHOLDER_${index}`;
-          placeholders[tempReplacement] = placeholder;
-          tempQuery = tempQuery.replace(placeholder, tempReplacement);
-        });
-        
-        // Format the query with SQLite dialect
-        const formatted = format(tempQuery, {
-          language: 'sqlite',
-          keywordCase: 'upper',
-          linesBetweenQueries: 2,
-          indentStyle: 'standard'
-        });
-        
-        // Restore the original placeholders
-        let finalQuery = formatted;
-        Object.entries(placeholders).forEach(([temp, original]) => {
-          finalQuery = finalQuery.replace(new RegExp(temp, 'g'), original);
-        });
-        
-        if (import.meta.env.DEV) {
-          console.log('SQL formatted successfully for panel:', panel.id);
-        }
-        return finalQuery;
-      } catch (error) {
-        // If formatting fails, return original query with basic cleanup
-        console.warn('SQL formatting failed for panel:', panel.id, 'Error:', error);
-        // At least provide basic indentation cleanup
-        return query
-          .replace(/\s+/g, ' ') // Replace multiple spaces with single space
-          .replace(/,\s*/g, ',\n    ') // Add line breaks after commas
-          .replace(/\bFROM\b/gi, '\nFROM')
-          .replace(/\bWHERE\b/gi, '\nWHERE')
-          .replace(/\bORDER BY\b/gi, '\nORDER BY')
-          .replace(/\bGROUP BY\b/gi, '\nGROUP BY')
-          .replace(/\bHAVING\b/gi, '\nHAVING')
-          .trim();
-      }
-    };
-
-    return (
-      <Drawer
-        anchor="right"
-        open={debugDrawerOpen}
-        onClose={handleDebugDrawerClose}
-        sx={{
-          '& .MuiDrawer-paper': {
-            width: 500,
-            padding: 2,
-            backgroundColor: 'background.paper'
-          }
-        }}
-      >
-        <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-          {/* Header */}
-          <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
-            <BugReportIcon sx={{ mr: 1, color: 'primary.main' }} />
-            <Typography variant="h6" component="h2">
-              Panel Debug Information
-            </Typography>
-          </Box>
-          
-          <Divider sx={{ mb: 2 }} />
-
-          {/* Panel Information */}
-          <Box sx={{ mb: 3 }}>
-            <Typography variant="subtitle1" sx={{ fontWeight: 600, mb: 1 }}>
-              Panel Details
-            </Typography>
-            <Paper sx={{ p: 2, backgroundColor: 'background.default', border: '1px solid', borderColor: 'divider' }}>
-              <Typography variant="body2" sx={{ mb: 1, color: 'text.primary' }}>
-                <strong>ID:</strong> {panel.id}
-              </Typography>
-              <Typography variant="body2" sx={{ mb: 1, color: 'text.primary' }}>
-                <strong>Title:</strong> {panel.title}
-              </Typography>
-              <Typography variant="body2" sx={{ mb: 1, color: 'text.primary' }}>
-                <strong>Type:</strong> {panel.type}
-              </Typography>
-              {panel.columnMapping && (
-                <Typography variant="body2" sx={{ color: 'text.primary' }}>
-                  <strong>Column Mapping:</strong> {JSON.stringify(panel.columnMapping, null, 2)}
-                </Typography>
-              )}
-            </Paper>
-          </Box>
-
-          {/* Query Transformation */}
-          <Box sx={{ mb: 3 }}>
-            <Typography variant="subtitle1" sx={{ fontWeight: 600, mb: 1 }}>
-              Query Transformation
-            </Typography>
-            
-            {/* Variables */}
-            {Object.keys(selectedValues).length > 0 && (
-              <Box sx={{ mb: 2 }}>
-                <Typography variant="body2" sx={{ fontWeight: 500, mb: 1 }}>
-                  Variables:
-                </Typography>
-                <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
-                  {Object.entries(selectedValues).map(([key, value]) => (
-                    <Box
-                      key={key}
-                      sx={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        backgroundColor: '#e06339',
-                        color: 'white',
-                        borderRadius: '16px',
-                        padding: '4px 12px',
-                        fontSize: '0.8125rem',
-                        fontWeight: 500,
-                        gap: 1
-                      }}
-                    >
-                      {/* Icon */}
-                      <DataObjectIcon sx={{ fontSize: '14px', color: 'white' }} />
-                      
-                      {/* Vertical divider */}
-                      <Box
-                        sx={{
-                          width: '1px',
-                          height: '16px',
-                          backgroundColor: 'rgba(255, 255, 255, 0.3)',
-                          flexShrink: 0
-                        }}
-                      />
-                      
-                      {/* Variable name */}
-                      <Typography
-                        variant="body2"
-                        sx={{
-                          color: 'white',
-                          fontSize: 'inherit',
-                          fontWeight: 'inherit',
-                          lineHeight: 1
-                        }}
-                      >
-                        {key}
-                      </Typography>
-                    </Box>
-                  ))}
-                </Box>
-              </Box>
-            )}
-
-            {/* Original Query */}
-            <Box sx={{ mb: 2 }}>
-              <Typography variant="body2" sx={{ fontWeight: 500, mb: 1 }}>
-                Original Query:
-              </Typography>
-              <Paper 
-                sx={{ 
-                  p: 0, 
-                  backgroundColor: 'background.default',
-                  overflow: 'auto',
-                  border: '1px solid',
-                  borderColor: 'divider'
-                }}
-              >
-                {originalQuery.trim() ? (
-                  <SyntaxHighlighter
-                    language="sql"
-                    style={vscDarkPlus}
-                    customStyle={{
-                      margin: 0,
-                      padding: '16px',
-                      backgroundColor: 'transparent',
-                      fontSize: '0.875rem'
-                    }}
-                    wrapLongLines={true}
-                  >
-                    {formatSqlQuery(originalQuery)}
-                  </SyntaxHighlighter>
-                ) : (
-                  <Box sx={{ p: 2, color: 'text.secondary', fontStyle: 'italic' }}>
-                    No query defined
-                  </Box>
-                )}
-              </Paper>
-            </Box>
-
-            {/* Transformed Query */}
-            {originalQuery && (
-              <Box sx={{ mb: 2 }}>
-                <Typography variant="body2" sx={{ fontWeight: 500, mb: 1 }}>
-                  Transformed Query:
-                </Typography>
-                <Paper 
-                  sx={{ 
-                    p: 0, 
-                    backgroundColor: 'background.default',
-                    overflow: 'auto',
-                    border: '1px solid',
-                    borderColor: 'divider'
-                  }}
-                >
-                  <SyntaxHighlighter
-                    language="sql"
-                    style={vscDarkPlus}
-                    customStyle={{
-                      margin: 0,
-                      padding: '16px',
-                      backgroundColor: 'transparent',
-                      fontSize: '0.875rem'
-                    }}
-                    wrapLongLines={true}
-                  >
-                    {formatSqlQuery(transformedQuery)}
-                  </SyntaxHighlighter>
-                </Paper>
-              </Box>
-            )}
-          </Box>
-
-          {/* Data Information */}
-          <Box sx={{ mb: 3 }}>
-            <Typography variant="subtitle1" sx={{ fontWeight: 600, mb: 1 }}>
-              Data Information
-            </Typography>
-            <Paper sx={{ p: 2, backgroundColor: 'background.default', border: '1px solid', borderColor: 'divider' }}>
-              {loading ? (
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
-                  <CircularProgress size={16} />
-                  <Typography variant="body2" sx={{ color: 'text.primary' }}>
-                    <strong>Loading data...</strong>
-                  </Typography>
-                </Box>
-              ) : (
-                <>
-                  <Typography variant="body2" sx={{ mb: 1, color: 'text.primary' }}>
-                    <strong>Rows:</strong> {queryResult.data?.length || 0}
-                  </Typography>
-                  {queryResult.data?.length > 0 && (
-                    <Typography variant="body2" sx={{ mb: 1, color: 'text.primary' }}>
-                      <strong>Columns:</strong> {Object.keys(queryResult.data[0]).join(', ')}
-                    </Typography>
-                  )}
-                </>
-              )}
-              <Typography variant="body2" sx={{ color: 'text.primary' }}>
-                <strong>Status:</strong> {loading ? 'Loading...' : 'Ready'}
-              </Typography>
-              {error && (
-                <Typography variant="body2" sx={{ color: 'error.main' }}>
-                  <strong>Error:</strong> {error}
-                </Typography>
-              )}
-            </Paper>
-          </Box>
-
-          {/* Close button */}
-          <Box sx={{ mt: 'auto', pt: 2 }}>
-            <Button 
-              variant="contained" 
-              onClick={handleDebugDrawerClose}
-              fullWidth
-            >
-              Close
-            </Button>
-          </Box>
-        </Box>
-      </Drawer>
-    );
-  };
 
   /**
    * Renders panel content based on type and state
@@ -2403,7 +2092,14 @@ const DashboardPanelViewComponent: React.FC<DashboardPanelViewProps> = ({
       </Box>
 
       <ContextMenu />
-      <DebugDrawer />
+      <DebugDrawer 
+        open={debugDrawerOpen}
+        onClose={handleDebugDrawerClose}
+        panel={panel}
+        queryResult={queryResult}
+        loading={loading}
+        error={error}
+      />
     </Box>
   );
 };

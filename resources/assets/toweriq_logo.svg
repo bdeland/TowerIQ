@@ -8,13 +8,16 @@
    xmlns="http://www.w3.org/2000/svg"
    xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd"
    xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"
-   viewBox="0 0 1010 876.02502"
-   width="1010"
-   height="876.02502"
+   viewBox="0 0 3000 3000"
+   width="3000"
+   height="3000"
    version="1.1"
    id="svg111"
    sodipodi:docname="toweriq_logo.svg"
-   inkscape:version="1.0.1 (3bc2e813f5, 2020-09-07)">
+   inkscape:version="1.0.1 (3bc2e813f5, 2020-09-07)"
+   inkscape:export-filename="C:\Users\delan\Documents\GitHub\TowerIQ\resources\assets\toweriq_logo.png"
+   inkscape:export-xdpi="400"
+   inkscape:export-ydpi="400">
   <metadata
      id="metadata115">
     <rdf:RDF>
@@ -42,9 +45,9 @@
      showgrid="false"
      inkscape:pagecheckerboard="true"
      showguides="false"
-     inkscape:zoom="0.35355339"
-     inkscape:cx="443.98003"
-     inkscape:cy="367.34846"
+     inkscape:zoom="0.088388348"
+     inkscape:cx="608.70069"
+     inkscape:cy="847.76556"
      inkscape:window-x="954"
      inkscape:window-y="0"
      inkscape:window-maximized="0"
@@ -118,15 +121,19 @@
        id="g1842"
        transform="matrix(1.7309062,0,0,1.7309062,-128.52245,-270.90014)"
        style="fill:#e18b3d;fill-opacity:1">
-      <path
-         id="path97"
-         style="fill:#9f58b6;fill-opacity:1;stroke:none;stroke-width:11.5546;stroke-linecap:round;stroke-linejoin:round;stroke-miterlimit:8;stroke-dasharray:none;stroke-opacity:1"
-         d="m 327.54672,627.39191 144,249.41529 54.25843,-93.97843 -89.74157,-155.43686 89.74157,-155.43696 h 179.48304 l 54.25853,-93.97834 h -576 l 54.25843,93.97834 h 179.48304 z"
-         sodipodi:nodetypes="ccccccccccc" />
-      <path
-         id="path1012"
-         style="fill:#9f58b6;stroke:none;stroke-width:0.577732px;stroke-linecap:butt;stroke-linejoin:miter;stroke-opacity:1;fill-opacity:1"
-         d="M 674.67741,525.57531 559.80826,724.53455 M 674.67741,525.57531 H 559.80826 l -57.4346,99.47966 57.4346,99.47958" />
+      <g
+         id="g30"
+         transform="matrix(3.0090211,0,0,3.0090211,-372.50391,-646.64936)">
+        <path
+           id="path97"
+           style="fill:#39b5e0;fill-opacity:1;stroke:none;stroke-width:11.5546;stroke-linecap:round;stroke-linejoin:round;stroke-miterlimit:8;stroke-dasharray:none;stroke-opacity:1"
+           d="m 327.54672,627.39191 144,249.41529 54.25843,-93.97843 -89.74157,-155.43686 89.74157,-155.43696 h 179.48304 l 54.25853,-93.97834 h -576 l 54.25843,93.97834 h 179.48304 z"
+           sodipodi:nodetypes="ccccccccccc" />
+        <path
+           id="path1012"
+           style="fill:#39b5e0;fill-opacity:1;stroke:none;stroke-width:0.577732px;stroke-linecap:butt;stroke-linejoin:miter;stroke-opacity:1"
+           d="M 674.67741,525.57531 559.80826,724.53455 M 674.67741,525.57531 H 559.80826 l -57.4346,99.47966 57.4346,99.47958" />
+      </g>
     </g>
   </g>
   <desc
