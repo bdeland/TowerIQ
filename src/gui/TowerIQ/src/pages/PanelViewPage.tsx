@@ -148,12 +148,12 @@ export function PanelViewPage() {
   }, [panel, selectedValues]);
 
   const handleEdit = () => {
-    navigate(`/dashboard/${dashboardId}/panels/${panelId}/edit`);
+    navigate(`/dashboards/${dashboardId}/panels/${panelId}/edit`);
   };
 
   const handleBackToDashboard = () => {
     if (dashboard) {
-      navigate(`/dashboard/${dashboard.id}`);
+      navigate(`/dashboards/${dashboard.id}`);
     } else {
       navigate('/dashboards');
     }
@@ -190,8 +190,14 @@ export function PanelViewPage() {
 
   return (
     <Box sx={{ height: '100vh', display: 'flex', flexDirection: 'column' }}>
-      {/* Panel Content - Full Screen with 8px margins */}
-      <Box sx={{ flex: 1, padding: '8px' }} data-content-container="true">
+      {/* Panel Content - Full Screen with consistent 8px margins */}
+      <Box sx={{ 
+        flex: 1, 
+        border: '1px solid var(--tiq-border-primary)',
+        borderRadius: '4px',
+        overflow: 'hidden',
+        boxSizing: 'border-box'
+      }} data-content-container="true">
         <Box sx={{ height: '100%', width: '100%' }}>
           <DashboardPanelView 
             panel={panel}

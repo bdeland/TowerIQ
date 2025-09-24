@@ -79,11 +79,11 @@ function DashboardVariableWrapper({ children }: { children: React.ReactNode }) {
   
   // Check if we're on a dashboard or panel view page that has variables
   // Also check URL path directly for default dashboard to avoid race conditions
-  const isDefaultDashboard = location.pathname.includes('/dashboard/default-dashboard') || 
+  const isDefaultDashboard = location.pathname.includes('/dashboards/default-dashboard') || 
                             (currentDashboard?.id === 'default-dashboard');
   
   const needsVariableProvider = 
-    (location.pathname.startsWith('/dashboard/') && isDefaultDashboard) ||
+    (location.pathname.startsWith('/dashboards/') && isDefaultDashboard) ||
     (location.pathname.includes('/panels/') && location.pathname.includes('/view') && isDefaultDashboard);
   
   if (needsVariableProvider) {
@@ -104,8 +104,6 @@ function DashboardLayout() {
   const [sidebarDocked, setSidebarDocked] = useState(false); // Manages the docked state
   const location = useLocation();
   
-  // Check if we're on the PanelEditPage to remove bottom padding
-  const isPanelEditPage = location.pathname.includes('/dashboard/') && location.pathname.includes('/panels/') && location.pathname.includes('/edit');
 
 
 
@@ -234,9 +232,9 @@ function DashboardLayout() {
             component="main"
             sx={{
               flexGrow: 1,
-              pt: `${layout.appBarHeight * 2 + 1}px`, // Add top padding to account for combined AppBar height (80px) plus borders (2px)
-              pb: isPanelEditPage ? 0 : 2, // Remove bottom padding for PanelEditPage
-              px: 0,
+              pt: `${layout.appBarHeight * 2 + 9}px`, // Add top padding to account for combined AppBar height (80px) plus borders (2px)
+              pb: 1, // 8px bottom padding for all pages
+              px: 1,
               height: '100vh',
               overflowY: 'auto',
               display: 'flex',
@@ -247,10 +245,9 @@ function DashboardLayout() {
             <Routes>
               <Route path="/" element={<HomePage />} />
               <Route path="/dashboards" element={<DashboardsPage />} />
-              <Route path="/dashboard/:id" element={<DashboardViewPage />} />
               <Route path="/dashboards/:id" element={<DashboardViewPage />} />
-              <Route path="/dashboard/:dashboardId/panels/:panelId/view" element={<PanelViewPage />} />
-              <Route path="/dashboard/:dashboardId/panels/:panelId/edit" element={<PanelEditPage />} />
+              <Route path="/dashboards/:dashboardId/panels/:panelId/view" element={<PanelViewPage />} />
+              <Route path="/dashboards/:dashboardId/panels/:panelId/edit" element={<PanelEditPage />} />
               <Route path="/database-health" element={<DatabaseHealthDashboardPage />} />
               <Route path="/connection" element={<ConnectionPage />} />
               <Route path="/explore" element={<ExplorePage />} />

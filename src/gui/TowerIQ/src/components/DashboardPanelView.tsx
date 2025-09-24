@@ -1408,7 +1408,7 @@ const DashboardPanelViewComponent: React.FC<DashboardPanelViewProps> = ({
     }
     
     if (dashboardId) {
-      navigate(`/dashboard/${dashboardId}/panels/${panel.id}/view${variablesParam}`);
+      navigate(`/dashboards/${dashboardId}/panels/${panel.id}/view${variablesParam}`);
     } else {
       // Fallback to old URL structure if dashboard ID not found
       navigate(`/panels/${panel.id}/view${variablesParam}`);
@@ -1429,7 +1429,7 @@ const DashboardPanelViewComponent: React.FC<DashboardPanelViewProps> = ({
       const dashboardId = dashboardIndex !== -1 && pathSegments[dashboardIndex + 1] ? pathSegments[dashboardIndex + 1] : null;
       
       if (dashboardId) {
-        navigate(`/dashboard/${dashboardId}/panels/${panel.id}/edit`);
+        navigate(`/dashboards/${dashboardId}/panels/${panel.id}/edit`);
       } else {
         // Fallback to old URL structure if dashboard ID not found
         navigate(`/panels/${panel.id}/edit`);
@@ -1510,7 +1510,7 @@ const DashboardPanelViewComponent: React.FC<DashboardPanelViewProps> = ({
       }
       
       if (dashboardId) {
-        navigate(`/dashboard/${dashboardId}/panels/${panel.id}/view${variablesParam}`);
+        navigate(`/dashboards/${dashboardId}/panels/${panel.id}/view${variablesParam}`);
       } else {
         // Fallback to old URL structure if dashboard ID not found
         navigate(`/panels/${panel.id}/view${variablesParam}`);
@@ -1537,8 +1537,6 @@ const DashboardPanelViewComponent: React.FC<DashboardPanelViewProps> = ({
         paddingRight: (showMenu || showFullscreen) ? '0px' : '8px',
         paddingTop: '4px',
         paddingBottom: '4px',
-        borderBottom: '1px solid',
-        borderBottomColor: 'divider',
         backgroundColor: 'background.paper',
         minHeight: '28px',
         maxHeight: '28px',
@@ -2061,9 +2059,10 @@ const DashboardPanelViewComponent: React.FC<DashboardPanelViewProps> = ({
         height: '100%',
         borderRadius: 0.25,
         cursor: isEditMode ? 'pointer' : 'default',
-        backgroundColor: 'rgba(255, 152, 0, 0.1)',
+        backgroundColor: 'rgba(225, 139, 61, 0.1)', // Using brand.secondary with opacity
+        borderBottom: 'none', // Remove bottom border since PanelHeader provides it
         '&:hover': isEditMode ? { 
-          boxShadow: '0 2px 8px rgba(247, 149, 32, 0.2)'
+          boxShadow: '0 2px 8px rgba(225, 139, 61, 0.2)' // Using brand.secondary for hover
         } : {
           boxShadow: '0 1px 3px rgba(0, 0, 0, 0.12)'
         },
@@ -2086,7 +2085,7 @@ const DashboardPanelViewComponent: React.FC<DashboardPanelViewProps> = ({
         overflow: 'hidden',
         borderBottomLeftRadius: 'inherit',
         borderBottomRightRadius: 'inherit',
-        padding: '10px' // Consistent margin between content and panel boundaries
+        padding: '8px' // Consistent margin between content and panel boundaries
       }}>
         {renderPanelContent()}
       </Box>

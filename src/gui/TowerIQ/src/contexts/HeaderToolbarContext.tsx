@@ -59,7 +59,7 @@ export const HeaderToolbarProvider = ({ children }: { children: ReactNode }) => 
     // Check if we're on a panel view page first (more specific condition)
     const isPanelViewPage = pathname.includes('/panels/') && pathname.includes('/view');
     
-    if (pathname.startsWith('/dashboard/') || pathname.startsWith('/dashboards/')) {
+    if (pathname.startsWith('/dashboards/')) {
       const dashboardId = params.id;
       
       // Database health dashboard via generic dashboard route

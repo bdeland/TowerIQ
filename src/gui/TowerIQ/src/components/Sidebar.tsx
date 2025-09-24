@@ -179,7 +179,10 @@ export function Sidebar({
           {navigationItems.map((item) => (
             <ListItem key={item.text} disablePadding>
               <ListItemButton
-                selected={location.pathname === item.path}
+                selected={
+                  location.pathname === item.path || 
+                  (item.path !== '/' && location.pathname.startsWith(item.path + '/'))
+                }
                 onClick={() => handleNavigation(item.path)}
                 sx={listItemButtonStyles}
               >

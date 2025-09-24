@@ -100,7 +100,7 @@ function DefaultDashboardContent({ panels, currentDashboard, isEditMode, selecte
   }, []);
 
   return (
-    <Box sx={{ padding: '8px 8px 8px 8px', border: isDevMode ? '2px solid red' : 'none' }} data-content-container="true">
+    <Box sx={{ border: isDevMode ? '2px solid red' : 'none' }} data-content-container="true">
       
       <Box sx={{ mt: 0 }}>
         <DashboardGrid
@@ -271,7 +271,7 @@ export function DashboardViewPage() {
         await fetchDashboards();
         
         // Navigate to the new dashboard
-        navigate(`/dashboard/${newDashboard.id}`);
+        navigate(`/dashboards/${newDashboard.id}`);
       } else {
         console.error('DashboardViewPage - Failed to create dashboard copy');
       }
@@ -464,7 +464,7 @@ export function DashboardViewPage() {
   }
 
   const dashboardContent = (
-    <Box sx={{ padding: '8px 8px 8px 8px', border: isDevMode ? '2px solid red' : 'none' }} data-content-container="true">
+    <Box sx={{ border: isDevMode ? '2px solid red' : 'none' }} data-content-container="true">
       <Box sx={{ mt: 0 }}>
         <DashboardGrid
           panels={panels}

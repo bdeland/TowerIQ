@@ -34,8 +34,8 @@ export function Breadcrumbs() {
     const pathSegments = location.pathname.split('/').filter(Boolean);
     
     let dId = null;
-    // Check for both 'dashboards' (plural) and 'dashboard' (singular)
-    const dashboardIndex = pathSegments.findIndex(segment => segment === 'dashboards' || segment === 'dashboard');
+    // Check for 'dashboards' (plural)
+    const dashboardIndex = pathSegments.findIndex(segment => segment === 'dashboards');
     if (dashboardIndex !== -1 && pathSegments[dashboardIndex + 1]) {
       dId = pathSegments[dashboardIndex + 1];
     }

@@ -62,7 +62,7 @@ function DatabaseHealthDashboardContent() {
   }
 
   return (
-    <Box sx={{ padding: '8px' }} data-content-container="true">
+    <Box data-content-container="true">
       <DashboardGrid
         panels={panels}
         panelData={panelDataRecord} // Pass the dynamic data here
