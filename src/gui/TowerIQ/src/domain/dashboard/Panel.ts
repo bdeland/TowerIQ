@@ -189,13 +189,14 @@ export class Panel {
       
       return panelData;
       
-    } catch (error) {
+    } catch (error: unknown) {
+      const originalError = error instanceof Error ? error : new Error(String(error));
       const panelError = new PanelError(
-        `Failed to fetch data for panel ${this.config.title}: ${error.message}`,
+        `Failed to fetch data for panel ${this.config.title}: ${originalError.message}`,
         'DATA_FETCH_FAILED',
         this.config.id,
         this.config.query.query,
-        { originalError: error, variables }
+        { originalError, variables }
       );
       
       this.setState({
@@ -232,8 +233,9 @@ export class Panel {
         error: undefined
       };
       
-    } catch (error) {
-      throw new Error(`Query execution failed: ${error.message}`);
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error);
+      throw new Error(`Query execution failed: ${message}`);
     }
   }
   

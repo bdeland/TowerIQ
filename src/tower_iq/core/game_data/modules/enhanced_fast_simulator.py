@@ -290,7 +290,7 @@ def main():
         results_array = run_simulation_numpy(
             num_sims=args.simulations,
             targets=targets,
-            show_progress=not args.no_progress,
+            show_progress=show_progress,
         )
 
         end_time = time.perf_counter()
@@ -313,7 +313,7 @@ def main():
         
         # Additional insights
         prob_single_pull = 1 / 16
-        print(f"\n--- Theoretical Analysis ---")
+        print("\n--- Theoretical Analysis ---")
         print(f"  Single Epic Probability: {prob_single_pull:.3%}")
         print(f"  Expected Epics for {args.copies}x: {args.copies / prob_single_pull:.1f}")
     
@@ -323,7 +323,7 @@ def main():
         
         start_time = time.perf_counter()
         
-        results = run_simulation_fixed_pulls_numpy(args.simulations, args.pulls, show_progress=not args.no_progress)
+        results = run_simulation_fixed_pulls_numpy(args.simulations, args.pulls, show_progress=show_progress)
 
         end_time = time.perf_counter()
         total_time = end_time - start_time
@@ -341,7 +341,7 @@ def main():
         print(f"  95% Range: {np.percentile(epics_obtained, 2.5):.1f} - {np.percentile(epics_obtained, 97.5):.1f} epics")
         
         # Module distribution
-        print(f"\n--- Module Distribution (Average per simulation) ---")
+        print("\n--- Module Distribution (Average per simulation) ---")
         for i, module_name in enumerate(EPIC_MODULES):
             avg_count = np.mean(module_counts[:, i])
             if avg_count > 0.01:  # Only show modules with meaningful counts
@@ -349,7 +349,7 @@ def main():
         
         # Theoretical comparison
         expected_epics = args.pulls * 0.025  # 2.5% base rate
-        print(f"\n--- Theoretical Analysis ---")
+        print("\n--- Theoretical Analysis ---")
         print(f"  Expected Epics (no pity): {expected_epics:.2f}")
         print(f"  Actual Average: {np.mean(epics_obtained):.2f}")
         print(f"  Pity System Impact: +{np.mean(epics_obtained) - expected_epics:.2f} epics")

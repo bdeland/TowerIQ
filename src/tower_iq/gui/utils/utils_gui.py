@@ -2,17 +2,10 @@
 from PyQt6.QtWidgets import QWidget, QLabel
 from PyQt6.QtGui import QFont, QIcon, QTransform
 from PyQt6.QtCore import Qt
-from qfluentwidgets import isDarkTheme, qconfig, setStyleSheet, FluentStyleSheet, ThemeColor, themeColor, FluentIcon
-from qfluentwidgets.common.style_sheet import StyleSheetManager
+from qfluentwidgets import isDarkTheme, setStyleSheet, FluentStyleSheet, FluentIcon
 from typing import Union
 
 # Import stylesheets from the stylesheets package
-from ..stylesheets import (
-    get_themed_stylesheet,
-    THEME_COLORS,
-    LIGHT_THEME_COLORS,
-    DARK_THEME_COLORS
-)
 
 def get_text_color() -> str:
     """Returns the primary text color based on the current theme."""
@@ -107,7 +100,7 @@ class FlexibleIconWidget(QLabel):
                     qicon = QIcon(icon_source)
                     pixmap = qicon.pixmap(self.icon_size, self.icon_size)
                     self.setPixmap(pixmap)
-                except:
+                except Exception:
                     # Fallback to default icon
                     self.set_default_icon()
         else:

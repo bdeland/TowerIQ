@@ -15,13 +15,11 @@ Output:
 """
 
 import json
-import os
 import sys
 import re
 import asyncio
-import aiohttp
 from pathlib import Path
-from typing import Dict, List, Any, Optional, Tuple
+from typing import Dict, Any, Optional
 from datetime import datetime
 
 # Add project root to path

@@ -4,9 +4,9 @@ TowerIQ Health Check Card
 This module provides the HealthCheckCard widget for displaying database health check results.
 """
 
-from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtCore import pyqtSignal
 from PyQt6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QListWidget, QListWidgetItem
-from qfluentwidgets import CardWidget, PrimaryPushButton, PushButton, BodyLabel, CaptionLabel, FluentIcon, ProgressRing
+from qfluentwidgets import CardWidget, PrimaryPushButton, PushButton, BodyLabel, CaptionLabel, FluentIcon
 
 from ..stylesheets import get_themed_stylesheet
 

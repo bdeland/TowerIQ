@@ -9,12 +9,10 @@ It ensures the backend is running before starting the frontend.
 import subprocess
 import sys
 import time
-import signal
 import os
 import shutil
 from pathlib import Path
 import requests
-import threading
 import structlog
 
 # Import the same logging configuration as the main application
@@ -147,7 +145,7 @@ def start_tauri_frontend():
         # Restore original directory
         try:
             os.chdir(original_dir)
-        except:
+        except OSError:
             pass
         return None
 

@@ -25,7 +25,8 @@ import {
 import ReactECharts from 'echarts-for-react';
 import { Panel } from '../domain/dashboard/Panel';
 import { Dashboard } from '../domain/dashboard/Dashboard';
-import type { PanelState, EChartsOption } from '../hooks/useDashboard';
+import type { PanelState } from '../hooks/useDashboard';
+import type { EChartsOption } from 'echarts';
 import { useDeveloper } from '../contexts/DeveloperContext';
 
 interface NewDashboardPanelViewProps {
@@ -57,12 +58,12 @@ export const NewDashboardPanelView: React.FC<NewDashboardPanelViewProps> = ({
 
   // Generate ECharts options from panel and data
   const echartsOptions = useMemo((): EChartsOption | null => {
-    if (state.status !== 'loaded' || !state.data) {
+    if (state.status !== 'loaded') {
       return null;
     }
 
     try {
-      return panel.getEChartsOptions(state.data);
+      return panel.getEChartsOptions();
     } catch (error) {
       console.error('Error generating ECharts options:', error);
       return null;
@@ -305,7 +306,7 @@ export const NewDashboardPanelView: React.FC<NewDashboardPanelViewProps> = ({
           {state.status === 'loaded' && ChartComponent}
 
           {/* No data state */}
-          {state.status === 'loaded' && !state.data && (
+          {state.status === 'loaded' && (!state.data || state.data.data.length === 0) && (
             <Box sx={{ 
               display: 'flex', 
               alignItems: 'center', 
@@ -332,7 +333,7 @@ export const NewDashboardPanelView: React.FC<NewDashboardPanelViewProps> = ({
             color: 'text.secondary'
           }}>
             Panel ID: {panel.id} | Type: {panel.type} | Status: {state.status}
-            {state.lastUpdated && ` | Updated: ${state.lastUpdated.toLocaleTimeString()}`}
+            {state.lastUpdated > 0 && ` | Updated: ${new Date(state.lastUpdated).toLocaleTimeString()}`}
           </Box>
         )}
       </Card>
@@ -365,8 +366,8 @@ const PanelDebugDrawer: React.FC<PanelDebugDrawerProps> = ({
   onClose,
 }) => {
   const variables = dashboard.variables.getValues();
-  const originalQuery = panel.query.raw;
-  const composedQuery = panel.query.compose(variables);
+  const originalQuery = panel.query.query;
+  const composedQuery = dashboard.variables.getComposedQuery(originalQuery);
 
   return (
     <Box
@@ -424,8 +425,8 @@ const PanelDebugDrawer: React.FC<PanelDebugDrawerProps> = ({
         <Box>
           <Typography variant="subtitle2" gutterBottom>Data Preview</Typography>
           <pre style={{ fontSize: '0.75rem', overflow: 'auto' }}>
-            {JSON.stringify(state.data.slice(0, 3), null, 2)}
-            {state.data.length > 3 && `\n... and ${state.data.length - 3} more rows`}
+            {JSON.stringify(state.data.data.slice(0, 3), null, 2)}
+            {state.data.data.length > 3 && `\n... and ${state.data.data.length - 3} more rows`}
           </pre>
         </Box>
       )}

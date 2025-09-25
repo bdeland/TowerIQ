@@ -5,17 +5,15 @@ This module provides a vertical stepper widget similar to Material-UI's vertical
 for guiding users through multi-step processes like device connection.
 """
 
-from PyQt6.QtCore import Qt, pyqtSignal, QPropertyAnimation, QEasingCurve, QTimer
+from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QFrame, QLabel, 
-    QSizePolicy, QSpacerItem
+    QWidget, QVBoxLayout, QHBoxLayout
 )
 from PyQt6.QtGui import QPainter, QPen, QColor, QFont
 from qfluentwidgets import (
-    BodyLabel, CaptionLabel, PushButton, FluentIcon,
-    CardWidget, SimpleCardWidget, ProgressRing
+    BodyLabel, CaptionLabel, PushButton, SimpleCardWidget
 )
-from typing import List, Dict, Any, Optional, Callable
+from typing import List, Dict, Optional
 from enum import Enum
 
 

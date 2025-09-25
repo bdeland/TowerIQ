@@ -10,9 +10,8 @@ import logging.handlers
 import json
 import time
 from datetime import datetime
-from typing import Any, Dict, Set, Optional
+from typing import Any, Dict, Set
 from pathlib import Path
-import sys
 
 import structlog
 import colorama

@@ -4,19 +4,18 @@ TowerIQ Modules Page
 This module provides the modules page widget for the application.
 """
 import os
-from typing import List, Optional, Dict, Any, cast
+from typing import List, Dict, Any, cast
 from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel,
-    QHeaderView, QTableWidgetItem, QSizePolicy, QStackedWidget,
+    QWidget, QVBoxLayout, QHBoxLayout, QHeaderView, QTableWidgetItem, QSizePolicy, QStackedWidget,
     QFormLayout, QProgressBar
 )
-from PyQt6.QtCore import Qt, pyqtSignal, QSize, QRect, QPoint, QThread
+from PyQt6.QtCore import Qt, pyqtSignal, QSize, QThread
 # Optional Plotly view support
 try:
     from PyQt6.QtWebEngineWidgets import QWebEngineView  # type: ignore
 except Exception:  # pragma: no cover
     QWebEngineView = None  # type: ignore
-from PyQt6.QtGui import QColor, QPixmap, QPainter, QIcon, QImage
+from PyQt6.QtGui import QColor, QPixmap, QIcon, QImage
 from matplotlib.figure import Figure
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
 import seaborn as sns
@@ -24,7 +23,7 @@ from qfluentwidgets import (
     TableWidget, TableItemDelegate, SearchLineEdit, ComboBox, 
     BodyLabel, CaptionLabel, CheckBox, PushButton, InfoBar, InfoBarPosition,
     SimpleCardWidget, TransparentToolButton, SpinBox, DoubleSpinBox,
-    PrimaryPushButton, ToolTipFilter, FlowLayout
+    PrimaryPushButton, ToolTipFilter
 )
 from qfluentwidgets.components.navigation.pivot import Pivot
 from qfluentwidgets import FluentIcon
@@ -1102,7 +1101,7 @@ class SimulatorTabWidget(QWidget):
         # Convert histogram to density line with filled area and confidence bands
         counts, bin_edges = np.histogram(data, bins=50)
         bin_centers = (bin_edges[:-1] + bin_edges[1:]) / 2
-        line = sns.lineplot(x=bin_centers, y=counts, ax=self.ax, color="#4C78A8")
+        sns.lineplot(x=bin_centers, y=counts, ax=self.ax, color="#4C78A8")
         self.ax.fill_between(bin_centers, counts, color="#4C78A8", alpha=0.2)
         # Confidence bands (e.g., 10th-90th and 25th-75th percentiles)
         p10, p25, p50, p75, p90 = np.percentile(data, [10, 25, 50, 75, 90])
@@ -1239,7 +1238,6 @@ class ModulesPage(ContentPage):
     def _set_pivot_item_widths(self, pivot: Pivot):
         """Calculate and set minimum width for each pivot item based on text content."""
         from PyQt6.QtGui import QFontMetrics
-        from PyQt6.QtCore import QSize
         
         # Get the font metrics to calculate text width
         font = pivot.font()
@@ -1250,8 +1248,8 @@ class ModulesPage(ContentPage):
         import re
         padding_match = re.search(r'padding:\s*(\d+)px\s+(\d+)px', PIVOT_QSS)
         if padding_match:
-            top_bottom_padding = int(padding_match.group(1))
-            left_right_padding = int(padding_match.group(2))
+            _, left_right = padding_match.groups()
+            left_right_padding = int(left_right)
             total_padding = left_right_padding * 2  # Left + right padding
         else:
             # Fallback if parsing fails

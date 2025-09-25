@@ -9,7 +9,7 @@ import os
 import subprocess
 from pathlib import Path
 from PyQt6.QtCore import Qt, pyqtSignal
-from PyQt6.QtWidgets import QWidget, QHBoxLayout, QVBoxLayout, QPushButton
+from PyQt6.QtWidgets import QWidget, QHBoxLayout, QVBoxLayout
 from qfluentwidgets import (SimpleCardWidget, FluentIcon, IconWidget, 
                            BodyLabel, CaptionLabel, PushButton)
 

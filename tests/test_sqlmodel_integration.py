@@ -8,9 +8,7 @@ and type safety features.
 import pytest
 import tempfile
 import os
-from pathlib import Path
-from sqlmodel import Session, create_engine, SQLModel
-from typing import Dict, Any
+from sqlmodel import Session
 
 from src.tower_iq.models.dashboard_models import (
     Dashboard, DashboardPanel, QueryService, QueryResult, 

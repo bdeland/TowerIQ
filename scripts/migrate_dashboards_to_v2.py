@@ -14,7 +14,6 @@ import json
 import sys
 import os
 import sqlite3
-import uuid
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Any, Optional
@@ -24,9 +23,9 @@ import argparse
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
-from src.tower_iq.models.dashboard_config_models import (
+from src.tower_iq.models.dashboard_config_models import (  # noqa: E402
     DashboardConfig, DashboardMetadata, PanelConfig, PanelType, 
-    GridPosition, QueryDefinition, VisualizationConfig, VariableConfig
+    GridPosition, QueryDefinition, VisualizationConfig
 )
 
 
@@ -330,7 +329,7 @@ class DashboardMigrator:
             # Parse TypeScript file
             dashboard_data = self.parse_typescript_dashboard(file_path)
             if not dashboard_data:
-                print(f"  ⚠️  Could not parse dashboard file")
+                print("  ⚠️  Could not parse dashboard file")
                 continue
             
             # Migrate to database
@@ -351,10 +350,10 @@ class DashboardMigrator:
             print(f"Failed dashboard IDs: {', '.join(self.failed_migrations)}")
         
         if not self.dry_run and self.migrated_count > 0:
-            print(f"\n✓ Migration completed successfully!")
-            print(f"New dashboards are now available via the v2 API endpoints.")
+            print("\n✓ Migration completed successfully!")
+            print("New dashboards are now available via the v2 API endpoints.")
         elif self.dry_run:
-            print(f"\n🔍 Dry run completed. Use --force to apply changes.")
+            print("\n🔍 Dry run completed. Use --force to apply changes.")
 
 
 async def main():

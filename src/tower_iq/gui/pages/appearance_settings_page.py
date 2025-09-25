@@ -6,7 +6,7 @@ This module provides the appearance and theme settings content.
 
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import QWidget, QVBoxLayout, QScrollArea
-from qfluentwidgets import FluentIcon, Theme, setTheme, BodyLabel
+from qfluentwidgets import FluentIcon, Theme, setTheme
 
 from ..utils.settings_item_card import SettingsItemCard
 

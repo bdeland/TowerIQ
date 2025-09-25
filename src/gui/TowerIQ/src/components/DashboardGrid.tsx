@@ -13,6 +13,7 @@ interface DashboardGridProps {
   isEditMode: boolean;
   isEditable: boolean; // New prop to control edit capabilities
   showMenu: boolean;
+  showFullscreen?: boolean;
   dashboardId?: string; // Add dashboard ID for layout caching
   onLayoutChange?: (panels: DashboardPanel[]) => void;
   onPanelClick?: (panelId: string) => void;
@@ -287,7 +288,6 @@ export const DashboardGrid = memo(DashboardGridComponent, (prevProps, nextProps)
     prevProps.isEditMode === nextProps.isEditMode &&
     prevProps.isEditable === nextProps.isEditable &&
     prevProps.showMenu === nextProps.showMenu &&
-    prevProps.showFullscreen === nextProps.showFullscreen &&
     prevProps.enableResponsive === nextProps.enableResponsive &&
     // Compare panelData
     JSON.stringify(prevProps.panelData) === JSON.stringify(nextProps.panelData) &&

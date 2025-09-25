@@ -6,7 +6,7 @@ ExpandGroupSettingCard functionality with a toggle switch, dropdown arrow, and s
 Uses a compositional approach with style-aware components for robust corner rounding.
 """
 
-from PyQt6.QtCore import Qt, pyqtSignal, QPropertyAnimation, QEasingCurve
+from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QFrame
 from qfluentwidgets import (
     CardWidget, SimpleCardWidget, FluentIcon, SwitchButton, 

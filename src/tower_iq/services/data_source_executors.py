@@ -7,11 +7,10 @@ through a unified interface.
 """
 
 from abc import ABC, abstractmethod
-from typing import Dict, Any, List, Optional, Union
+from typing import Dict, Any, List, Optional
 from dataclasses import dataclass
 from datetime import datetime
 import asyncio
-import json
 import sqlite3
 import logging
 
@@ -168,7 +167,7 @@ class SQLiteExecutor(DataSourceExecutor):
             
             execution_time = (datetime.now() - start_time).total_seconds() * 1000
             
-            self.logger.debug(f"SQLite query executed successfully", 
+            self.logger.debug("SQLite query executed successfully", 
                             extra={"query": query, "row_count": len(data), "execution_time_ms": execution_time})
             
             return QueryResponse(
@@ -180,7 +179,7 @@ class SQLiteExecutor(DataSourceExecutor):
             
         except Exception as e:
             execution_time = (datetime.now() - start_time).total_seconds() * 1000
-            self.logger.error(f"SQLite query execution failed", 
+            self.logger.error("SQLite query execution failed", 
                             extra={"query": query, "error": str(e), "execution_time_ms": execution_time})
             raise QueryExecutionError(f"Query execution failed: {str(e)}")
     

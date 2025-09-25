@@ -5,7 +5,7 @@ This module provides the main settings page with qfluentwidgets Pivot layout
 and content display for each settings category.
 """
 
-from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtCore import pyqtSignal
 from PyQt6.QtWidgets import QVBoxLayout, QWidget, QStackedWidget
 from qfluentwidgets import FluentIcon
 from qfluentwidgets.components.navigation.pivot import Pivot
@@ -192,7 +192,6 @@ class SettingsPage(QWidget):
     def _set_pivot_item_widths(self, pivot: Pivot):
         """Calculate and set minimum width for each pivot item based on text content."""
         from PyQt6.QtGui import QFontMetrics
-        from PyQt6.QtCore import QSize
         
         # Get the font metrics to calculate text width
         font = pivot.font()
@@ -203,8 +202,8 @@ class SettingsPage(QWidget):
         import re
         padding_match = re.search(r'padding:\s*(\d+)px\s+(\d+)px', PIVOT_QSS)
         if padding_match:
-            top_bottom_padding = int(padding_match.group(1))
-            left_right_padding = int(padding_match.group(2))
+            _, left_right = padding_match.groups()
+            left_right_padding = int(left_right)
             total_padding = left_right_padding * 2  # Left + right padding
         else:
             # Fallback if parsing fails

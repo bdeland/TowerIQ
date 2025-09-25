@@ -87,8 +87,8 @@ class _DummyClientSession:
 
 sys.modules.setdefault("aiohttp", types.SimpleNamespace(ClientSession=_DummyClientSession))
 
-from tower_iq.core.errors import DeviceConnectionError
-from tower_iq.core.utils import AdbError
+from tower_iq.core.errors import DeviceConnectionError  # noqa: E402
+from tower_iq.core.utils import AdbError  # noqa: E402
 from tower_iq.services.emulator_service import EmulatorService, Device  # noqa: E402
 import tower_iq.services.emulator_service as emulator_service_module  # noqa: E402
 

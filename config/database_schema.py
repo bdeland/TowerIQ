@@ -1040,8 +1040,6 @@ def format_value_for_display(value: Any, table_name: str, column_name: str,
 
 def _format_currency(value: float, formatting: Dict[str, Any], format_type: str) -> str:
     """Format a currency value using the existing formatting utilities."""
-    precision = formatting.get('precision', 3)
-    use_commas = formatting.get('use_commas', True)
     suffix = formatting.get('suffix', '')
     
     # Use the existing format_currency function from utils.py
@@ -1053,13 +1051,6 @@ def _format_currency(value: float, formatting: Dict[str, Any], format_type: str)
             return f"{value:.2f}"
     
     # Convert to the format expected by the existing function
-    if format_type == "chart":
-        decimals = 1
-    elif format_type == "tooltip":
-        decimals = 2
-    else:
-        decimals = precision
-        
     formatted = format_currency(value, symbol="", pad_to_cents=False)
     
     if suffix:

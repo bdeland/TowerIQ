@@ -7,7 +7,7 @@ the multi-stage connection process with transparent progress tracking.
 
 import asyncio
 from datetime import datetime
-from typing import Any, Dict, List, Optional, Callable
+from typing import Any, Dict, List, Optional
 from dataclasses import dataclass
 from enum import Enum
 

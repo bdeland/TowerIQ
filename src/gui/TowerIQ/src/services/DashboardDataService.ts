@@ -357,5 +357,3 @@ export class DashboardDataService {
 // Singleton instance for the application
 export const dashboardDataService = new DashboardDataService();
 
-// Export types for use in components
-export type { PanelDataResult, DashboardDataServiceConfig };

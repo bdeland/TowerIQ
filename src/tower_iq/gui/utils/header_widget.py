@@ -1,8 +1,7 @@
 from PyQt6.QtCore import Qt, pyqtSignal
-from PyQt6.QtWidgets import QFrame, QHBoxLayout, QVBoxLayout, QWidget, QPushButton, QSizePolicy
+from PyQt6.QtWidgets import QHBoxLayout, QVBoxLayout, QWidget, QPushButton, QSizePolicy
 from PyQt6.QtGui import QIcon
-from qfluentwidgets import BreadcrumbBar, SearchLineEdit, isDarkTheme, FluentIcon
-from .utils_gui import get_border_color
+from qfluentwidgets import BreadcrumbBar, SearchLineEdit, FluentIcon
 
 class HeaderWidget(QWidget):
     """A Grafana-style header widget with logo toggle, breadcrumbs, and search bar."""

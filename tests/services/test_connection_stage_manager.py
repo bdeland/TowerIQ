@@ -4,7 +4,6 @@ from pathlib import Path
 
 import asyncio
 
-import pytest
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]

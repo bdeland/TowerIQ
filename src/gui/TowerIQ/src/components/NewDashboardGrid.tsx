@@ -5,6 +5,14 @@ import { Panel } from '../domain/dashboard/Panel';
 import { NewDashboardPanelView } from './NewDashboardPanelView';
 import type { PanelState } from '../hooks/useDashboard';
 
+const DEFAULT_PANEL_STATE: PanelState = {
+  status: 'idle',
+  data: null,
+  error: null,
+  loading: false,
+  lastUpdated: 0,
+};
+
 interface NewDashboardGridProps {
   panels: Panel[];
   panelStates: Map<string, PanelState>;
@@ -116,9 +124,9 @@ export const NewDashboardGrid: React.FC<NewDashboardGridProps> = ({
   // Render fullscreen panel
   if (fullscreenPanelId) {
     const panel = panels.find(p => p.id === fullscreenPanelId);
-    const state = panelStates.get(fullscreenPanelId);
+    const state = panelStates.get(fullscreenPanelId) ?? DEFAULT_PANEL_STATE;
     
-    if (panel && state) {
+    if (panel) {
       return (
         <Box sx={{ 
           position: 'fixed', 
@@ -185,7 +193,7 @@ export const NewDashboardGrid: React.FC<NewDashboardGridProps> = ({
         })
       }}>
         {sortedPanels.map((panel) => {
-          const state = panelStates.get(panel.id) || { status: 'idle' };
+          const state = panelStates.get(panel.id) ?? DEFAULT_PANEL_STATE;
           
           // Skip panels without proper layout
           if (!panel.layout) {

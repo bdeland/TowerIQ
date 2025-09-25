@@ -385,7 +385,7 @@ class V2APITester:
         print(f"Failed: {failed_tests}")
         
         if failed_tests > 0:
-            print(f"\nFailed tests:")
+            print("\nFailed tests:")
             for result in self.test_results:
                 if not result['success']:
                     print(f"  - {result['test']}: {result['message']}")

@@ -17,22 +17,22 @@ import {
   CircularProgress,
 } from '@mui/material';
 import { SelectChangeEvent } from '@mui/material/Select';
-import { 
+import {
   Error as ErrorIcon,
   CheckCircle as CheckCircleIcon,
-  Warning as WarningIcon 
+  Warning as WarningIcon
 } from '@mui/icons-material';
 import { DashboardVariables } from '../domain/dashboard/DashboardVariables';
-import type { 
-  VariableDefinition, 
-  VariableValues, 
-  VariableValidationResult,
-  VariableOption 
+import type {
+  VariableDefinition,
+  VariableOption,
+  VariableSet,
+  ValidationResult
 } from '../domain/dashboard/types';
 
 interface NewDashboardVariableControlsProps {
   variables: DashboardVariables;
-  selectedValues: VariableValues;
+  selectedValues: VariableSet;
   onChange: (name: string, value: any) => void;
   disabled?: boolean;
   showValidation?: boolean;
@@ -46,284 +46,273 @@ export const NewDashboardVariableControls: React.FC<NewDashboardVariableControls
   showValidation = true,
 }) => {
   const [loadingOptions, setLoadingOptions] = useState<Set<string>>(new Set());
-  const [validationResults, setValidationResults] = useState<Map<string, VariableValidationResult>>(new Map());
+  const [validationResults, setValidationResults] = useState<Map<string, ValidationResult>>(new Map());
 
-  // Get all variable definitions
-  const variableDefinitions = useMemo(() => {
-    return Array.from(variables.definitions.entries());
-  }, [variables.definitions]);
+  const variableDefinitions = useMemo<VariableDefinition[]>(() => variables.getAllDefinitions(), [variables]);
 
-  // Validate a variable value
-  const validateVariable = useCallback(async (name: string, value: any) => {
-    if (!showValidation) return;
-    
-    try {
-      const result = variables.validate(name, value);
-      setValidationResults(prev => new Map(prev.set(name, result)));
-    } catch (error) {
-      console.error(`Error validating variable ${name}:`, error);
-    }
-  }, [variables, showValidation]);
+  const renderValidationIndicator = useCallback(
+    (name: string) => {
+      if (!showValidation) return null;
 
-  // Handle variable change with validation
-  const handleVariableChange = useCallback(async (name: string, value: any) => {
-    onChange(name, value);
-    await validateVariable(name, value);
-  }, [onChange, validateVariable]);
+      const result = validationResults.get(name);
+      if (!result) return null;
 
-  // Load dynamic options for a variable
-  const loadVariableOptions = useCallback(async (name: string) => {
-    setLoadingOptions(prev => new Set(prev.add(name)));
-    
-    try {
-      await variables.loadDynamicOptions(name);
-    } catch (error) {
-      console.error(`Error loading options for variable ${name}:`, error);
-    } finally {
-      setLoadingOptions(prev => {
-        const newSet = new Set(prev);
-        newSet.delete(name);
-        return newSet;
+      const icon = result.isValid ? (
+        <CheckCircleIcon color="success" fontSize="small" />
+      ) : (
+        <ErrorIcon color="error" fontSize="small" />
+      );
+
+      const tooltip = result.isValid ? 'Valid value' : (result.errors.join(', ') || 'Validation error');
+
+      return (
+        <Tooltip title={tooltip}>
+          <Box sx={{ display: 'flex', alignItems: 'center', ml: 0.5 }}>
+            {icon}
+          </Box>
+        </Tooltip>
+      );
+    },
+    [showValidation, validationResults]
+  );
+
+  const validateVariable = useCallback(
+    (name: string) => {
+      if (!showValidation) {
+        return;
+      }
+
+      try {
+        const result = variables.validate(name);
+        setValidationResults((prev) => {
+          const next = new Map(prev);
+          next.set(name, result);
+          return next;
+        });
+      } catch (error) {
+        console.error(`Error validating variable ${name}:`, error);
+      }
+    },
+    [variables, showValidation]
+  );
+
+  const handleVariableChange = useCallback(
+    (name: string, value: any) => {
+      onChange(name, value);
+      validateVariable(name);
+    },
+    [onChange, validateVariable]
+  );
+
+  const loadVariableOptions = useCallback(
+    async (name: string) => {
+      setLoadingOptions((prev) => {
+        const next = new Set(prev);
+        next.add(name);
+        return next;
       });
-    }
-  }, [variables]);
 
-  // Render validation indicator
-  const renderValidationIndicator = (name: string) => {
-    if (!showValidation) return null;
-    
-    const result = validationResults.get(name);
-    if (!result) return null;
+      try {
+        await variables.loadDynamicOptions(name);
+      } catch (error) {
+        console.error(`Error loading options for variable ${name}:`, error);
+      } finally {
+        setLoadingOptions((prev) => {
+          const next = new Set(prev);
+          next.delete(name);
+          return next;
+        });
+      }
+    },
+    [variables]
+  );
 
-    const icon = result.isValid ? (
-      <CheckCircleIcon color="success" fontSize="small" />
-    ) : (
-      <ErrorIcon color="error" fontSize="small" />
-    );
-
-    const tooltip = result.isValid ? 
-      'Valid value' : 
-      result.errors.join(', ');
-
-    return (
-      <Tooltip title={tooltip}>
-        <Box sx={{ display: 'flex', alignItems: 'center', ml: 1 }}>
-          {icon}
-        </Box>
-      </Tooltip>
-    );
-  };
-
-  // Render individual variable control
-  const renderVariableControl = (name: string, definition: VariableDefinition) => {
+  const renderVariableControl = (definition: VariableDefinition) => {
+    const name = definition.name;
     const currentValue = selectedValues[name] ?? definition.defaultValue;
-    const options = variables.getOptions(name);
+    const storedOptions = variables.getOptions(name);
+    const options: VariableOption[] = storedOptions.length > 0 ? storedOptions : (definition.options ?? []);
     const isLoading = loadingOptions.has(name);
     const validationResult = validationResults.get(name);
-    const hasError = validationResult && !validationResult.isValid;
+    const hasError = Boolean(validationResult && !validationResult.isValid);
+    const validationIndicator = renderValidationIndicator(name);
 
     switch (definition.type) {
       case 'static':
-        return (
-          <FormControl 
-            key={name} 
-            size="small" 
-            disabled={disabled}
-            error={hasError}
-            sx={{ minWidth: 150 }}
-          >
-            <InputLabel>{definition.label}</InputLabel>
-            <Select
-              value={currentValue || ''}
-              onChange={(e) => handleVariableChange(name, e.target.value)}
-              input={<OutlinedInput label={definition.label} />}
-              endAdornment={
-                <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                  {isLoading && <CircularProgress size={16} />}
-                  {renderValidationIndicator(name)}
-                </Box>
-              }
-            >
-              {options.map((option) => (
-                <MenuItem key={String(option.value)} value={option.value}>
-                  {option.label}
-                </MenuItem>
-              ))}
-            </Select>
-          </FormControl>
-        );
+      case 'query': {
+        const allowMultiple = Array.isArray(currentValue);
+        const selectValue = allowMultiple
+          ? (Array.isArray(currentValue) ? currentValue : [])
+          : (currentValue ?? '');
 
-      case 'multiselect':
-        return (
-          <FormControl 
-            key={name} 
-            size="small" 
-            disabled={disabled}
-            error={hasError}
-            sx={{ minWidth: 200 }}
-          >
-            <InputLabel>{definition.label}</InputLabel>
-            <Select
-              multiple
-              value={Array.isArray(currentValue) ? currentValue : []}
-              onChange={(e) => handleVariableChange(name, e.target.value)}
-              input={<OutlinedInput label={definition.label} />}
-              renderValue={(selected) => (
-                <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
-                  {(selected as any[]).map((value) => {
-                    const option = options.find(opt => opt.value === value);
-                    return (
-                      <Chip 
-                        key={String(value)} 
-                        label={option?.label || String(value)} 
-                        size="small" 
-                      />
-                    );
-                  })}
-                </Box>
-              )}
-              endAdornment={
-                <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                  {isLoading && <CircularProgress size={16} />}
-                  {renderValidationIndicator(name)}
-                </Box>
-              }
-            >
-              {options.map((option) => (
-                <MenuItem key={String(option.value)} value={option.value}>
-                  {option.label}
-                </MenuItem>
-              ))}
-            </Select>
-          </FormControl>
-        );
+        const handleSelectChange = (event: SelectChangeEvent<unknown>) => {
+          const value = event.target.value;
+          if (allowMultiple) {
+            const nextValue = Array.isArray(value) ? value : [value];
+            handleVariableChange(name, nextValue);
+          } else {
+            handleVariableChange(name, value);
+          }
+        };
 
-      case 'query':
-        // Query-backed variable with dynamic options
         return (
-          <FormControl 
-            key={name} 
-            size="small" 
-            disabled={disabled}
-            error={hasError}
-            sx={{ minWidth: 150 }}
-            onFocus={() => !isLoading && options.length === 0 && loadVariableOptions(name)}
+          <Box
+            key={name}
+            sx={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 1,
+              minWidth: 220,
+            }}
           >
-            <InputLabel>{definition.label}</InputLabel>
-            <Select
-              value={currentValue || ''}
-              onChange={(e) => handleVariableChange(name, e.target.value)}
-              input={<OutlinedInput label={definition.label} />}
-              endAdornment={
-                <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                  {isLoading && <CircularProgress size={16} />}
-                  {renderValidationIndicator(name)}
-                </Box>
-              }
+            <FormControl
+              size="small"
+              disabled={disabled}
+              error={hasError}
+              sx={{ flex: 1 }}
             >
-              {isLoading && options.length === 0 ? (
-                <MenuItem disabled>
-                  <CircularProgress size={16} sx={{ mr: 1 }} />
-                  Loading options...
-                </MenuItem>
-              ) : (
-                options.map((option) => (
+              <InputLabel>{definition.label}</InputLabel>
+              <Select
+                multiple={allowMultiple}
+                value={selectValue as any}
+                onChange={handleSelectChange}
+                onOpen={() => {
+                  if (definition.type === 'query' && options.length === 0 && !isLoading) {
+                    void loadVariableOptions(name);
+                  }
+                }}
+                input={<OutlinedInput label={definition.label} />}
+                renderValue={
+                  allowMultiple
+                    ? (selected) => (
+                        <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
+                          {Array.isArray(selected)
+                            ? selected.map((value) => {
+                                const option = options.find((opt) => opt.value === value);
+                                return (
+                                  <Chip
+                                    key={String(value)}
+                                    label={option?.label ?? String(value)}
+                                    size="small"
+                                  />
+                                );
+                              })
+                            : null}
+                        </Box>
+                      )
+                    : undefined
+                }
+              >
+                {options.map((option) => (
                   <MenuItem key={String(option.value)} value={option.value}>
                     {option.label}
                   </MenuItem>
-                ))
-              )}
-            </Select>
-          </FormControl>
+                ))}
+                {definition.type === 'query' && options.length === 0 && !isLoading && (
+                  <MenuItem disabled>No options available</MenuItem>
+                )}
+              </Select>
+            </FormControl>
+            {definition.type === 'query' && isLoading && <CircularProgress size={16} />}
+            {validationIndicator}
+          </Box>
         );
+      }
 
-      case 'range':
-        const rangeConfig = definition.config?.range;
-        if (!rangeConfig) return null;
-        
+      case 'range': {
+        const range = definition.rangeOptions;
+        if (!range) {
+          return null;
+        }
+
+        const value = typeof currentValue === 'number' ? currentValue : range.min;
+
         return (
-          <Box key={name} sx={{ minWidth: 200, px: 2 }}>
+          <Box key={name} sx={{ minWidth: 220, px: 2 }}>
             <Typography variant="caption" color="text.secondary" gutterBottom>
               {definition.label}
             </Typography>
             <Slider
-              value={currentValue || rangeConfig.min}
-              onChange={(_, value) => handleVariableChange(name, value)}
-              min={rangeConfig.min}
-              max={rangeConfig.max}
-              step={rangeConfig.step || 1}
-              marks={rangeConfig.marks}
+              value={value}
+              onChange={(_, newValue) => {
+                const normalizedValue = Array.isArray(newValue) ? newValue[0] : newValue;
+                handleVariableChange(name, normalizedValue);
+              }}
+              min={range.min}
+              max={range.max}
+              step={range.step ?? 1}
               valueLabelDisplay="auto"
               disabled={disabled}
-              sx={{ 
-                ...(hasError && {
-                  color: 'error.main'
-                })
-              }}
+              sx={{ ...(hasError && { color: 'error.main' }) }}
             />
-            {renderValidationIndicator(name)}
+            {validationIndicator}
           </Box>
         );
+      }
 
-      case 'boolean':
-        return (
-          <FormControlLabel
-            key={name}
-            control={
-              <Switch
-                checked={Boolean(currentValue)}
-                onChange={(e) => handleVariableChange(name, e.target.checked)}
-                disabled={disabled}
-                color={hasError ? 'error' : 'primary'}
-              />
-            }
-            label={
-              <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                {definition.label}
-                {renderValidationIndicator(name)}
-              </Box>
-            }
-          />
-        );
+      case 'custom': {
+        if (typeof currentValue === 'boolean') {
+          return (
+            <FormControlLabel
+              key={name}
+              control={
+                <Switch
+                  checked={Boolean(currentValue)}
+                  onChange={(event) => handleVariableChange(name, event.target.checked)}
+                  disabled={disabled}
+                  color={hasError ? 'error' : 'primary'}
+                />
+              }
+              label={
+                <Box sx={{ display: 'flex', alignItems: 'center' }}>
+                  {definition.label}
+                  {validationIndicator}
+                </Box>
+              }
+            />
+          );
+        }
 
-      case 'text':
         return (
           <TextField
             key={name}
             label={definition.label}
-            value={currentValue || ''}
-            onChange={(e) => handleVariableChange(name, e.target.value)}
+            value={currentValue ?? ''}
+            onChange={(event) => handleVariableChange(name, event.target.value)}
             size="small"
             disabled={disabled}
             error={hasError}
             helperText={hasError ? validationResult?.errors.join(', ') : undefined}
-            sx={{ minWidth: 150 }}
+            sx={{ minWidth: 180 }}
             InputProps={{
-              endAdornment: renderValidationIndicator(name),
+              endAdornment: validationIndicator,
             }}
           />
         );
+      }
 
       default:
         return null;
     }
   };
 
-  // Show validation errors summary if any
-  const validationErrors = Array.from(validationResults.values())
-    .filter(result => !result.isValid)
-    .flatMap(result => result.errors);
+  const validationErrors = useMemo(() => {
+    if (!showValidation) {
+      return [];
+    }
+
+    return Array.from(validationResults.values())
+      .filter((result) => !result.isValid)
+      .flatMap((result) => result.errors);
+  }, [validationResults, showValidation]);
 
   return (
     <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2, alignItems: 'center' }}>
-      {variableDefinitions.map(([name, definition]) => 
-        renderVariableControl(name, definition)
-      )}
-      
-      {/* Validation errors summary */}
+      {variableDefinitions.map((definition) => renderVariableControl(definition))}
+
       {showValidation && validationErrors.length > 0 && (
-        <Alert 
-          severity="error" 
+        <Alert
+          severity="error"
           icon={<WarningIcon />}
           sx={{ mt: 1, width: '100%' }}
         >
@@ -332,8 +321,7 @@ export const NewDashboardVariableControls: React.FC<NewDashboardVariableControls
           </Typography>
         </Alert>
       )}
-      
-      {/* No variables message */}
+
       {variableDefinitions.length === 0 && (
         <Typography variant="body2" color="text.secondary">
           No variables defined for this dashboard

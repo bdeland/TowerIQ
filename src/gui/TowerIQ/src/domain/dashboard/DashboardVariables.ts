@@ -139,18 +139,20 @@ export class DashboardVariables {
         warnings: []
       };
       
-    } catch (error) {
+    } catch (error: unknown) {
       if (error instanceof z.ZodError) {
         return {
           isValid: false,
-          errors: error.errors.map(err => `${name}: ${err.message}`),
+          errors: error.issues.map((issue) => `${name}: ${issue.message}`),
           warnings: []
         };
       }
-      
+
+      const err = error instanceof Error ? error : new Error(String(error));
+
       return {
         isValid: false,
-        errors: [`${name}: Validation failed - ${error.message}`],
+        errors: [`${name}: Validation failed - ${err.message}`],
         warnings: []
       };
     }
@@ -257,13 +259,14 @@ export class DashboardVariables {
       
       return options;
       
-    } catch (error) {
+    } catch (error: unknown) {
+      const err = error instanceof Error ? error : new Error(String(error));
       throw new VariableError(
-        `Failed to load options for variable ${variableName}: ${error.message}`,
+        `Failed to load options for variable ${variableName}: ${err.message}`,
         'OPTIONS_LOAD_FAILED',
         variableName,
         undefined,
-        { originalError: error }
+        { originalError: err }
       );
     }
   }
@@ -296,8 +299,9 @@ export class DashboardVariables {
         description: row.description || undefined
       }));
       
-    } catch (error) {
-      throw new Error(`Options query execution failed: ${error.message}`);
+    } catch (error: unknown) {
+      const err = error instanceof Error ? error : new Error(String(error));
+      throw new Error(`Options query execution failed: ${err.message}`);
     }
   }
   

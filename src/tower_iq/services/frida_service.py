@@ -6,12 +6,9 @@ script loading, and secure communication with injected scripts.
 """
 
 import asyncio
-import hashlib
-import json
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Optional
 
-import aiohttp
 
 try:
     import frida
@@ -499,7 +496,8 @@ class FridaService:
         if msg_type == 'hook_log':
             event = inner_payload.get('event', '')
             msg_text = inner_payload.get('message', '')
-            level = inner_payload.get('level', 'INFO')
+            level_name = inner_payload.get('level', 'INFO') or 'INFO'
+            log_method = getattr(self.logger, level_name.lower(), self.logger.info)
             
             # Skip heartbeats - they're handled by the console renderer
             if 'frida_heartbeat' in event or 'Frida script is alive' in msg_text:
@@ -508,13 +506,13 @@ class FridaService:
             # Clean up common log messages
             if 'Hook on' in msg_text and 'is live' in msg_text:
                 hook_name = msg_text.replace('Hook on ', '').replace(' is live.', '')
-                self.logger.info(f"🎣 Hook active: {hook_name}")
+                log_method(f"🎣 Hook active: {hook_name}")
             elif 'Il2Cpp Bridge is ready' in msg_text:
-                self.logger.info("🌉 Il2Cpp Bridge ready")
+                log_method("🌉 Il2Cpp Bridge ready")
             elif 'Handshake receiver is active' in msg_text:
-                self.logger.info("🤝 Handshake receiver active")
+                log_method("🤝 Handshake receiver active")
             else:
-                self.logger.info(f"📋 {msg_text}")
+                log_method(f"📋 {msg_text}")
                 
         elif msg_type == 'game_event':
             event_name = inner_payload.get('event', 'unknown')

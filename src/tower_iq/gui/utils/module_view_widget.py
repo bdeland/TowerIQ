@@ -6,14 +6,13 @@ Follows the application's centralized styling approach.
 """
 
 import os
-from typing import Dict, List, Optional, Any
+from typing import List, Optional
 from PyQt6.QtCore import Qt, QSize, QEvent
 from PyQt6.QtGui import QPixmap, QPainter, QPainterPath, QColor, QFont
 from PyQt6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QGraphicsDropShadowEffect
 from dataclasses import dataclass
 
-from qfluentwidgets import ProgressBar, TitleLabel, CaptionLabel, BodyLabel, CardWidget, SimpleCardWidget
-from ..stylesheets.stylesheets import get_themed_stylesheet
+from qfluentwidgets import ProgressBar, TitleLabel, BodyLabel, CardWidget, SimpleCardWidget
 
 
 @dataclass

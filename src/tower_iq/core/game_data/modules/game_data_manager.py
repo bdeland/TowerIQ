@@ -8,7 +8,7 @@ high-performance simulations.
 
 import numpy as np
 from collections import defaultdict
-from typing import Dict, List, Optional
+from typing import List
 
 from ._enums import Rarity, ModuleType
 from ._probabilities import SUBSTAT_PULL_CHANCES

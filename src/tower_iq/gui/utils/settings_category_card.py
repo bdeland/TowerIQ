@@ -1,5 +1,5 @@
 from PyQt6.QtCore import Qt, pyqtSignal
-from PyQt6.QtWidgets import QVBoxLayout, QHBoxLayout
+from PyQt6.QtWidgets import QVBoxLayout
 from qfluentwidgets import FluentIcon, IconWidget, BodyLabel, CaptionLabel, CardWidget
 from typing import Union
 

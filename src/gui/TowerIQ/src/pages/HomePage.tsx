@@ -3,7 +3,8 @@ import { Home as HomeIcon, PlayArrow as PlayIcon, Stop as StopIcon } from '@mui/
 import { useBackend } from '../hooks/useBackend';
 
 export function HomePage() {
-  const { status, loading, error, connectDevice, setTestMode } = useBackend();
+  const { status, error, connectDevice, setTestMode } = useBackend();
+  const isLoading = !status && !error;
 
   const handleTestModeToggle = async (enabled: boolean) => {
     try {
@@ -42,7 +43,7 @@ export function HomePage() {
         </Alert>
       )}
 
-      {loading && (
+      {isLoading && (
         <Box sx={{ display: 'flex', alignItems: 'center', mb: 3 }}>
           <CircularProgress size={20} sx={{ mr: 2 }} />
           <Typography>Connecting to backend...</Typography>
@@ -95,7 +96,7 @@ export function HomePage() {
                   <Switch
                     checked={status?.session.test_mode || false}
                     onChange={(e) => handleTestModeToggle(e.target.checked)}
-                    disabled={loading}
+                    disabled={isLoading}
                   />
                 }
                 label="Enable Test Mode"
@@ -118,7 +119,7 @@ export function HomePage() {
                 variant="contained"
                 startIcon={status?.session.is_connected ? <StopIcon /> : <PlayIcon />}
                 onClick={handleConnectDevice}
-                disabled={loading}
+                disabled={isLoading}
                 sx={{ mb: 2 }}
               >
                 {status?.session.is_connected ? 'Disconnect' : 'Connect Test Device'}

@@ -260,14 +260,15 @@ export class Dashboard extends EventEmitter {
           `Variable validation for ${name}`
         );
       }
-    } catch (error) {
+    } catch (error: unknown) {
+      const err = error instanceof Error ? error : new Error(String(error));
       this.emitDashboardError(
         new DashboardError(
-          `Failed to update variable ${name}: ${error.message}`,
+          `Failed to update variable ${name}: ${err.message}`,
           'VARIABLE_UPDATE_FAILED',
           this.id,
           undefined,
-          { variableName: name, value, originalError: error }
+          { variableName: name, value, originalError: err }
         ),
         `Variable update for ${name}`
       );
@@ -329,13 +330,15 @@ export class Dashboard extends EventEmitter {
             data,
             executionTime: Date.now() - panelStartTime
           };
-        } catch (error) {
+        } catch (error: unknown) {
           this.syncPanelState(panel.id);
           
+          const err = error instanceof Error ? error : new Error(String(error));
+
           return {
             panelId: panel.id,
             success: false,
-            error: error as Error,
+            error: err,
             executionTime: Date.now() - panelStartTime
           };
         }
@@ -349,10 +352,12 @@ export class Dashboard extends EventEmitter {
           results.push(result.value);
         } else {
           const panel = Array.from(this._panels.values())[index];
+          const reason = result.reason;
+          const err = reason instanceof Error ? reason : new Error(String(reason));
           results.push({
             panelId: panel.id,
             success: false,
-            error: new Error(result.reason),
+            error: err,
             executionTime: 0
           });
         }
@@ -371,13 +376,14 @@ export class Dashboard extends EventEmitter {
       
       return results;
       
-    } catch (error) {
+    } catch (error: unknown) {
+      const err = error instanceof Error ? error : new Error(String(error));
       const dashboardError = new DashboardError(
-        `Failed to load dashboard data: ${error.message}`,
+        `Failed to load dashboard data: ${err.message}`,
         'DASHBOARD_LOAD_FAILED',
         this.id,
         undefined,
-        { originalError: error }
+        { originalError: err }
       );
       
       this.setState({
@@ -412,7 +418,7 @@ export class Dashboard extends EventEmitter {
     try {
       await panel.fetchData(this.getVariableValues());
       this.syncPanelState(panelId);
-    } catch (error) {
+    } catch (error: unknown) {
       this.syncPanelState(panelId);
       throw error;
     }
@@ -430,7 +436,7 @@ export class Dashboard extends EventEmitter {
     for (const variable of queryVariables) {
       try {
         await this._variables.loadDynamicOptions(variable.name);
-      } catch (error) {
+      } catch (error: unknown) {
         console.warn(`Failed to load options for variable ${variable.name}:`, error);
       }
     }

@@ -8,9 +8,8 @@ from pathlib import Path
 import structlog
 from PyQt6.QtCore import Qt, pyqtSlot, QObject, QThread, pyqtSignal
 from PyQt6.QtWidgets import QWidget, QVBoxLayout, QScrollArea, QFileDialog
-from qfluentwidgets import FluentIcon, LineEdit, InfoBar, InfoBarPosition
+from qfluentwidgets import InfoBar, InfoBarPosition
 
-from ..utils.settings_item_card import SettingsItemCard
 from ..utils.database_path_card import DatabasePathCard
 from ..utils.database_info_card import DatabaseInfoCard
 from ..utils.health_check_card import HealthCheckCard

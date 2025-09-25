@@ -134,7 +134,7 @@ export const useDashboard = (options: UseDashboardOptions = {}): UseDashboardRet
       description: dashboard.metadata.description,
       panelCount: dashboard.panels.size,
       variableCount: dashboard.variables.definitions.size,
-      lastUpdated: dashboardState.lastUpdated,
+      lastUpdated: dashboardState.lastUpdated ? new Date(dashboardState.lastUpdated) : undefined,
     };
   }, [dashboard, dashboardState]);
 
@@ -189,9 +189,15 @@ export const useDashboard = (options: UseDashboardOptions = {}): UseDashboardRet
     },
     
     updatePanel: (panelId: string, config: any) => {
-      const panel = dashboard?.panels.get(panelId);
-      if (!panel) return;
-      panel.updateConfig(config);
+      if (!dashboard) return;
+
+      const panelConfig = config?.config ?? config;
+      if (!panelConfig) {
+        return;
+      }
+
+      dashboard.removePanel(panelId);
+      dashboard.addPanel(new Panel(panelConfig));
     },
     
     updateDashboardMetadata: async (metadata: { title?: string; description?: string }) => {

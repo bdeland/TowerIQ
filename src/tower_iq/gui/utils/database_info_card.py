@@ -5,7 +5,7 @@ This module provides the DatabaseInfoCard widget for displaying database statist
 """
 
 from PyQt6.QtCore import Qt, pyqtSignal
-from PyQt6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QFormLayout, QLabel
+from PyQt6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QFormLayout
 from qfluentwidgets import CardWidget, PrimaryPushButton, BodyLabel, CaptionLabel, FluentIcon
 
 from ..stylesheets import get_themed_stylesheet
@@ -148,5 +148,5 @@ class DatabaseInfoCard(CardWidget):
             from datetime import datetime
             dt = datetime.fromisoformat(date_str.replace('Z', '+00:00'))
             return dt.strftime("%Y-%m-%d %H:%M:%S")
-        except:
+        except (ValueError, TypeError):
             return date_str 

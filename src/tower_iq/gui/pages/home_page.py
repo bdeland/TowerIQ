@@ -5,7 +5,6 @@ This module provides the main home page widget for the application.
 """
 
 from PyQt6.QtWidgets import QWidget, QVBoxLayout
-from qfluentwidgets import TitleLabel
 from ..utils.content_page import ContentPage
 
 class HomePage(ContentPage):

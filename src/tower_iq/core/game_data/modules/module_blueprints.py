@@ -12,8 +12,7 @@ This replaces the need for separate _definitions.py, _module_catalog.py, and _sp
 """
 
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Set
-from enum import Enum
+from typing import Dict, List, Optional
 
 from ._enums import ModuleType, Rarity, RARITY_TO_MAX_LEVEL
 from .module_dataclass import UniqueEffectInfo, SubstatInfo
@@ -570,7 +569,7 @@ if __name__ == "__main__":
     validate_blueprints()
     
     stats = get_blueprint_statistics()
-    print(f"\nBlueprint Statistics:")
+    print("\nBlueprint Statistics:")
     for key, value in stats.items():
         print(f"  {key}: {value}")
     

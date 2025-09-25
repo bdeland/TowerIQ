@@ -6,26 +6,21 @@ process selection, and hook activation using a vertical stepper interface.
 """
 
 import structlog
-from typing import Dict, List, Optional, Any
+from typing import Dict, List, Any
 
 from PyQt6.QtWidgets import (
-    QVBoxLayout, QHBoxLayout, QWidget, QLabel, QFrame,
-    QTableWidget, QTableWidgetItem, QHeaderView, QSizePolicy,
-    QComboBox, QTextEdit, QCheckBox
+    QVBoxLayout, QHBoxLayout, QWidget, QTableWidgetItem, QHeaderView, QTextEdit, QCheckBox
 )
-from PyQt6.QtCore import pyqtSignal, Qt, QTimer
-from PyQt6.QtGui import QColor
+from PyQt6.QtCore import pyqtSignal, Qt
 
 from qfluentwidgets import (
-    BodyLabel, CaptionLabel, PushButton, FluentIcon, TableWidget,
-    ComboBox, SwitchButton, InfoBar, InfoBarPosition, CardWidget,
-    SimpleCardWidget, ProgressRing, SearchLineEdit, CheckBox
+    BodyLabel, PushButton, FluentIcon, TableWidget,
+    ComboBox, InfoBar, InfoBarPosition, SimpleCardWidget, ProgressRing, SearchLineEdit, CheckBox
 )
 
 from ..utils.content_page import ContentPage
 from ..utils.vertical_stepper import VerticalStepper, StepStatus
-from ...core.session import ConnectionState, ConnectionSubState
-from ...services.connection_flow_controller import ConnectionFlowController
+from ...core.session import ConnectionState
 
 
 class DeviceSelectionWidget(QWidget):

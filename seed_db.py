@@ -9,9 +9,6 @@ from datetime import datetime, timedelta
 from typing import Optional
 from pathlib import Path
 from concurrent.futures import ProcessPoolExecutor, as_completed
-import queue
-import threading
-import os
 
 # Ensure we can import the project src package when running from repo root
 PROJECT_ROOT = Path(__file__).parent.resolve()
@@ -19,11 +16,11 @@ SRC_PATH = PROJECT_ROOT / "src"
 if str(SRC_PATH) not in sys.path:
     sys.path.insert(0, str(SRC_PATH))
 
-import structlog
+import structlog  # noqa: E402
 
-from tower_iq.core.config import ConfigurationManager
-from tower_iq.core.logging_config import setup_logging
-from tower_iq.services.database_service import DatabaseService
+from tower_iq.core.config import ConfigurationManager  # noqa: E402
+from tower_iq.core.logging_config import setup_logging  # noqa: E402
+from tower_iq.services.database_service import DatabaseService  # noqa: E402
 
 # Import database schema configuration
 try:
@@ -47,7 +44,7 @@ try:
     else:
         raise ImportError("database_schema.py not found")
         
-except (ImportError, AttributeError) as e:
+except (ImportError, AttributeError):
     # Fallback if schema config is not available
     METRIC_METADATA = {}
     EVENT_METADATA = {}
@@ -956,7 +953,7 @@ def main():
     print(f"📈 Database Metrics Collection: {'Enabled' if args.collect_metrics else 'Disabled'}")
     
     if stats.get('table_rows'):
-        print(f"\n📋 Database Statistics:")
+        print("\n📋 Database Statistics:")
         for table, count in stats['table_rows'].items():
             print(f"   • {table}: {count:,} rows")
     
@@ -966,7 +963,7 @@ def main():
             # Count db_metrics entries to show how many metrics were collected
             metrics_count = db.sqlite_conn.execute("SELECT COUNT(*) FROM db_metrics").fetchone()[0]
             unique_timestamps = db.sqlite_conn.execute("SELECT COUNT(DISTINCT timestamp) FROM db_metrics").fetchone()[0]
-            print(f"\n📈 Database Metrics Collected:")
+            print("\n📈 Database Metrics Collected:")
             print(f"   • Total Metrics: {metrics_count:,}")
             print(f"   • Collection Points: {unique_timestamps:,}")
             
@@ -991,7 +988,7 @@ def main():
         max_wave = max(run['final_wave'] for run in run_data_list)
         min_wave = min(run['final_wave'] for run in run_data_list)
         
-        print(f"\n🎮 Game Data Generated:")
+        print("\n🎮 Game Data Generated:")
         print(f"   • Total Events: {total_events:,}")
         print(f"   • Total Metrics: {total_metrics:,}")
         print(f"   • Average Final Wave: {avg_wave:.1f}")
@@ -1004,7 +1001,7 @@ def main():
             tier = run['tier']
             tier_counts[tier] = tier_counts.get(tier, 0) + 1
         
-        print(f"\n🏆 Tier Distribution:")
+        print("\n🏆 Tier Distribution:")
         for tier in sorted(tier_counts.keys()):
             count = tier_counts[tier]
             percentage = (count / len(run_data_list)) * 100

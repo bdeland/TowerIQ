@@ -1,7 +1,7 @@
 import asyncio
 import subprocess
-from datetime import datetime, timedelta
-from typing import Optional, Tuple
+from datetime import datetime
+from typing import Tuple
 
 def format_currency(value: float, symbol: str = "$", pad_to_cents: bool = False) -> str:
     """

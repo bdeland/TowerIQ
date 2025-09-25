@@ -6,7 +6,6 @@ This module provides the logging and diagnostics settings content.
 
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import QWidget, QVBoxLayout, QScrollArea
-from qfluentwidgets import BodyLabel
 
 from ..utils.logging_settings_widget import LoggingSettingsWidget
 

@@ -8,18 +8,15 @@ It uses Qt's native threading instead of qasync to avoid timer conflicts.
 import sys
 import os
 from pathlib import Path
-from typing import NoReturn
 import argparse
 
 from PyQt6.QtWidgets import QApplication
 from PyQt6.QtGui import QFont
-from PyQt6.QtCore import QThread, QObject, pyqtSignal
 
 from tower_iq.core.config import ConfigurationManager
 from tower_iq.core.logging_config import setup_logging
 from tower_iq.main_controller import MainController
 from tower_iq.gui.main_window import MainWindow
-from tower_iq.services.emulator_service import EmulatorService
 
 os.environ["QT_API"] = "pyqt6"
 
@@ -75,7 +72,7 @@ def main() -> None:
             test_mode = True
             test_mode_replay = args.test_mode_replay
             test_mode_generate = args.test_mode_generate
-            test_db_path = app_root / 'data' / f'test_mode.sqlite'
+            test_db_path = app_root / 'data' / 'test_mode.sqlite'
             if args.test_mode_generate:
                 # Delete any existing test mode database before starting
                 if test_db_path.exists():

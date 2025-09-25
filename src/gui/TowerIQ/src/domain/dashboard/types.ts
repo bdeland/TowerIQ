@@ -199,6 +199,7 @@ export interface VariableConfig {
 }
 
 export type VariableSet = Record<string, any>;
+export type VariableValues = VariableSet;
 
 export interface ValidationResult {
   isValid: boolean;

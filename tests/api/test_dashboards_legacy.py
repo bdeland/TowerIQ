@@ -14,9 +14,6 @@ Usage:
 import pytest
 import asyncio
 import aiohttp
-import json
-from typing import Dict, List, Any, Optional
-from pathlib import Path
 
 # Configuration
 API_BASE_URL = "http://localhost:8000"
@@ -159,7 +156,7 @@ class TestDashboardsLegacyAPI:
             
             # Clean up - delete the created dashboard
             dashboard_id = created_dashboard["id"]
-            async with http_session.delete(f"{API_BASE_URL}/api/dashboards/{dashboard_id}") as delete_response:
+            async with http_session.delete(f"{API_BASE_URL}/api/dashboards/{dashboard_id}"):
                 pass  # Ignore delete result for cleanup
     
     async def test_create_dashboard_invalid_data(self, http_session, server_available):
@@ -205,7 +202,7 @@ class TestDashboardsLegacyAPI:
                     assert updated_dashboard["description"] == update_data["description"]
                 
                 # Clean up
-                async with http_session.delete(f"{API_BASE_URL}/api/dashboards/{dashboard_id}") as delete_response:
+                async with http_session.delete(f"{API_BASE_URL}/api/dashboards/{dashboard_id}"):
                     pass
     
     # DELETE /api/dashboards/{id} - Delete dashboard

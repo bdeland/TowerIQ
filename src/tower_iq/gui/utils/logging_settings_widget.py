@@ -6,13 +6,12 @@ in a user-friendly way with category-based controls.
 """
 
 from PyQt6.QtWidgets import (
-    QVBoxLayout, QHBoxLayout, QGroupBox, QLabel, QCheckBox, 
-    QComboBox, QSpinBox, QPushButton, QTextEdit, QFrame, QWidget
+    QVBoxLayout, QHBoxLayout, QGroupBox, QLabel, QWidget
 )
 from PyQt6.QtCore import pyqtSignal
 from qfluentwidgets import SwitchButton, ComboBox, SpinBox, PushButton
 
-from .utils_gui import get_title_font, get_text_color
+from .utils_gui import get_text_color
 from ...core.logging_config import get_all_available_categories, LOG_SOURCE_CATEGORIES
 
 

@@ -7,7 +7,6 @@ enabling type-safe database operations while maintaining existing security.
 
 from sqlmodel import SQLModel, create_engine, Session
 from typing import Optional
-import os
 import logging
 
 logger = logging.getLogger(__name__)

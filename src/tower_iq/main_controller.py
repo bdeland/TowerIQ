@@ -10,14 +10,11 @@ import time
 import threading
 import asyncio
 from typing import Any, Optional, Callable, Dict, List
-from datetime import datetime
 
 from .core.config import ConfigurationManager
-from .core.session import SessionManager, ConnectionState, ConnectionSubState, ErrorInfo, ErrorType
+from .core.session import SessionManager, ConnectionState
 from .services.database_service import DatabaseService
 from .services.emulator_service import EmulatorService
-from .services.connection_flow_controller import ConnectionFlowController
-from .services.connection_stage_manager import ConnectionStageManager
 from .services.hook_script_manager import HookScriptManager
 from .services.frida_service import FridaService
 
@@ -42,7 +39,6 @@ class DeviceScanWorker:
             # Use the new list_devices_with_details method
             # Since this is a thread, we need to run the async method in a new event loop
             import asyncio
-            import concurrent.futures
             
             # Create a new event loop for this thread
             loop = asyncio.new_event_loop()

@@ -43,7 +43,7 @@ const NewDashboardVariableControls = React.lazy(() =>
 // Lazy load legacy components for performance
 const LegacyDashboardViewPage = React.lazy(() => 
   import('../pages/DashboardViewPage').then(module => ({ 
-    default: module.LegacyDashboardViewPage || module.DashboardViewPage 
+    default: module.DashboardViewPage 
   }))
 );
 

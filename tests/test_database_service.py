@@ -84,7 +84,7 @@ services_stub = types.ModuleType("tower_iq.services")
 services_stub.__path__ = [str(src_services_path)]
 sys.modules["tower_iq.services"] = services_stub
 
-from tower_iq.services.database_service import DatabaseService
+from tower_iq.services.database_service import DatabaseService  # noqa: E402
 
 
 class DummyConfig:

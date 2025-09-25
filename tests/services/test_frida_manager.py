@@ -29,7 +29,6 @@ structlog_stub = types.ModuleType("structlog")
 structlog_stub.get_logger = lambda: _StructlogLogger()
 sys.modules.setdefault("structlog", structlog_stub)
 
-import tower_iq  # noqa: E402  pylint: disable=wrong-import-position
 
 services_stub = types.ModuleType("tower_iq.services")
 services_stub.__path__ = [str(SRC_PATH / "tower_iq" / "services")]

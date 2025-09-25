@@ -10,7 +10,9 @@ const listeners = new Set<(width: number) => void>();
 // Subscribe to width changes
 const subscribe = (listener: (width: number) => void) => {
   listeners.add(listener);
-  return () => listeners.delete(listener);
+  return () => {
+    listeners.delete(listener);
+  };
 };
 
 // Notify all listeners of width changes

@@ -7,7 +7,6 @@ to communicate with for device scanning and other operations.
 """
 
 import sys
-import os
 from pathlib import Path
 
 # Add the src directory to the path

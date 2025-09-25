@@ -9,7 +9,6 @@ import json
 import sqlite3
 import os
 import shutil
-import sys
 from typing import Any, Optional, Dict, List, cast
 from pathlib import Path
 from datetime import datetime
@@ -49,7 +48,7 @@ try:
     else:
         raise ImportError("database_schema.py not found")
         
-except (ImportError, AttributeError) as e:
+except (ImportError, AttributeError):
     # Fallback if schema config is not available
     SCHEMA_VERSION = "1.0"
     METRIC_METADATA = {}
@@ -318,7 +317,7 @@ class DatabaseService:
                 # Still try to close the connection even if cleanup failed
                 try:
                     self.sqlite_conn.close()
-                except:
+                except Exception:
                     pass
             finally:
                 self.sqlite_conn = None
@@ -1315,7 +1314,8 @@ class DatabaseService:
     @db_operation()
     def pre_populate_metric_metadata(self, name: str, metadata: Dict[str, str]) -> None:
         """Gets or creates a metric name, ensuring its metadata is fully populated."""
-        if not self.sqlite_conn: return
+        if not self.sqlite_conn:
+            return
 
         display_name = metadata.get('display_name')
         description = metadata.get('description')
@@ -1334,7 +1334,8 @@ class DatabaseService:
     @db_operation()
     def pre_populate_event_metadata(self, name: str, metadata: Dict[str, str]) -> None:
         """Gets or creates an event name, ensuring its metadata is fully populated."""
-        if not self.sqlite_conn: return
+        if not self.sqlite_conn:
+            return
         
         description = metadata.get('description')
         self.sqlite_conn.execute("""

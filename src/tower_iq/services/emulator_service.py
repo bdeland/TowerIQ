@@ -13,8 +13,6 @@ Key principles:
 """
 
 import asyncio
-import subprocess
-from pathlib import Path
 from typing import Any, Optional, Dict, List
 from dataclasses import dataclass
 from datetime import datetime, timedelta
@@ -42,7 +40,7 @@ except ImportError:
 from ..core.config import ConfigurationManager
 from ..core.errors import DeviceConnectionError
 from ..core.utils import AdbWrapper, AdbError
-from .frida_manager import FridaServerManager, FridaServerSetupError
+from .frida_manager import FridaServerManager
 from ..core.session import AdbStatus
 
 
@@ -484,7 +482,7 @@ class EmulatorService:
                         status = parts[1].strip()
                         devices.append((serial, status))
             return devices
-        except AdbError as e:
+        except AdbError:
             # Try to start ADB server once and retry
             self.logger.info("ADB may not be running; attempting to start server and retry device list")
             try:

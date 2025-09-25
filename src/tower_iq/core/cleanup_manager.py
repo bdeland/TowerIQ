@@ -10,7 +10,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict
 import structlog
 
 logger = structlog.get_logger(__name__)

@@ -211,11 +211,6 @@ const themeOptions: ThemeOptions = {
       dark: TOWERIQ_COLORS.button.secondaryActive,
       light: TOWERIQ_COLORS.button.secondaryHover,
     },
-    // Add custom brand colors to palette
-    tertiary: {
-      main: TOWERIQ_COLORS.brand.tertiary,
-      contrastText: '#ffffff',
-    } as any, // TypeScript workaround for custom palette colors
     background: {
       default: TOWERIQ_COLORS.backgrounds.main,
       paper: TOWERIQ_COLORS.backgrounds.paper,

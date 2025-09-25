@@ -5,10 +5,9 @@ This module provides the connection settings content.
 """
 
 from PyQt6.QtCore import Qt
-from PyQt6.QtWidgets import QWidget, QVBoxLayout, QScrollArea, QHBoxLayout
-from qfluentwidgets import FluentIcon, PushButton, CardWidget, BodyLabel, qconfig
+from PyQt6.QtWidgets import QWidget, QVBoxLayout, QScrollArea
+from qfluentwidgets import FluentIcon, PushButton, qconfig
 
-from ..utils.settings_item_card import SettingsItemCard
 from ..utils.expandable_settings_card import ExpandableCardGroup, SubsettingItem
 
 

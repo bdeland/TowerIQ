@@ -10,7 +10,6 @@ from sqlalchemy import JSON
 from typing import Optional, List, Dict, Any
 from datetime import datetime
 import time
-import json
 
 
 class Dashboard(SQLModel, table=True):

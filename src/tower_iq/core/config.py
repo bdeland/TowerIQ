@@ -8,9 +8,8 @@ source of truth for all application configuration settings.
 import structlog
 import yaml
 import json
-from typing import Any, Optional, Dict, Union, List
+from typing import Any, Optional, Dict, List
 from pathlib import Path
-from datetime import datetime
 from PyQt6.QtCore import QObject, pyqtSignal
 
 # Forward reference for type hinting
@@ -133,7 +132,8 @@ class ConfigurationManager(QObject):
 
     def _load_all_user_settings(self):
         """Loads all settings from the 'settings' table."""
-        if not self._db_service: return
+        if not self._db_service:
+            return
 
         try:
             settings_list = self._db_service.get_all_settings()

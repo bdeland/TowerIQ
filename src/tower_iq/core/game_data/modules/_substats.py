@@ -1,6 +1,5 @@
 from ._enums import Rarity, ModuleType
 from .module_dataclass import SubstatInfo
-from ._enums import ModuleType, Rarity
 
 # Cannon Substats
 ATTACK_SPEED = SubstatInfo(

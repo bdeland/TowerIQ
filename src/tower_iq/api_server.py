@@ -273,7 +273,7 @@ def device_dict_to_device_object(device_dict: Dict[str, Any]):
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Manage the lifespan of the FastAPI application and backend services."""
-    global config, logger, controller, db_service
+    global config, logger, controller, db_service, query_service
     
     # Initialize paths & environment
     app_root = Path(__file__).parent.parent.parent
@@ -2023,13 +2023,11 @@ async def execute_query(request: QueryRequest):
 # V2 API ENDPOINTS - New Hierarchical Dashboard System
 # ============================================================================
 
-from tower_iq.models.dashboard_config_models import (
+from tower_iq.models.dashboard_config_models import (  # noqa: E402
     DashboardConfig, DashboardMetadata, DashboardListResponse,
     CreateDashboardRequest, UpdateDashboardRequest,
-    DataSourceConfig, DataSourceCreateRequest, DataSourceUpdateRequest,
-    VariableOptionsRequest, VariableOption, MigrationStatus
+    DataSourceConfig, DataSourceCreateRequest, VariableOptionsRequest, VariableOption
 )
-import json
 
 
 @app.get("/api/v2/dashboards", response_model=DashboardListResponse)

@@ -8,7 +8,7 @@ connection flow orchestration with proper error handling and state management.
 import asyncio
 import random
 from datetime import datetime
-from typing import Optional, Dict, Any, List, Callable, Union
+from typing import Optional, Dict, Any, List, Callable
 from enum import Enum
 
 from PyQt6.QtCore import QObject, pyqtSignal
@@ -17,7 +17,7 @@ from ..core.session import (
     SessionManager, ConnectionState, ConnectionSubState, ErrorInfo, ErrorType,
     StageProgress, StageStatus, StateInconsistency
 )
-from ..core.cleanup_manager import ResourceCleanupManager, ServiceLifecycle
+from ..core.cleanup_manager import ResourceCleanupManager
 from .connection_stage_manager import ConnectionStageManager
 from .emulator_service import EmulatorService
 from .frida_service import FridaService

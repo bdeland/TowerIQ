@@ -2,7 +2,7 @@ import sys
 import asyncio
 import traceback
 
-from PyQt6.QtCore import Qt, pyqtSignal, QMetaObject, Q_ARG
+from PyQt6.QtCore import Qt, Q_ARG
 from PyQt6.QtWidgets import QApplication, QVBoxLayout, QWidget
 from PyQt6.QtGui import QCloseEvent
 from qfluentwidgets import (FluentWindow, setTheme, Theme, FluentIcon, 
@@ -53,7 +53,7 @@ class MainWindow(FluentWindow):
                     container_layout.addWidget(self.header)
                     parent_layout.replaceWidget(original_stack, new_content_container)
                     container_layout.addWidget(original_stack)
-        except Exception as e:
+        except Exception:
             #TODO: fix this
             pass
         
@@ -178,7 +178,7 @@ class MainWindow(FluentWindow):
                     container_layout.addWidget(self.header)
                     parent_layout.replaceWidget(original_stack, new_content_container)
                     container_layout.addWidget(original_stack)
-        except Exception as e:
+        except Exception:
             #TODO: fix this
             pass
         
@@ -383,7 +383,7 @@ class MainWindow(FluentWindow):
         if self.controller:
             try:
                 self.controller.on_refresh_processes_requested()
-            except Exception as e:
+            except Exception:
                 import traceback
                 traceback.print_exc()
         else:

@@ -7,24 +7,17 @@ the limitations and requirements for module pulls.
 """
 
 import random
-import time
-import cProfile
-import pstats
-import io
 import numpy as np
-from functools import wraps
-from typing import List, Dict, Optional, Tuple, Callable, Any
+from typing import List, Dict, Optional
 from dataclasses import dataclass
 
-from ._enums import ModuleType, Rarity, Substat, RARITY_TO_MAX_LEVEL
-from ._probabilities import MODULE_PULL_CHANCES, SUBSTAT_PULL_CHANCES
-from ._substats import ALL_SUBSTATS
+from ._enums import ModuleType, Rarity, RARITY_TO_MAX_LEVEL
+from ._probabilities import MODULE_PULL_CHANCES
 from .module_blueprints import (
     ALL_MODULE_BLUEPRINTS, 
-    get_blueprints_for_pull,
-    BLUEPRINTS_BY_TYPE
+    get_blueprints_for_pull
 )
-from .module_dataclass import SubstatInfo, UniqueEffectInfo, ModuleDefinition
+from .module_dataclass import SubstatInfo, UniqueEffectInfo
 from .game_data_manager import GameDataManager
 
 @dataclass

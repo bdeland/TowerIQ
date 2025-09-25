@@ -223,7 +223,7 @@ if "tower_iq.main_controller" not in sys.modules:
     main_controller_module.MainController = MainController
     sys.modules["tower_iq.main_controller"] = main_controller_module
 
-from tower_iq.api_server import HTTPException, HookActivationRequest, activate_hook
+from tower_iq.api_server import HTTPException, HookActivationRequest, activate_hook  # noqa: E402
 
 
 class DummySession:
