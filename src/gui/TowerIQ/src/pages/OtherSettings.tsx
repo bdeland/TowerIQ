@@ -1,11 +1,12 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import type { KeyboardEvent } from 'react';
 import { Box, Typography, Card, CardContent, Switch, FormControlLabel, TextField, Button, MenuItem } from '@mui/material';
 import Grid from '@mui/material/Grid';
 import { MoreHoriz as OtherIcon, Save, Notifications, Security, DeveloperMode } from '@mui/icons-material';
 import { useDeveloper } from '../contexts/DeveloperContext';
 
 export function OtherSettings() {
-  const { isDevMode, toggleDevMode } = useDeveloper();
+  const { isDevMode, toggleDevMode, debugBorders, setDebugBorders, breadcrumbCopy, setBreadcrumbCopy, minPanelLoadingMs, setMinPanelLoadingMs } = useDeveloper();
   
   // Local state for other settings
   const [notifications, setNotifications] = useState(true);
@@ -15,6 +16,30 @@ export function OtherSettings() {
   const [twoFactorAuth, setTwoFactorAuth] = useState(true);
   const [sessionEncryption, setSessionEncryption] = useState(false);
   const [saving, setSaving] = useState(false);
+
+  const [minLoadingInput, setMinLoadingInput] = useState<string>(() => String(minPanelLoadingMs));
+
+  useEffect(() => {
+    setMinLoadingInput(String(minPanelLoadingMs));
+  }, [minPanelLoadingMs]);
+
+  const handleMinLoadingCommit = () => {
+    const parsed = Number(minLoadingInput);
+    if (!Number.isNaN(parsed) && parsed >= 0) {
+      setMinPanelLoadingMs(parsed);
+    } else {
+      setMinLoadingInput(String(minPanelLoadingMs));
+    }
+  };
+
+  const handleMinLoadingKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      handleMinLoadingCommit();
+    }
+  };
+
+
 
   const handleSave = async () => {
     setSaving(true);
@@ -138,20 +163,56 @@ export function OtherSettings() {
                 </Typography>
               </Box>
               <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-                Enable visual debugging aids for development and troubleshooting.
+                Enable and configure developer-only utilities used during dashboard iteration.
               </Typography>
               <FormControlLabel
                 control={
-                  <Switch 
-                    checked={isDevMode} 
+                  <Switch
+                    checked={isDevMode}
                     onChange={toggleDevMode}
                   />
                 }
                 label="Enable Development Mode"
                 sx={{ display: 'block' }}
               />
-              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>
-                Shows debug borders on dashboard grids and adds developer utilities to breadcrumbs.
+              <Box sx={{ mt: 2, pl: 1, display: 'flex', flexDirection: 'column', gap: 1.5 }}>
+                <FormControlLabel
+                  control={
+                    <Switch
+                      checked={debugBorders}
+                      onChange={(e) => setDebugBorders(e.target.checked)}
+                      disabled={!isDevMode}
+                    />
+                  }
+                  label="Show dashboard debug borders"
+                  sx={{ display: 'block' }}
+                />
+                <FormControlLabel
+                  control={
+                    <Switch
+                      checked={breadcrumbCopy}
+                      onChange={(e) => setBreadcrumbCopy(e.target.checked)}
+                      disabled={!isDevMode}
+                    />
+                  }
+                  label="Enable breadcrumb copy menu"
+                  sx={{ display: 'block' }}
+                />
+                <TextField
+                  fullWidth
+                  label="Minimum skeleton load time (ms)"
+                  type="number"
+                  value={minLoadingInput}
+                  onChange={(e) => setMinLoadingInput(e.target.value)}
+                  onBlur={handleMinLoadingCommit}
+                  onKeyDown={handleMinLoadingKeyDown}
+                  disabled={!isDevMode}
+                  helperText="Set 0 to keep charts loading indefinitely for skeleton testing."
+                  inputProps={{ min: 0, step: 100 }}
+                />
+              </Box>
+              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 2 }}>
+                Borders and copy utilities only render when development mode is enabled.
               </Typography>
             </CardContent>
           </Card>
@@ -237,3 +298,7 @@ export function OtherSettings() {
     </Box>
   );
 }
+
+
+
+

@@ -32,7 +32,8 @@ function DefaultDashboardContent({ panels, currentDashboard, isEditMode, selecte
   onDeletePanel: (panelId: string) => void;
   getSelectedPanel: () => DashboardPanel | null;
 }) {
-  const { isDevMode } = useDeveloper();
+  const { isDevMode, debugBorders } = useDeveloper();
+  const showDebugBorders = isDevMode && debugBorders;
   
   // Only use dashboard variables if the dashboard has them
   let selectedValues = {};
@@ -103,7 +104,7 @@ function DefaultDashboardContent({ panels, currentDashboard, isEditMode, selecte
   }, []);
 
   return (
-    <Box sx={{ border: isDevMode ? '2px solid red' : 'none' }} data-content-container="true">
+    <Box sx={{ border: showDebugBorders ? '2px solid red' : 'none' }} data-content-container="true">
       
       <Box sx={{ mt: 0 }}>
         <DashboardGrid
@@ -138,7 +139,8 @@ function LegacyDashboardViewPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { fetchDashboard, currentDashboard, setCurrentDashboard, updateDashboard, createDashboard, fetchDashboards, loading, error, clearError } = useDashboard();
-  const { isDevMode } = useDeveloper();
+  const { isDevMode, debugBorders } = useDeveloper();
+  const showDebugBorders = isDevMode && debugBorders;
   const { 
     setIsDashboardPage, 
     setIsEditMode: setContextEditMode, 
@@ -467,7 +469,7 @@ function LegacyDashboardViewPage() {
   }
 
   const dashboardContent = (
-    <Box sx={{ border: isDevMode ? '2px solid red' : 'none' }} data-content-container="true">
+    <Box sx={{ border: showDebugBorders ? '2px solid red' : 'none' }} data-content-container="true">
       <Box sx={{ mt: 0 }}>
         <DashboardGrid
           panels={panels}

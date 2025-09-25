@@ -20,7 +20,7 @@ export function Breadcrumbs() {
   const isSmallScreen = useMediaQuery(theme.breakpoints.down('sm'));
 
   const { fetchDashboard, dashboards } = useDashboard();
-  const { isDevMode } = useDeveloper();
+  const { isDevMode, breadcrumbCopy } = useDeveloper();
   const [dashboardTitle, setDashboardTitle] = useState<string>('');
   const [isLoadingDashboard, setIsLoadingDashboard] = useState<boolean>(false);
   const [panelTitle, setPanelTitle] = useState<string>('');
@@ -28,6 +28,8 @@ export function Breadcrumbs() {
   // Developer menu state
   const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
   const [isHovered, setIsHovered] = useState(false);
+
+  const showDevMenu = isDevMode && breadcrumbCopy;
 
   // Memoize URL parsing
   const { dashboardId, panelId } = useMemo(() => {
@@ -173,12 +175,18 @@ export function Breadcrumbs() {
 
   // Developer menu handlers
   const handleMenuOpen = (event: React.MouseEvent<HTMLElement>) => {
+    if ( !showDevMenu) return; 
     setAnchorEl(event.currentTarget);
   };
-
   const handleMenuClose = () => {
     setAnchorEl(null);
   };
+
+  useEffect(() => {
+    if ( !showDevMenu) { 
+      setAnchorEl(null);
+    }
+  }, [showDevMenu]);
 
   const formatBreadcrumbString = () => {
     return breadcrumbItems.map(item => item.label).join(' > ');
@@ -271,7 +279,7 @@ export function Breadcrumbs() {
       </MuiBreadcrumbs>
       
       {/* Developer Menu - only show in dev mode when hovered */}
-      {isDevMode && isHovered && (
+      {showDevMenu && isHovered && (
         <IconButton
           size="small"
           onClick={handleMenuOpen}
@@ -288,7 +296,7 @@ export function Breadcrumbs() {
       
       <Menu
         anchorEl={anchorEl}
-        open={Boolean(anchorEl)}
+        open={Boolean(anchorEl) && showDevMenu}
         onClose={handleMenuClose}
         PaperProps={{
           sx: {
@@ -315,3 +323,8 @@ export function Breadcrumbs() {
     </Box>
   );
 }
+
+
+
+
+

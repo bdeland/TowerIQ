@@ -15,7 +15,8 @@ interface NewDashboardViewPageProps {
 export const NewDashboardViewPage: React.FC<NewDashboardViewPageProps> = ({ dashboardId: propDashboardId }) => {
   const { id: paramDashboardId } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const { isDevMode } = useDeveloper();
+  const { isDevMode, debugBorders } = useDeveloper();
+  const showDebugBorders = isDevMode && debugBorders;
   
   const dashboardId = propDashboardId || paramDashboardId;
   
@@ -90,7 +91,7 @@ export const NewDashboardViewPage: React.FC<NewDashboardViewPageProps> = ({ dash
         onPanelUpdate={actions.updatePanel}
         onPanelDelete={actions.removePanel}
         dashboard={dashboard}
-        isDevMode={isDevMode}
+        isDevMode={showDebugBorders}
       />
     </DashboardLayout>
   );
@@ -172,3 +173,4 @@ function useFeatureFlags() {
     }
   };
 }
+

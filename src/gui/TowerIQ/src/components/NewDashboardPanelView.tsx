@@ -1,4 +1,4 @@
-import React, { useMemo, useState, useCallback } from 'react';
+import React, { useMemo, useState, useCallback, useEffect, useRef } from 'react';
 import {
   Card,
   CardHeader,
@@ -28,6 +28,8 @@ import { Dashboard } from '../domain/dashboard/Dashboard';
 import type { PanelState } from '../hooks/useDashboard';
 import type { EChartsOption } from 'echarts';
 import { useDeveloper } from '../contexts/DeveloperContext';
+import SkeletonOverlay from './skeletons/SkeletonOverlay';
+import { ChartType } from './skeletons/ChartSkeleton';
 
 interface NewDashboardPanelViewProps {
   panel: Panel;
@@ -41,6 +43,40 @@ interface NewDashboardPanelViewProps {
   showDebugInfo?: boolean;
 }
 
+/**
+ * Maps panel visualization type to skeleton chart type
+ */
+const mapVisualizationTypeToSkeletonType = (panel: Panel): ChartType => {
+  const config = panel.getConfig();
+  const vizType = config.visualization.type;
+  const chartType = config.visualization.chartType;
+  
+  if (vizType === 'table') return 'table';
+  if (vizType === 'stat') return 'stat';
+  if (vizType === 'chart') {
+    switch (chartType) {
+      case 'bar':
+        return 'bar';
+      case 'line':
+        return 'line';
+      case 'pie':
+        return 'pie';
+      case 'timeseries':
+        return 'timeseries';
+      case 'calendar':
+        return 'calendar';
+      case 'treemap':
+        return 'treemap';
+      case 'heatmap':
+        return 'calendar'; // Use calendar skeleton for heatmaps
+      default:
+        return 'bar';
+    }
+  }
+  
+  return 'bar'; // Default fallback
+};
+
 export const NewDashboardPanelView: React.FC<NewDashboardPanelViewProps> = ({
   panel,
   state,
@@ -52,7 +88,7 @@ export const NewDashboardPanelView: React.FC<NewDashboardPanelViewProps> = ({
   isFullscreen = false,
   showDebugInfo = false,
 }) => {
-  const { isDevMode } = useDeveloper();
+  const { isDevMode, minPanelLoadingMs } = useDeveloper();
   const [menuAnchorEl, setMenuAnchorEl] = useState<null | HTMLElement>(null);
   const [debugDrawerOpen, setDebugDrawerOpen] = useState(false);
 
@@ -95,29 +131,57 @@ export const NewDashboardPanelView: React.FC<NewDashboardPanelViewProps> = ({
     setDebugDrawerOpen(prev => !prev);
   }, []);
 
-  // Loading overlay component
-  const LoadingOverlay = useMemo(() => {
-    if (state.status !== 'loading') return null;
+  const isLoading = state.status === 'loading';
+  const [debouncedLoading, setDebouncedLoading] = useState(isLoading);
+  const loadingStartRef = useRef<number | null>(null);
+  const loadingDelayTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const forceSkeletonOnly = isDevMode && minPanelLoadingMs === 0;
+  const effectiveLoading = forceSkeletonOnly || debouncedLoading;
 
-    return (
-      <Box
-        sx={{
-          position: 'absolute',
-          top: 0,
-          left: 0,
-          right: 0,
-          bottom: 0,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          backgroundColor: 'rgba(255, 255, 255, 0.8)',
-          zIndex: 1000,
-        }}
-      >
-        <CircularProgress size={40} />
-      </Box>
-    );
-  }, [state.status]);
+  // Chart skeleton type based on panel configuration
+  useEffect(() => {
+    const baseDelay = 100;
+
+    if (loadingDelayTimeoutRef.current) {
+      clearTimeout(loadingDelayTimeoutRef.current);
+      loadingDelayTimeoutRef.current = null;
+    }
+
+    if (isLoading) {
+      setDebouncedLoading(true);
+      if (loadingStartRef.current === null) {
+        loadingStartRef.current = performance.now();
+      }
+    } else {
+      const enforcedDelay = isDevMode ? minPanelLoadingMs : 0;
+
+      if (isDevMode && enforcedDelay === 0) {
+        setDebouncedLoading(true);
+        loadingStartRef.current = null;
+      } else {
+        const elapsed = loadingStartRef.current !== null ? performance.now() - loadingStartRef.current : 0;
+        loadingStartRef.current = null;
+
+        const minimumVisibleDuration = Math.max(enforcedDelay, baseDelay);
+        const remaining = Math.max(minimumVisibleDuration - elapsed, baseDelay);
+
+        loadingDelayTimeoutRef.current = setTimeout(() => {
+          setDebouncedLoading(false);
+          loadingDelayTimeoutRef.current = null;
+        }, remaining);
+      }
+    }
+
+    return () => {
+      if (loadingDelayTimeoutRef.current) {
+        clearTimeout(loadingDelayTimeoutRef.current);
+        loadingDelayTimeoutRef.current = null;
+      }
+    };
+  }, [isLoading, isDevMode, minPanelLoadingMs]);
+  const skeletonType = useMemo(() => {
+    return mapVisualizationTypeToSkeletonType(panel);
+  }, [panel]);
 
   // Error display component
   const ErrorDisplay = useMemo(() => {
@@ -139,23 +203,32 @@ export const NewDashboardPanelView: React.FC<NewDashboardPanelViewProps> = ({
     );
   }, [state.status, state.error, onRefresh]);
 
-  // Chart component
+  // Chart component with skeleton overlay
   const ChartComponent = useMemo(() => {
-    if (!echartsOptions) return null;
-
     return (
-      <ReactECharts
-        option={echartsOptions}
-        style={{ 
-          height: isFullscreen ? 'calc(100vh - 120px)' : '300px',
-          width: '100%'
-        }}
-        opts={{ renderer: 'canvas' }}
-        notMerge={true}
-        lazyUpdate={true}
-      />
+      <SkeletonOverlay
+        isLoading={effectiveLoading}
+        chartType={skeletonType}
+        width="100%"
+        height={isFullscreen ? 'calc(100vh - 120px)' : '300px'}
+      >
+        {forceSkeletonOnly ? (
+          <Box sx={{ height: isFullscreen ? 'calc(100vh - 120px)' : '300px', width: '100%' }} />
+        ) : (
+          <ReactECharts
+            option={echartsOptions || {}} // Provide empty option when loading
+            style={{ 
+              height: isFullscreen ? 'calc(100vh - 120px)' : '300px',
+              width: '100%'
+            }}
+            opts={{ renderer: 'canvas' }}
+            notMerge={true}
+            lazyUpdate={true}
+          />
+        )}
+      </SkeletonOverlay>
     );
-  }, [echartsOptions, isFullscreen]);
+  }, [effectiveLoading, echartsOptions, forceSkeletonOnly, isFullscreen, skeletonType, state.status]);
 
   return (
     <>
@@ -179,8 +252,6 @@ export const NewDashboardPanelView: React.FC<NewDashboardPanelViewProps> = ({
           })
         }}
       >
-        {/* Loading overlay */}
-        {LoadingOverlay}
 
         {/* Panel header */}
         <CardHeader
@@ -433,3 +504,11 @@ const PanelDebugDrawer: React.FC<PanelDebugDrawerProps> = ({
     </Box>
   );
 };
+
+
+
+
+
+
+
+

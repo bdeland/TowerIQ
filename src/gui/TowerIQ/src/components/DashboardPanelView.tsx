@@ -48,6 +48,8 @@ import { API_CONFIG } from '../config/environment';
 import { getCategoricalColor } from '../utils/colorPalette';
 import { formatCurrency, formatNumber } from '../utils/formattingUtils';
 import DebugDrawer from './DebugDrawer';
+import SkeletonOverlay from './skeletons/SkeletonOverlay';
+import { ChartType } from './skeletons/ChartSkeleton';
 
 // ============================================================================
 // TYPE DEFINITIONS - Props and data structures
@@ -99,6 +101,30 @@ const getTierColor = (tier: number, availableTiers: number[]): string => {
   return getCategoricalColor(tierIndex >= 0 ? tierIndex : 0);
 };
 
+/**
+ * Maps dashboard panel types to skeleton chart types
+ */
+const mapPanelTypeToSkeletonType = (panelType: string): ChartType => {
+  switch (panelType) {
+    case 'timeseries':
+      return 'timeseries';
+    case 'bar':
+      return 'bar';
+    case 'pie':
+      return 'pie';
+    case 'stat':
+      return 'stat';
+    case 'table':
+      return 'table';
+    case 'calendar':
+      return 'calendar';
+    case 'treemap':
+      return 'treemap';
+    default:
+      return 'bar'; // Default fallback
+  }
+};
+
 // ============================================================================
 // MAIN COMPONENT - DashboardPanelViewComponent
 // ============================================================================
@@ -125,7 +151,7 @@ const DashboardPanelViewComponent: React.FC<DashboardPanelViewProps> = ({
   // ============================================================================
   
   const navigate = useNavigate(); // React Router navigation hook
-  const { isDevMode } = useDeveloper(); // Developer mode context
+  const { isDevMode, minPanelLoadingMs } = useDeveloper(); // Developer mode context
   
   // Core data and loading states
   const [queryResult, setQueryResult] = useState<QueryResult>({ data: [] }); // Query results from backend
@@ -136,22 +162,53 @@ const DashboardPanelViewComponent: React.FC<DashboardPanelViewProps> = ({
   const loading = externalLoading || internalLoading;
   
   // Debounced loading state to prevent rapid flashing
-  const [debouncedLoading, setDebouncedLoading] = useState(false);
   
-  // Effect to debounce loading state changes
+  const [debouncedLoading, setDebouncedLoading] = useState(loading);
+  const loadingStartRef = useRef<number | null>(null);
+  const loadingDelayTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const forceSkeletonOnly = isDevMode && minPanelLoadingMs === 0;
+  const effectiveLoading = forceSkeletonOnly || debouncedLoading;
+  // Effect to debounce loading state changes and honor developer loading preferences
   useEffect(() => {
-    if (loading) {
-      // Show loading immediately when it starts
-      setDebouncedLoading(true);
-    } else {
-      // Add small delay when hiding to prevent flashing
-      const timer = setTimeout(() => {
-        setDebouncedLoading(false);
-      }, 100); // 100ms delay
-      
-      return () => clearTimeout(timer);
+    const baseDelay = 100;
+
+    if (loadingDelayTimeoutRef.current) {
+      clearTimeout(loadingDelayTimeoutRef.current);
+      loadingDelayTimeoutRef.current = null;
     }
-  }, [loading]);
+
+    if (loading) {
+      setDebouncedLoading(true);
+      if (loadingStartRef.current === null) {
+        loadingStartRef.current = performance.now();
+      }
+    } else {
+      const enforcedDelay = isDevMode ? minPanelLoadingMs : 0;
+
+      if (isDevMode && enforcedDelay === 0) {
+        setDebouncedLoading(true);
+        loadingStartRef.current = null;
+      } else {
+        const elapsed = loadingStartRef.current !== null ? performance.now() - loadingStartRef.current : 0;
+        loadingStartRef.current = null;
+
+        const minimumVisibleDuration = Math.max(enforcedDelay, baseDelay);
+        const remaining = Math.max(minimumVisibleDuration - elapsed, baseDelay);
+
+        loadingDelayTimeoutRef.current = setTimeout(() => {
+          setDebouncedLoading(false);
+          loadingDelayTimeoutRef.current = null;
+        }, remaining);
+      }
+    }
+
+    return () => {
+      if (loadingDelayTimeoutRef.current) {
+        clearTimeout(loadingDelayTimeoutRef.current);
+        loadingDelayTimeoutRef.current = null;
+      }
+    };
+  }, [loading, isDevMode, minPanelLoadingMs]);
   const chartRef = useRef<ReactECharts>(null); // Reference to ECharts instance
   const dataFetchedRef = useRef<boolean>(false); // Prevents duplicate data fetching
   
@@ -1543,8 +1600,8 @@ const DashboardPanelViewComponent: React.FC<DashboardPanelViewProps> = ({
         display: 'flex', 
         alignItems: 'center', 
         justifyContent: 'flex-start',
-        paddingLeft: '8px',
-        paddingRight: '8px',
+        paddingLeft: '0px',
+        paddingRight: '0px',
         paddingTop: '4px',
         paddingBottom: '4px',
         backgroundColor: 'background.paper',
@@ -1562,10 +1619,13 @@ const DashboardPanelViewComponent: React.FC<DashboardPanelViewProps> = ({
             ? handleCalendarDrilldownBack 
             : handleBackToOriginal}
           sx={{ 
-            mr: 1,
+            mr: 0,
             height: '28px',
             borderRadius: 0.25,
-            padding: '4px',
+            paddingLeft: '4px',
+            paddingRight: '4px',
+            paddingTop: '0px',
+            paddingBottom: '0px',
             color: 'text.secondary',
             '&:hover': {
               backgroundColor: 'action.hover',
@@ -1585,6 +1645,7 @@ const DashboardPanelViewComponent: React.FC<DashboardPanelViewProps> = ({
             <Typography 
               variant="subtitle2" 
               sx={{ 
+                ml: 1,
                 fontWeight: 500, 
                 color: 'text.primary',
                 fontSize: '0.875rem',
@@ -1593,6 +1654,8 @@ const DashboardPanelViewComponent: React.FC<DashboardPanelViewProps> = ({
                 overflow: 'hidden',
                 textOverflow: 'ellipsis',
                 maxWidth: '200px',
+                //paddingLeft: '8px',
+                //paddingRight: '8px',
                 '&:hover': { textDecoration: 'underline' }
               }}
               onClick={handleBackToOriginal}
@@ -1712,6 +1775,7 @@ const DashboardPanelViewComponent: React.FC<DashboardPanelViewProps> = ({
           <Typography 
             variant="subtitle2" 
             sx={{ 
+              ml: 1,
               fontWeight: 500, 
               color: 'text.primary',
               fontSize: '0.875rem',
@@ -1719,7 +1783,9 @@ const DashboardPanelViewComponent: React.FC<DashboardPanelViewProps> = ({
               overflow: 'hidden',
               textOverflow: 'ellipsis',
               maxWidth: '100%',
-              display: 'block'
+              display: 'block',
+              //paddingLeft: '8px',
+              //paddingRight: '8px'
             }}
           >
             {isDrilldown && panel.echartsOption.drilldown 
@@ -1731,52 +1797,53 @@ const DashboardPanelViewComponent: React.FC<DashboardPanelViewProps> = ({
       )}
       
       
-      {/* Debug button - only show in development mode */}
-      {isDevMode && (
-        <IconButton
-          size="small"
-          onClick={handleDebugClick}
-          aria-label="Debug panel"
-          sx={{ 
-            padding: '4px',
-            color: 'text.secondary',
-            borderRadius: 0.25,
-            ml: 'auto', // Push to the right
-            mr: showMenu ? 0.5 : 0, // Small margin if menu button follows
-            '&:hover': {
-              backgroundColor: 'action.hover',
-              color: 'text.primary'
-            }
-          }}
-        >
-          <BugReportIcon fontSize="small" />
-        </IconButton>
-      )}
-      
-      {/* Three-dots menu - always show when showMenu is true */}
-      {showMenu && (
-        <IconButton
-          id={`panel-menu-button-${panel.id}`}
-          size="small"
-          onClick={handleMenuClick}
-          aria-controls={menuOpen ? `panel-menu-${panel.id}` : undefined}
-          aria-haspopup="true"
-          aria-expanded={menuOpen ? 'true' : undefined}
-          sx={{ 
-            padding: '4px',
-            color: 'text.secondary',
-            borderRadius: 0.25, // Rectangle shape instead of circle
-            position: 'relative', // Ensure proper positioning context
-            ml: 'auto', // Push to the right
-            '&:hover': {
-              backgroundColor: 'action.hover',
-              color: 'text.primary'
-            }
-          }}
-        >
-          <MoreVertIcon fontSize="small" />
-        </IconButton>
-      )}
+      {/* Debug button and Three-dots menu container */}
+      <Box sx={{ display: 'flex', alignItems: 'center', ml: 'auto' }}>
+        {/* Debug button - only show in development mode */}
+        {isDevMode && (
+          <IconButton
+            size="small"
+            onClick={handleDebugClick}
+            aria-label="Debug panel"
+            sx={{ 
+              padding: '4px',
+              color: 'text.secondary',
+              borderRadius: 0.25,
+              mr: showMenu ? 0.5 : 0, // Small margin if menu button follows
+              '&:hover': {
+                backgroundColor: 'action.hover',
+                color: 'text.primary'
+              }
+            }}
+          >
+            <BugReportIcon fontSize="small" />
+          </IconButton>
+        )}
+        
+        {/* Three-dots menu - always show when showMenu is true */}
+        {showMenu && (
+          <IconButton
+            id={`panel-menu-button-${panel.id}`}
+            size="small"
+            onClick={handleMenuClick}
+            aria-controls={menuOpen ? `panel-menu-${panel.id}` : undefined}
+            aria-haspopup="true"
+            aria-expanded={menuOpen ? 'true' : undefined}
+            sx={{ 
+              padding: '4px',
+              color: 'text.secondary',
+              borderRadius: 0.25, // Rectangle shape instead of circle
+              position: 'relative', // Ensure proper positioning context
+              '&:hover': {
+                backgroundColor: 'action.hover',
+                color: 'text.primary'
+              }
+            }}
+          >
+            <MoreVertIcon fontSize="small" />
+          </IconButton>
+        )}
+      </Box>
     </Box>
   );
 
@@ -1903,7 +1970,7 @@ const DashboardPanelViewComponent: React.FC<DashboardPanelViewProps> = ({
 
     // TABLE CONTENT: Custom HTML table rendering (not using ECharts)
     if (panel.type === 'table') {
-      return (
+      const tableContent = (
         <Box sx={{ overflowX: 'auto', flex: 1 }}>
           <table style={{ 
             width: '100%', 
@@ -1944,60 +2011,47 @@ const DashboardPanelViewComponent: React.FC<DashboardPanelViewProps> = ({
           </table>
         </Box>
       );
+
+      return (
+        <SkeletonOverlay
+          isLoading={effectiveLoading}
+          chartType="table"
+          width="100%"
+          height="100%"
+        >
+          {forceSkeletonOnly ? (
+            <Box sx={{ width: '100%', height: '100%' }} />
+          ) : (
+            tableContent
+          )}
+        </SkeletonOverlay>
+      );
     }
 
     // CHART CONTENT: ECharts rendering for all chart types (timeseries, bar, pie, stat, etc.)
     return (
-      <Box sx={{ 
-        height: '100%', 
-        width: '100%',
-        overflow: 'hidden', // Ensure chart elements don't overflow the container
-        position: 'relative' // Enable absolute positioning for loading overlay
-      }}>
-        <ReactECharts
-          ref={chartRef}
-          option={getTransformedEChartsOption()}
-          style={{ 
-            height: '100%', 
-            width: '100%',
-            opacity: debouncedLoading ? 0.3 : 1, // Dim the chart when loading
-            transition: 'opacity 0.3s ease-in-out' // Smooth transition
-          }}
-          notMerge={true}
-          lazyUpdate={true}
-          onEvents={onChartEvents}
-        />
-        
-        {/* Loading overlay with centered CircularProgress - always rendered for smooth transitions */}
-        <Box
-          sx={{
-            position: 'absolute',
-            top: 0,
-            left: 0,
-            right: 0,
-            bottom: 0,
-            display: 'flex',
-            justifyContent: 'center',
-            alignItems: 'center',
-            backgroundColor: 'rgba(255, 255, 255, 0.1)', // Subtle overlay background
-            zIndex: 1000, // Ensure it's above the chart
-            pointerEvents: 'none', // Allow interactions with chart when not loading
-            opacity: debouncedLoading ? 1 : 0, // Fade in/out based on debounced loading state
-            visibility: debouncedLoading ? 'visible' : 'hidden', // Hide completely when not loading
-            transition: 'opacity 0.3s ease-in-out, visibility 0.3s ease-in-out' // Smooth fade transition
-          }}
-        >
-          <CircularProgress 
-            sx={{ 
-              color: 'primary.main',
-              width: '40px !important',
-              height: '40px !important',
-              opacity: debouncedLoading ? 1 : 0, // Also fade the spinner itself
-              transition: 'opacity 0.2s ease-in-out' // Slightly faster spinner transition
-            }} 
+      <SkeletonOverlay
+        isLoading={effectiveLoading}
+        chartType={mapPanelTypeToSkeletonType(panel.type)}
+        width="100%"
+        height="100%"
+      >
+        {forceSkeletonOnly ? (
+          <Box sx={{ height: '100%', width: '100%' }} />
+        ) : (
+          <ReactECharts
+            ref={chartRef}
+            option={getTransformedEChartsOption()}
+            style={{ 
+              height: '100%', 
+              width: '100%'
+            }}
+            notMerge={true}
+            lazyUpdate={true}
+            onEvents={onChartEvents}
           />
-        </Box>
-      </Box>
+        )}
+      </SkeletonOverlay>
     );
   };
 
@@ -2072,3 +2126,8 @@ const DashboardPanelViewComponent: React.FC<DashboardPanelViewProps> = ({
 const DashboardPanelView = React.memo(DashboardPanelViewComponent);
 
 export default DashboardPanelView;
+
+
+
+
+

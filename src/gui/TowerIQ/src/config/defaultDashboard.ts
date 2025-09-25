@@ -2,7 +2,7 @@ import { Dashboard } from '../contexts/DashboardContext';
 import { generateUUID } from '../utils/uuid';
 import { formatCurrency, formatCurrencyForChart, formatCurrencyForTooltip } from '../utils/formattingUtils';
 import { applyChartTheme } from '../utils/chartTheme';
-import { CHART_COLORS } from '../utils/colorPalette';
+import { CHART_COLORS, SEMANTIC_COLORS } from '../utils/colorPalette';
 
 export const defaultDashboard: Dashboard = {
   id: 'default-dashboard',
@@ -15,7 +15,7 @@ export const defaultDashboard: Dashboard = {
         id: 'e395d348-2e44-4c3c-a20a-362a0abf0fc0',
         type: 'bar',
         title: 'Coins vs. Run (Chronological)',
-        gridPos: { x: 0, y: 0, w: 13, h: 5 },
+        gridPos: { x: 0, y: 0, w: 8, h: 3 },
         query: "SELECT row_number() OVER (ORDER BY start_time ASC) as run_number, round_coins, CPH, tier FROM runs ${tier_filter} ORDER BY start_time ASC ${limit_clause}",
         echartsOption: {
           ...applyChartTheme({
@@ -204,7 +204,7 @@ export const defaultDashboard: Dashboard = {
         id: 'a1b2c3d4-e5f6-7890-abcd-ef1234567890',
         type: 'table',
         title: 'Recent Runs',
-        gridPos: { x: 5, y: 10, w: 8, h: 4 },
+        gridPos: { x: 8, y: 0, w: 8, h: 3 },
         query: "SELECT hex(run_id) as run_id, tier, final_wave, CPH, duration_gametime FROM runs ${tier_filter} ORDER BY start_time DESC ${limit_clause}",
         echartsOption: {}
       },
@@ -212,7 +212,7 @@ export const defaultDashboard: Dashboard = {
         id: 'b2c3d4e5-f6g7-8901-bcde-f23456789012',
         type: 'timeseries',
         title: 'Coins Per Hour (Last Runs)',
-        gridPos: { x: 0, y: 5, w: 4, h: 4 },
+        gridPos: { x: 0, y: 3, w: 8, h: 3 },
         query: "SELECT start_time, CPH FROM runs ${tier_filter} ORDER BY start_time DESC ${limit_clause}",
         echartsOption: {
           xAxis: { type: 'time' },
@@ -230,7 +230,7 @@ export const defaultDashboard: Dashboard = {
         id: 'c3d4e5f6-g7h8-9012-cdef-345678901234',
         type: 'table',
         title: 'System Log',
-        gridPos: { x: 4, y: 5, w: 8, h: 2 },
+        gridPos: { x: 8, y: 3, w: 8, h: 3 },
         query: "SELECT timestamp, level, event, source FROM logs ORDER BY timestamp DESC LIMIT 5",
         echartsOption: {}
       },
@@ -238,7 +238,7 @@ export const defaultDashboard: Dashboard = {
         id: 'd4e5f6g7-h8i9-0123-defg-456789012345',
         type: 'calendar',
         title: 'Daily Coins Earned - Calendar Heatmap',
-        gridPos: { x: 0, y: 15, w: 12, h: 6 },
+        gridPos: { x: 0, y: 6, w: 8, h: 3 },
         query: `
           SELECT 
             DATE(start_time / 1000, 'unixepoch') as date,
@@ -446,6 +446,191 @@ export const defaultDashboard: Dashboard = {
               }
             ]
           }
+        }
+      },
+      // PIE CHART PANEL - Runs Distribution by Tier
+      {
+        id: 'f0e1d2c3-b4a5-9687-3210-fedcba987654',
+        type: 'pie',
+        title: 'Runs Distribution by Tier',
+        gridPos: { x: 8, y: 6, w: 8, h: 3 },
+        query: "SELECT tier as label, COUNT(*) as value FROM runs ${tier_filter} GROUP BY tier ORDER BY tier",
+        echartsOption: {
+          ...applyChartTheme({
+            tooltip: {
+              trigger: 'item',
+              formatter: (params: any) => {
+                const percentage = params.percent;
+                const value = params.value;
+                const name = params.name;
+                return `${name}<br/>Runs: ${value} (${percentage}%)`;
+              }
+            },
+            legend: {
+              orient: 'vertical',
+              left: 'right',
+              top: 'middle',
+              textStyle: {
+                color: CHART_COLORS.textPrimary,
+                fontSize: 12
+              }
+            }
+          }, 'pie'),
+          series: [{
+            name: 'Runs by Tier',
+            type: 'pie',
+            radius: ['30%', '70%'],
+            center: ['40%', '50%'],
+            data: [],
+            emphasis: {
+              itemStyle: {
+                shadowBlur: 10,
+                shadowOffsetX: 0,
+                shadowColor: 'rgba(0, 0, 0, 0.5)'
+              }
+            },
+            label: {
+              show: true,
+              formatter: '{b}: {c}',
+              fontSize: 11,
+              color: CHART_COLORS.textPrimary
+            },
+            labelLine: {
+              show: true,
+              lineStyle: {
+                color: CHART_COLORS.borderColor
+              }
+            }
+          }]
+        }
+      },
+      // STAT PANELS - Key Performance Indicators
+      {
+        id: 'g1f2e3d4-c5b6-a798-4321-0fedcba98765',
+        type: 'stat',
+        title: 'Total Runs',
+        gridPos: { x: 16, y: 2, w: 8, h: 1 },
+        query: "SELECT COUNT(*) as value FROM runs ${tier_filter}",
+        echartsOption: {
+          textStyle: {
+            fontSize: 32,
+            fontWeight: 'bold',
+            color: CHART_COLORS.textPrimary
+          },
+          valueFormatter: (value: number) => value.toLocaleString(),
+          showTrend: false
+        }
+      },
+      {
+        id: 'h2g3f4e5-d6c7-b8a9-5432-10fedcba9876',
+        type: 'stat',
+        title: 'Average CPH',
+        gridPos: { x: 16, y: 1, w: 8, h: 1 },
+        query: "SELECT AVG(CPH) as value FROM runs WHERE CPH IS NOT NULL ${tier_filter}",
+        echartsOption: {
+          textStyle: {
+            fontSize: 28,
+            fontWeight: 'bold',
+            color: SEMANTIC_COLORS.success
+          },
+          valueFormatter: (value: number) => formatCurrencyForChart(value),
+          showTrend: false
+        }
+      },
+      {
+        id: 'i3h4g5f6-e7d8-c9ba-6543-210fedcba987',
+        type: 'stat',
+        title: 'Highest Wave Reached',
+        gridPos: { x: 16, y: 0, w: 8, h: 1 },
+        query: "SELECT MAX(final_wave) as value FROM runs WHERE final_wave IS NOT NULL ${tier_filter}",
+        echartsOption: {
+          textStyle: {
+            fontSize: 28,
+            fontWeight: 'bold',
+            color: SEMANTIC_COLORS.warning
+          },
+          valueFormatter: (value: number) => `Wave ${Math.round(value)}`,
+          showTrend: false
+        }
+      },
+      // TREEMAP PANEL - Performance by Tier and Wave Range
+      {
+        id: 'j4i5h6g7-f8e9-dacb-7654-3210fedcba98',
+        type: 'treemap',
+        title: 'Performance Overview by Tier',
+        gridPos: { x: 16, y: 3, w: 8, h: 3 },
+        query: `
+          SELECT 
+            'Tier ' || tier as name,
+            COUNT(*) as value,
+            AVG(CPH) as avg_cph,
+            MAX(final_wave) as max_wave
+          FROM runs 
+          WHERE tier IS NOT NULL \${tier_filter}
+          GROUP BY tier 
+          ORDER BY tier
+        `,
+        echartsOption: {
+          backgroundColor: 'transparent',
+          textStyle: {
+            fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
+            color: CHART_COLORS.textPrimary,
+          },
+          tooltip: {
+            trigger: 'item',
+            backgroundColor: CHART_COLORS.tooltipBg,
+            borderColor: CHART_COLORS.borderColor,
+            borderWidth: 1,
+            textStyle: {
+              color: CHART_COLORS.textPrimary,
+            },
+            extraCssText: 'box-shadow: 0 4px 12px rgba(0,0,0,0.3); border-radius: 4px;',
+            formatter: (params: any) => {
+              const data = params.data;
+              const runs = data.value;
+              const avgCph = data.avg_cph ? formatCurrencyForChart(data.avg_cph) : 'N/A';
+              const maxWave = data.max_wave ? Math.round(data.max_wave) : 'N/A';
+              return `${data.name}<br/>Runs: ${runs}<br/>Avg CPH: ${avgCph}<br/>Max Wave: ${maxWave}`;
+            }
+          },
+          series: [{
+            name: 'Performance by Tier',
+            type: 'treemap',
+            data: [],
+            roam: false,
+            nodeClick: false,
+            breadcrumb: {
+              show: false
+            },
+            label: {
+              show: true,
+              formatter: (params: any) => {
+                return `${params.name}\n${params.value} runs`;
+              },
+              fontSize: 12,
+              color: CHART_COLORS.textPrimary
+            },
+            itemStyle: {
+              borderColor: CHART_COLORS.borderColor,
+              borderWidth: 1,
+              gapWidth: 1
+            },
+            emphasis: {
+              itemStyle: {
+                shadowBlur: 5,
+                shadowColor: 'rgba(0, 0, 0, 0.3)'
+              }
+            },
+            levels: [
+              {
+                itemStyle: {
+                  borderColor: CHART_COLORS.borderColor,
+                  borderWidth: 2,
+                  gapWidth: 2
+                }
+              }
+            ]
+          }]
         }
       }
     ],
