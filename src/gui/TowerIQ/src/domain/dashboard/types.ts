@@ -79,7 +79,7 @@ export interface DataSourceRef {
 // ============================================================================
 
 export type PanelType = 'chart' | 'table' | 'stat' | 'gauge';
-export type ChartType = 'bar' | 'line' | 'pie' | 'timeseries' | 'calendar' | 'treemap' | 'heatmap';
+export type ChartType = 'bar' | 'line' | 'pie' | 'timeseries' | 'calendar' | 'treemap' | 'heatmap' | 'ridgeline';
 
 export interface GridPosition {
   x: number;

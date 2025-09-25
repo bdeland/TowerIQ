@@ -51,7 +51,7 @@ const SkeletonElement = styled(Box)(({ theme }) => ({
 }));
 
 // Chart type definitions
-export type ChartType = 'bar' | 'line' | 'pie' | 'timeseries' | 'calendar' | 'treemap' | 'stat' | 'table';
+export type ChartType = 'bar' | 'line' | 'pie' | 'timeseries' | 'calendar' | 'treemap' | 'stat' | 'table' | 'ridgeline';
 
 interface ChartSkeletonProps {
   type: ChartType;
@@ -491,6 +491,56 @@ const TableSkeleton: React.FC<{ width?: string | number; height?: string | numbe
   </Box>
 );
 
+// Ridgeline Skeleton - multiple stacked line plots
+const RidgelineSkeleton: React.FC<{ width?: string | number; height?: string | number }> = ({ 
+  width = '100%', 
+  height = '100%' 
+}) => (
+  <Box
+    sx={{
+      width,
+      height,
+      padding: '20px',
+      display: 'flex',
+      flexDirection: 'column',
+      gap: '8px',
+    }}
+  >
+    {/* Multiple ridge lines stacked vertically */}
+    {Array.from({ length: 6 }).map((_, ridgeIndex) => (
+      <Box
+        key={`ridge-${ridgeIndex}`}
+        sx={{
+          flex: 1,
+          display: 'flex',
+          alignItems: 'flex-end',
+          gap: '2px',
+          opacity: 0.8 - ridgeIndex * 0.1, // Fade out lower ridges
+        }}
+      >
+        {/* Individual data points creating a ridge line */}
+        {Array.from({ length: 20 }).map((_, pointIndex) => {
+          // Create a wave-like pattern for each ridge
+          const baseHeight = Math.sin((pointIndex / 20) * Math.PI * 2) * 0.5 + 0.5;
+          const ridgeHeight = baseHeight * (0.8 - ridgeIndex * 0.1);
+          return (
+            <SkeletonElement
+              key={`point-${ridgeIndex}-${pointIndex}`}
+              sx={{
+                width: '4px',
+                height: `${Math.max(ridgeHeight * 100, 10)}%`,
+                borderRadius: '2px',
+                animationDelay: `${(ridgeIndex * 0.2 + pointIndex * 0.05)}s`,
+                transform: `translateY(${ridgeIndex * 10}px)`, // Offset each ridge
+              }}
+            />
+          );
+        })}
+      </Box>
+    ))}
+  </Box>
+);
+
 // Main ChartSkeleton component that renders the appropriate skeleton based on type
 export const ChartSkeleton: React.FC<ChartSkeletonProps> = ({ 
   type, 
@@ -532,6 +582,8 @@ export const ChartSkeleton: React.FC<ChartSkeletonProps> = ({
         return <StatSkeleton width={width} height={height} />;
       case 'table':
         return <TableSkeleton width={width} height={height} />;
+      case 'ridgeline':
+        return <RidgelineSkeleton width={width} height={height} />;
       default:
         return (
           <BarChartSkeleton 

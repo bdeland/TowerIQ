@@ -45,8 +45,8 @@ import { useDeveloper } from '../contexts/DeveloperContext';
 import { applyTransformations } from '../services/transformationService';
 import { grafanaToECharts, mergeWithEChartsOption } from '../utils/grafanaToECharts';
 import { API_CONFIG } from '../config/environment';
-import { getCategoricalColor } from '../utils/colorPalette';
-import { formatCurrency, formatNumber } from '../utils/formattingUtils';
+import { getCategoricalColor, CHART_COLORS } from '../utils/colorPalette';
+import { formatCurrency, formatNumber, formatCurrencyForChart } from '../utils/formattingUtils';
 import DebugDrawer from './DebugDrawer';
 import SkeletonOverlay from './skeletons/SkeletonOverlay';
 import { ChartType } from './skeletons/ChartSkeleton';
@@ -120,6 +120,8 @@ const mapPanelTypeToSkeletonType = (panelType: string): ChartType => {
       return 'calendar';
     case 'treemap':
       return 'treemap';
+    case 'ridgeline':
+      return 'ridgeline';
     default:
       return 'bar'; // Default fallback
   }
@@ -1356,6 +1358,250 @@ const DashboardPanelViewComponent: React.FC<DashboardPanelViewProps> = ({
             type: 'heatmap',
             coordinateSystem: 'calendar',
             data: calendarData
+          }]
+        };
+      }
+
+      case 'ridgeline': {
+        // RIDGELINE PANEL: Multiple stacked distribution plots using ECharts custom series
+        if (import.meta.env.DEV) {
+          console.log('🏔️ Processing ridgeline data:', queryResult.data);
+        }
+        
+        if (!queryResult.data || queryResult.data.length === 0) {
+          if (import.meta.env.DEV) {
+            console.log('🏔️ No data available for ridgeline');
+          }
+          return {
+            ...baseOption,
+            series: []
+          };
+        }
+        
+        // For ridgeline plot, we expect data with columns: current_wave, run_id, metric_value (coins)
+        // Group data by run_id to create separate ridge lines
+        const dataByRun = new Map<string, Array<{wave: number, coins: number}>>();
+        
+        queryResult.data.forEach(row => {
+          const runId = row.run_id || row.hex_run_id; // Handle both formats
+          const wave = Number(row.current_wave);
+          const coins = Number(row.metric_value || row.coins);
+          
+          if (!isNaN(wave) && !isNaN(coins) && runId) {
+            if (!dataByRun.has(runId)) {
+              dataByRun.set(runId, []);
+            }
+            dataByRun.get(runId)!.push({ wave, coins });
+          }
+        });
+        
+        if (import.meta.env.DEV) {
+          console.log('🏔️ Grouped data by run:', dataByRun.size, 'runs');
+        }
+        
+        // Prepare data for custom ridgeline series
+        const runIds = Array.from(dataByRun.keys());
+        const maxRuns = Math.min(runIds.length, 10); // Limit to 10 runs for readability
+        const ridgelineData: any[] = [];
+        const runNames: string[] = [];
+        
+        // Find global min/max for normalization and axis bounds
+        let globalMaxCoins = 0;
+        let globalMinWave = Infinity;
+        let globalMaxWave = -Infinity;
+        
+        for (let i = 0; i < maxRuns; i++) {
+          const runId = runIds[i];
+          const runData = dataByRun.get(runId)!;
+          runData.sort((a, b) => a.wave - b.wave);
+          const maxCoins = Math.max(...runData.map(d => d.coins));
+          const minWave = Math.min(...runData.map(d => d.wave));
+          const maxWave = Math.max(...runData.map(d => d.wave));
+          
+          globalMaxCoins = Math.max(globalMaxCoins, maxCoins);
+          globalMinWave = Math.min(globalMinWave, minWave);
+          globalMaxWave = Math.max(globalMaxWave, maxWave);
+        }
+        
+        for (let i = 0; i < maxRuns; i++) {
+          const runId = runIds[i];
+          const runData = dataByRun.get(runId)!;
+          const runName = `Run ${i + 1}`;
+          runNames.push(runName);
+          
+          // Sort by wave and normalize coins for better ridge visualization
+          runData.sort((a, b) => a.wave - b.wave);
+          const normalizedData = runData.map(point => ({
+            wave: point.wave,
+            coins: point.coins,
+            normalizedCoins: (point.coins / globalMaxCoins) // Scale to 100% of ridge height
+          }));
+          
+          ridgelineData.push([i, normalizedData]);
+        }
+        
+        if (import.meta.env.DEV) {
+          console.log('🏔️ Created ridgeline data for', ridgelineData.length, 'runs');
+        }
+        
+        return {
+          ...baseOption,
+          xAxis: {
+            type: 'value',
+            name: 'Wave',
+            nameLocation: 'middle',
+            nameGap: 30,
+            min: globalMinWave,
+            max: globalMaxWave,
+            axisLabel: {
+              color: CHART_COLORS.textSecondary,
+              fontSize: 12,
+              formatter: (value: number) => Math.round(value).toString()
+            },
+            axisLine: {
+              show: true,
+              lineStyle: {
+                color: CHART_COLORS.borderColor
+              }
+            },
+            splitLine: {
+              show: true,
+              lineStyle: {
+                color: CHART_COLORS.borderColor,
+                type: 'dashed',
+                opacity: 0.3
+              }
+            }
+          },
+          yAxis: {
+            type: 'category',
+            data: runNames,
+            axisLabel: {
+              color: CHART_COLORS.textSecondary,
+              fontSize: 11
+            },
+            axisLine: {
+              show: false
+            },
+            axisTick: {
+              show: false
+            },
+            splitLine: {
+              show: false
+            }
+          },
+          tooltip: {
+            trigger: 'item',
+            backgroundColor: CHART_COLORS.tooltipBg,
+            borderColor: CHART_COLORS.borderColor,
+            borderWidth: 1,
+            textStyle: {
+              color: CHART_COLORS.textPrimary
+            },
+            extraCssText: 'box-shadow: 0 4px 12px rgba(0,0,0,0.3); border-radius: 4px;',
+            formatter: (params: any) => {
+              if (params && params.data && params.data.length >= 2) {
+                const categoryIndex = params.data[0];
+                const runName = runNames[categoryIndex];
+                return `${runName}<br/>Hover over ridge for details`;
+              }
+              return '';
+            }
+          },
+          series: [{
+            type: 'custom',
+            renderItem: (params: any, api: any) => {
+              const categoryIndex = api.value(0);
+              const points = api.value(1);
+              
+              if (!points || points.length === 0) {
+                return null;
+              }
+              
+              // Get the y-coordinate for this category (run)
+              const categoryY = api.coord([0, categoryIndex])[1];
+              const ridgeHeight = 40; // Height of each ridge in pixels
+              
+              // Create path for the ridge line
+              const pathData: any[] = [];
+              
+              // Start from baseline
+              const startX = api.coord([points[0].wave, categoryIndex])[0];
+              pathData.push(['M', startX, categoryY]);
+              
+              // Draw the ridge curve
+              points.forEach((point: any) => {
+                const x = api.coord([point.wave, categoryIndex])[0];
+                const y = categoryY - (point.normalizedCoins * ridgeHeight);
+                pathData.push(['L', x, y]);
+              });
+              
+              // Close the path back to baseline
+              const endX = api.coord([points[points.length - 1].wave, categoryIndex])[0];
+              pathData.push(['L', endX, categoryY]);
+              pathData.push(['Z']); // Close path
+              
+              // Generate color based on category index
+              const colors = [
+                '#3b82f6', '#8b5cf6', '#06b6d4', '#10b981', '#f59e0b',
+                '#ef4444', '#ec4899', '#6366f1', '#84cc16', '#f97316'
+              ];
+              const color = colors[categoryIndex % colors.length];
+              
+              // Convert pathData array to SVG path string
+              const pathString = pathData.map(cmd => {
+                if (Array.isArray(cmd)) {
+                  return cmd.join(' ');
+                }
+                return cmd;
+              }).join(' ');
+
+              return {
+                type: 'path',
+                shape: {
+                  pathData: pathString
+                },
+                style: {
+                  fill: color,
+                  fillOpacity: 0.6,
+                  stroke: color,
+                  lineWidth: 2
+                },
+                emphasis: {
+                  style: {
+                    fillOpacity: 0.8,
+                    lineWidth: 3
+                  }
+                },
+                // Add custom data for tooltip
+                data: {
+                  categoryIndex: categoryIndex,
+                  runName: runNames[categoryIndex],
+                  points: points
+                }
+              };
+            },
+            data: ridgelineData,
+            tooltip: {
+              trigger: 'item',
+              formatter: (params: any) => {
+                if (params && params.data && params.data.data) {
+                  const { runName, points } = params.data.data;
+                  const totalCoins = points.reduce((sum: number, p: any) => sum + p.coins, 0);
+                  const avgCoins = totalCoins / points.length;
+                  const maxCoins = Math.max(...points.map((p: any) => p.coins));
+                  
+                  return `
+                    <strong>${runName}</strong><br/>
+                    Data Points: ${points.length}<br/>
+                    Avg Coins: ${formatCurrency(avgCoins, 0)}<br/>
+                    Max Coins: ${formatCurrency(maxCoins, 0)}<br/>
+                    Total Coins: ${formatCurrency(totalCoins, 0)}
+                  `;
+                }
+                return '';
+              }
+            }
           }]
         };
       }

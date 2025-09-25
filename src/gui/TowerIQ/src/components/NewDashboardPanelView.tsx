@@ -69,6 +69,8 @@ const mapVisualizationTypeToSkeletonType = (panel: Panel): ChartType => {
         return 'treemap';
       case 'heatmap':
         return 'calendar'; // Use calendar skeleton for heatmaps
+      case 'ridgeline':
+        return 'ridgeline';
       default:
         return 'bar';
     }

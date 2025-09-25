@@ -632,6 +632,48 @@ export const defaultDashboard: Dashboard = {
             ]
           }]
         }
+      },
+      // RIDGELINE PANEL - Coins per Wave Distribution Across Recent Runs
+      {
+        id: 'k5j6i7h8-g9f0-eadb-8765-4321fedcba09',
+        type: 'ridgeline',
+        title: 'Coins Per Wave Distribution (Recent Runs)',
+        gridPos: { x: 0, y: 9, w: 16, h: 4 },
+        query: `
+          SELECT 
+            hex(m.run_id) as hex_run_id,
+            m.current_wave,
+            m.metric_value
+          FROM metrics m
+          INNER JOIN metric_names mn ON m.metric_name_id = mn.id
+          INNER JOIN runs r ON m.run_id = r.run_id
+          INNER JOIN (
+            SELECT run_id, start_time,
+                   row_number() OVER (ORDER BY start_time DESC) as rn
+            FROM runs 
+            WHERE 1=1 \${tier_filter}
+            ORDER BY start_time DESC
+            \${limit_clause}
+          ) recent_runs ON m.run_id = recent_runs.run_id
+          WHERE mn.name = 'coins' 
+            AND m.current_wave IS NOT NULL 
+            AND m.current_wave < 1000
+          ORDER BY recent_runs.rn, m.current_wave
+        `,
+        echartsOption: {
+          // Minimal configuration - the ridgeline rendering logic will handle the rest
+          backgroundColor: 'transparent',
+          textStyle: {
+            fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
+            color: CHART_COLORS.textPrimary,
+          },
+          grid: {
+            left: '15%',
+            right: '10%',
+            top: '10%',
+            bottom: '15%'
+          }
+        }
       }
     ],
     time: { from: 'now-1h', to: 'now' },
