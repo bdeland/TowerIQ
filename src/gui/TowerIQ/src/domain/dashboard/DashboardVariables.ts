@@ -16,6 +16,7 @@ import {
   RangeVariableOptions,
   VariableError
 } from './types';
+import { API_CONFIG } from '../../config/environment';
 
 export class DashboardVariables {
   private _definitions: Map<string, VariableDefinition>;
@@ -271,7 +272,7 @@ export class DashboardVariables {
     // This would integrate with the data source system
     // For now, we'll simulate the API call
     try {
-      const response = await fetch('/api/query', {
+      const response = await fetch(`${API_CONFIG.BASE_URL}/v2/query`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'

@@ -21,6 +21,7 @@ import {
   PanelError
 } from './types';
 import { DashboardVariables } from './DashboardVariables';
+import { API_CONFIG } from '../../config/environment';
 
 export class Panel {
   private config: PanelConfig;
@@ -209,7 +210,7 @@ export class Panel {
   
   private async executeQuery(request: QueryRequest): Promise<QueryResponse> {
     try {
-      const response = await fetch('/api/query', {
+      const response = await fetch(`${API_CONFIG.BASE_URL}/v2/query`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
