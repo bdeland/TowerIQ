@@ -368,6 +368,11 @@ const themeOptions: ThemeOptions = {
           '--tiq-form-input-border': TOWERIQ_COLORS.form.inputBorder,
           '--tiq-form-input-border-focus': TOWERIQ_COLORS.form.inputBorderFocus,
           
+          // Debug border defaults (can be overridden dynamically)
+          '--tiq-debug-grid-container': '#003f5c',
+          '--tiq-debug-panels': '#f95d6a',
+          '--tiq-debug-grid-cells': '#ffa600',
+          
           '--tiq-data-grid': TOWERIQ_COLORS.data.grid,
           
           // Spacing

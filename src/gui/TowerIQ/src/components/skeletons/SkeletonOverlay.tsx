@@ -79,7 +79,7 @@ export const SkeletonOverlay: React.FC<SkeletonOverlayProps> = ({
         sx={{
           width: '100%',
           height: '100%',
-          opacity: debouncedLoading ? 0.3 : 1,
+          opacity: debouncedLoading ? 0 : 1,
           transition: `opacity ${debouncedLoading ? fadeInDuration : fadeOutDuration}ms ease-in-out`,
         }}
       >

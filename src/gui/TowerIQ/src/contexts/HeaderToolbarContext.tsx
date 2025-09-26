@@ -61,7 +61,7 @@ export const HeaderToolbarProvider = ({ children }: { children: ReactNode }) => 
     // Check if we're on a panel view page first (more specific condition)
     const isPanelViewPage = pathname.includes('/panels/') && pathname.includes('/view');
     
-    if (pathname.startsWith('/dashboards/')) {
+    if (pathname.startsWith('/dashboards/') && !isPanelViewPage) {
       const dashboardId = params.id;
       
       // Database health dashboard via generic dashboard route
@@ -71,9 +71,8 @@ export const HeaderToolbarProvider = ({ children }: { children: ReactNode }) => 
           node: <DatabaseHealthToolbar key="database-health" />
         });
       }
-      // Dashboard variables for default dashboards with variables - but only if NOT on panel view page
-      // (panel view pages will handle their own variables below)
-      else if (!isPanelViewPage && currentDashboard?.is_default && currentDashboard?.variables && currentDashboard.variables.length > 0) {
+      // Dashboard variables for default dashboards with variables
+      else if (currentDashboard?.is_default && currentDashboard?.variables && currentDashboard.variables.length > 0) {
         leftItems.push({
           id: 'dashboard-variables',
           node: <DashboardVariablesToolbar key="dashboard-variables" />
@@ -97,7 +96,7 @@ export const HeaderToolbarProvider = ({ children }: { children: ReactNode }) => 
     }
     
     // Panel view pages - show dashboard variables if the panel belongs to a dashboard with variables
-    if (isPanelViewPage) {
+    else if (isPanelViewPage) {
       // Show dashboard variables for any default dashboard with variables
       if (currentDashboard?.is_default && currentDashboard?.variables && currentDashboard.variables.length > 0) {
         leftItems.push({
@@ -114,8 +113,8 @@ export const HeaderToolbarProvider = ({ children }: { children: ReactNode }) => 
       
       // Add reset button after Back to Dashboard button
       rightItems.push({
-        id: 'dashboard-reset',
-        node: <DashboardResetToolbar key="dashboard-reset" />
+        id: 'panel-dashboard-reset',
+        node: <DashboardResetToolbar key="panel-dashboard-reset" />
       });
       
       // Note: No refresh button for panel view pages - they handle their own data fetching

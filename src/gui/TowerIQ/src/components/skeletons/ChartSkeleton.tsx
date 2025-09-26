@@ -153,34 +153,51 @@ const LineChartSkeleton: React.FC<{ width?: string | number; height?: string | n
         height,
         position: 'relative',
         padding: '20px',
+        backgroundColor: 'rgba(255, 255, 255, 0.02)', // Subtle background coverage
       }}
     >
-      {/* Connected line through all points */}
-      <Box
+      {/* Grid lines for better coverage */}
+      {Array.from({ length: 4 }).map((_, index) => (
+        <SkeletonElement
+          key={`grid-h-${index}`}
+          sx={{
+            position: 'absolute',
+            left: '20px',
+            right: '20px',
+            top: `${20 + index * 20}%`,
+            height: '1px',
+            opacity: 0.3,
+            animationDelay: `${index * 0.1}s`,
+          }}
+        />
+      ))}
+      {Array.from({ length: 5 }).map((_, index) => (
+        <SkeletonElement
+          key={`grid-v-${index}`}
+          sx={{
+            position: 'absolute',
+            left: `${20 + index * 15}%`,
+            top: '20px',
+            bottom: '20px',
+            width: '1px',
+            opacity: 0.2,
+            animationDelay: `${index * 0.1}s`,
+          }}
+        />
+      ))}
+      
+      {/* Connected line area */}
+      <SkeletonElement
         sx={{
           position: 'absolute',
-          top: 0,
-          left: 0,
-          width: '100%',
-          height: '100%',
-          '&::before': {
-            content: '""',
-            position: 'absolute',
-            top: 0,
-            left: 0,
-            width: '100%',
-            height: '100%',
-            background: `linear-gradient(
-              90deg,
-              transparent,
-              rgba(255, 255, 255, 0.2),
-              transparent
-            )`,
-            animation: `${waveAnimation} 2s infinite`,
-            clipPath: `polygon(${points.map((point, index) => 
-              `${point.x}% ${point.y}%`
-            ).join(', ')})`,
-          },
+          top: '20px',
+          left: '20px',
+          right: '20px',
+          bottom: '20px',
+          opacity: 0.1,
+          clipPath: `polygon(${points.map((point) => 
+            `${point.x}% ${point.y}%`
+          ).join(', ')}, 100% 100%, 0% 100%)`, // Fill area under line
         }}
       />
       
@@ -217,8 +234,20 @@ const PieChartSkeleton: React.FC<{ width?: string | number; height?: string | nu
       alignItems: 'center',
       justifyContent: 'center',
       position: 'relative',
+      backgroundColor: 'rgba(255, 255, 255, 0.02)', // Subtle background coverage
     }}
   >
+    {/* Background circle for full coverage */}
+    <SkeletonElement
+      sx={{
+        position: 'absolute',
+        width: '160px',
+        height: '160px',
+        borderRadius: '50%',
+        opacity: 0.05,
+      }}
+    />
+    
     <Box
       sx={{
         width: '150px',
@@ -226,6 +255,7 @@ const PieChartSkeleton: React.FC<{ width?: string | number; height?: string | nu
         borderRadius: '50%',
         position: 'relative',
         overflow: 'hidden',
+        zIndex: 1,
       }}
     >
       {[
@@ -371,20 +401,44 @@ const TreemapSkeleton: React.FC<{ width?: string | number; height?: string | num
     sx={{
       width,
       height,
-      display: 'grid',
-      gridTemplateColumns: 'repeat(4, 1fr)',
-      gridTemplateRows: 'repeat(3, 1fr)',
-      gap: '4px',
+      position: 'relative',
       padding: '20px',
+      backgroundColor: 'rgba(255, 255, 255, 0.02)', // Subtle background coverage
     }}
   >
-    <SkeletonElement sx={{ gridColumn: '1 / 3', gridRow: '1 / 3', animationDelay: '0s' }} />
-    <SkeletonElement sx={{ gridColumn: '3 / 5', gridRow: '1', animationDelay: '0.1s' }} />
-    <SkeletonElement sx={{ gridColumn: '3', gridRow: '2', animationDelay: '0.2s' }} />
-    <SkeletonElement sx={{ gridColumn: '4', gridRow: '2', animationDelay: '0.3s' }} />
-    <SkeletonElement sx={{ gridColumn: '1', gridRow: '3', animationDelay: '0.4s' }} />
-    <SkeletonElement sx={{ gridColumn: '2 / 4', gridRow: '3', animationDelay: '0.5s' }} />
-    <SkeletonElement sx={{ gridColumn: '4', gridRow: '3', animationDelay: '0.6s' }} />
+    {/* Full background coverage */}
+    <SkeletonElement
+      sx={{
+        position: 'absolute',
+        top: '20px',
+        left: '20px',
+        right: '20px',
+        bottom: '20px',
+        opacity: 0.05,
+      }}
+    />
+    
+    {/* Grid container for treemap blocks */}
+    <Box
+      sx={{
+        width: '100%',
+        height: '100%',
+        display: 'grid',
+        gridTemplateColumns: 'repeat(4, 1fr)',
+        gridTemplateRows: 'repeat(3, 1fr)',
+        gap: '4px',
+        position: 'relative',
+        zIndex: 1,
+      }}
+    >
+      <SkeletonElement sx={{ gridColumn: '1 / 3', gridRow: '1 / 3', animationDelay: '0s' }} />
+      <SkeletonElement sx={{ gridColumn: '3 / 5', gridRow: '1', animationDelay: '0.1s' }} />
+      <SkeletonElement sx={{ gridColumn: '3', gridRow: '2', animationDelay: '0.2s' }} />
+      <SkeletonElement sx={{ gridColumn: '4', gridRow: '2', animationDelay: '0.3s' }} />
+      <SkeletonElement sx={{ gridColumn: '1', gridRow: '3', animationDelay: '0.4s' }} />
+      <SkeletonElement sx={{ gridColumn: '2 / 4', gridRow: '3', animationDelay: '0.5s' }} />
+      <SkeletonElement sx={{ gridColumn: '4', gridRow: '3', animationDelay: '0.6s' }} />
+    </Box>
   </Box>
 );
 
@@ -608,8 +662,19 @@ export const ChartSkeleton: React.FC<ChartSkeletonProps> = ({
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
-        backgroundColor: 'transparent',
+        backgroundColor: 'rgba(0, 0, 0, 0.02)', // Very subtle background to ensure complete coverage
         overflow: 'hidden',
+        position: 'relative',
+        '&::before': {
+          content: '""',
+          position: 'absolute',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          backgroundColor: 'rgba(0, 0, 0, 0.01)', // Additional coverage layer
+          zIndex: -1,
+        },
       }}
     >
       {renderSkeleton()}

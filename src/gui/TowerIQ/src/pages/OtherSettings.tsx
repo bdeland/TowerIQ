@@ -1,12 +1,25 @@
 import { useState, useEffect } from 'react';
 import type { KeyboardEvent } from 'react';
-import { Box, Typography, Card, CardContent, Switch, FormControlLabel, TextField, Button, MenuItem } from '@mui/material';
+import { Box, Typography, Card, CardContent, Switch, FormControlLabel, TextField, Button, MenuItem, Collapse } from '@mui/material';
 import Grid from '@mui/material/Grid';
-import { MoreHoriz as OtherIcon, Save, Notifications, Security, DeveloperMode } from '@mui/icons-material';
+import { MoreHoriz as OtherIcon, Save, Notifications, Security, DeveloperMode, ExpandMore, ExpandLess } from '@mui/icons-material';
 import { useDeveloper } from '../contexts/DeveloperContext';
+import { DebugBorderSetting } from '../components/DebugBorderSetting';
+import { DashboardDebugPreview } from '../components/DashboardDebugPreview';
 
 export function OtherSettings() {
-  const { isDevMode, toggleDevMode, debugBorders, setDebugBorders, breadcrumbCopy, setBreadcrumbCopy, minPanelLoadingMs, setMinPanelLoadingMs } = useDeveloper();
+  const { 
+    isDevMode, 
+    toggleDevMode, 
+    debugBorders, 
+    setDebugBorders, 
+    debugBorderSettings,
+    setDebugBorderSettings,
+    breadcrumbCopy, 
+    setBreadcrumbCopy, 
+    minPanelLoadingMs, 
+    setMinPanelLoadingMs 
+  } = useDeveloper();
   
   // Local state for other settings
   const [notifications, setNotifications] = useState(true);
@@ -18,6 +31,12 @@ export function OtherSettings() {
   const [saving, setSaving] = useState(false);
 
   const [minLoadingInput, setMinLoadingInput] = useState<string>(() => String(minPanelLoadingMs));
+  const [debugBordersExpanded, setDebugBordersExpanded] = useState(false);
+
+  // Auto-expand/collapse debug borders section when the main toggle changes
+  useEffect(() => {
+    setDebugBordersExpanded(debugBorders);
+  }, [debugBorders]);
 
   useEffect(() => {
     setMinLoadingInput(String(minPanelLoadingMs));
@@ -156,37 +175,101 @@ export function OtherSettings() {
         <Grid size={12}>
           <Card>
             <CardContent>
-              <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
-                <DeveloperMode sx={{ mr: 1, color: 'primary.main' }} />
-                <Typography variant="h6">
-                  Developer Tools
-                </Typography>
-              </Box>
-              <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-                Enable and configure developer-only utilities used during dashboard iteration.
-              </Typography>
-              <FormControlLabel
-                control={
-                  <Switch
-                    checked={isDevMode}
-                    onChange={toggleDevMode}
-                  />
-                }
-                label="Enable Development Mode"
-                sx={{ display: 'block' }}
-              />
-              <Box sx={{ mt: 2, pl: 1, display: 'flex', flexDirection: 'column', gap: 1.5 }}>
+              <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 0 }}>
+                <Box sx={{ display: 'flex', alignItems: 'center' }}>
+                  <DeveloperMode sx={{ mr: 1, color: 'primary.main' }} />
+                  <Typography variant="h6">
+                    Developer Tools
+                  </Typography>
+                </Box>
                 <FormControlLabel
                   control={
                     <Switch
-                      checked={debugBorders}
-                      onChange={(e) => setDebugBorders(e.target.checked)}
-                      disabled={!isDevMode}
+                      checked={isDevMode}
+                      onChange={toggleDevMode}
                     />
                   }
-                  label="Show dashboard debug borders"
-                  sx={{ display: 'block' }}
+                  label="Enable Development Mode"
                 />
+              </Box>
+              
+              <Collapse in={isDevMode} sx={{ mb: isDevMode ? 0 : -1 }}>
+                <Box sx={{ mt: isDevMode ? 2 : 0, pl: 1, display: 'flex', flexDirection: 'column', gap: 1.5 }}>
+                <Box>
+                  <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <FormControlLabel
+                      control={
+                        <Switch
+                          checked={debugBorders}
+                          onChange={(e) => setDebugBorders(e.target.checked)}
+                          disabled={!isDevMode}
+                        />
+                      }
+                      label="Show dashboard debug borders"
+                    />
+                    <Button
+                      size="small"
+                      onClick={() => {
+                        const newExpanded = !debugBordersExpanded;
+                        setDebugBordersExpanded(newExpanded);
+                        if (newExpanded && !debugBorders) {
+                          setDebugBorders(true);
+                        } else if (!newExpanded && debugBorders) {
+                          setDebugBorders(false);
+                        }
+                      }}
+                      disabled={!isDevMode}
+                      sx={{ minWidth: 'auto', p: 0.5 }}
+                    >
+                      {debugBordersExpanded ? <ExpandLess /> : <ExpandMore />}
+                    </Button>
+                  </Box>
+                  
+                  <Collapse in={debugBordersExpanded && isDevMode && debugBorders}>
+                    <Box sx={{ ml: 4, mt: 2, display: 'flex', gap: 3, alignItems: 'flex-start' }}>
+                      {/* Left side: Color options */}
+                      <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, flex: '0 0 auto' }}>
+                        <DebugBorderSetting
+                          label="Grid Container"
+                          value={debugBorderSettings.gridContainer.color}
+                          onChange={(color) => setDebugBorderSettings({
+                            ...debugBorderSettings,
+                            gridContainer: { ...debugBorderSettings.gridContainer, color, enabled: color !== 'off' }
+                          })}
+                          minWidth="100px"
+                        />
+
+                        <DebugBorderSetting
+                          label="Panel Borders"
+                          value={debugBorderSettings.panels.color}
+                          onChange={(color) => setDebugBorderSettings({
+                            ...debugBorderSettings,
+                            panels: { ...debugBorderSettings.panels, color, enabled: color !== 'off' }
+                          })}
+                          minWidth="100px"
+                        />
+
+                        <DebugBorderSetting
+                          label="Grid Cells"
+                          value={debugBorderSettings.gridCells.color}
+                          onChange={(color) => setDebugBorderSettings({
+                            ...debugBorderSettings,
+                            gridCells: { ...debugBorderSettings.gridCells, color, enabled: color !== 'off' }
+                          })}
+                          minWidth="100px"
+                        />
+                      </Box>
+
+                      {/* Right side: Preview */}
+                      <Box sx={{ flex: 1, minWidth: 0 }}>
+                        <Typography variant="caption" color="text.secondary" sx={{ ml: 0.5, mb: 1, display: 'block' }}>
+                          Preview
+                        </Typography>
+                        <DashboardDebugPreview />
+                      </Box>
+                    </Box>
+                  </Collapse>
+                </Box>
                 <FormControlLabel
                   control={
                     <Switch
@@ -210,10 +293,8 @@ export function OtherSettings() {
                   helperText="Set 0 to keep charts loading indefinitely for skeleton testing."
                   inputProps={{ min: 0, step: 100 }}
                 />
-              </Box>
-              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 2 }}>
-                Borders and copy utilities only render when development mode is enabled.
-              </Typography>
+                </Box>
+              </Collapse>
             </CardContent>
           </Card>
         </Grid>

@@ -39,8 +39,13 @@ const DashboardGridComponent = ({
   const [previousColumns, setPreviousColumns] = useState<number>(12);
   
   // Get developer mode state
-  const { isDevMode, debugBorders } = useDeveloper();
+  const { isDevMode, debugBorders, debugBorderSettings } = useDeveloper();
   const showDebugBorders = isDevMode && debugBorders;
+  
+  // Individual border settings
+  const showGridContainerBorder = isDevMode && debugBorderSettings.gridContainer.enabled;
+  const showPanelBorders = isDevMode && debugBorderSettings.panels.enabled;
+  const showGridCellBorders = isDevMode && debugBorderSettings.gridCells.enabled;
   
   // Get responsive grid configuration
   const { columns: responsiveColumns, cellHeight, breakpoint } = useResponsiveGrid();
@@ -66,17 +71,17 @@ const DashboardGridComponent = ({
     gridTemplateRows: `repeat(${gridDimensions.rows}, ${cellHeight}px)`,
     gap: '6px',
     padding: '0px',
-    border: showDebugBorders ? '1px solid var(--tiq-info-main)' : 'none',
+    border: showGridContainerBorder ? `1px solid ${debugBorderSettings.gridContainer.color}` : 'none',
     borderRadius: '4px',
     minHeight: '200px',
     position: 'relative' as const,
     // Add transition for smooth responsive changes
     transition: 'grid-template-columns 0.3s ease, grid-template-rows 0.3s ease',
-  }), [gridDimensions, cellHeight, showDebugBorders]);
+  }), [gridDimensions, cellHeight, showGridContainerBorder, debugBorderSettings.gridContainer.color]);
 
   // Memoize the visual grid cell components for debugging
   const gridCellComponents = useMemo(() => {
-    if (!showDebugBorders) return null; // Only show grid cells in dev mode
+    if (!showGridCellBorders) return null; // Only show grid cells when enabled
     
     const cells = [];
     // Loop through each row and column to create a cell
@@ -88,8 +93,9 @@ const DashboardGridComponent = ({
             style={{
               gridRow: `${r + 1}`,
               gridColumn: `${c + 1}`,
-              border: '1px solid rgba(255, 255, 255, 0.5)',
+              border: `1px solid ${debugBorderSettings.gridCells.color}`,
               boxSizing: 'border-box',
+              opacity: 0.5, // Make grid cells semi-transparent
               // This is crucial to ensure drag events go to the container
               pointerEvents: 'none', 
             }}
@@ -98,7 +104,7 @@ const DashboardGridComponent = ({
       }
     }
     return cells;
-  }, [gridDimensions, showDebugBorders]);
+  }, [gridDimensions, showGridCellBorders, debugBorderSettings.gridCells.color]);
 
   // Handle drag start
   const handleDragStart = useCallback((panelId: string, event: React.DragEvent) => {
@@ -169,7 +175,9 @@ const DashboardGridComponent = ({
          cursor: isEditMode && isEditable ? 'move' : 'default',
          opacity: draggedPanel === panel.id ? 0.5 : 1,
          transition: 'opacity 0.2s ease',
-         border: showDebugBorders ? '1px solid var(--tiq-warning-main)' : '1px solid var(--tiq-border-primary)', // Orange border in dev mode, default border otherwise
+         border: showPanelBorders 
+           ? `1px solid ${debugBorderSettings.panels.color}` 
+           : '1px solid var(--tiq-border-primary)',
        };
 
       return (
@@ -192,7 +200,7 @@ const DashboardGridComponent = ({
         </div>
       );
     });
-  }, [panels, panelData, panelErrors, isLoading, isEditMode, isEditable, showMenu, draggedPanel, showDebugBorders, onPanelClick, onPanelDelete, handleDragStart]);
+  }, [panels, panelData, panelErrors, isLoading, isEditMode, isEditable, showMenu, draggedPanel, showPanelBorders, debugBorderSettings.panels.color, onPanelClick, onPanelDelete, handleDragStart]);
 
   // Handle responsive breakpoint changes and adjust panels
   useEffect(() => {
