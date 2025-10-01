@@ -52,10 +52,10 @@ class ConfigurationManager(QObject):
         Returns:
             str: The absolute path to the project root directory
         """
-        # The project root is typically 3 levels up from this file
-        # src/tower_iq/core/config.py -> project root
+        # The project root is 3 levels up from this file
+        # backend/tower_iq/core/config.py -> project root (was: src/tower_iq/core/config.py)
         current_file = Path(__file__)
-        project_root = current_file.parent.parent.parent.parent
+        project_root = current_file.parent.parent.parent
         return str(project_root.resolve())
 
     def link_database_service(self, db_service: 'DatabaseService'):

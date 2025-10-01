@@ -16,9 +16,9 @@ import requests
 import structlog
 
 # Import the same logging configuration as the main application
-sys.path.insert(0, str(Path(__file__).parent / "src"))
-from tower_iq.core.config import ConfigurationManager
-from tower_iq.core.logging_config import setup_logging
+sys.path.insert(0, str(Path(__file__).parent / "backend"))
+from backend.core.config import ConfigurationManager
+from backend.core.logging_config import setup_logging
 
 # Initialize configuration and logging the same way as the main app
 app_root = Path(__file__).parent
@@ -53,7 +53,7 @@ def start_backend_server():
     
     # Get the path to the API server
     script_dir = Path(__file__).parent
-    api_server_path = script_dir / "src" / "tower_iq" / "api_server.py"
+    api_server_path = script_dir / "backend" / "api_server.py"
     
     if not api_server_path.exists():
         logger.error("API server not found", path=str(api_server_path))
@@ -84,7 +84,7 @@ def start_tauri_frontend():
     
     # Get the path to the Tauri app
     script_dir = Path(__file__).parent
-    tauri_dir = script_dir / "src" / "gui" / "TowerIQ"
+    tauri_dir = script_dir / "frontend"
     
     if not tauri_dir.exists():
         logger.error("Tauri app not found", path=str(tauri_dir))

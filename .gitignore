@@ -161,6 +161,7 @@ cython_debug/
 
 # Node.js dependencies
 node_modules/
+node_modules/.bin/
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
@@ -189,6 +190,7 @@ $RECYCLE_BIN/
 
 # Editor directories and files
 .vscode/
+.cursor/
 .idea/
 *.swp
 *.swo
@@ -208,7 +210,25 @@ config/local.json
 config/secrets.json
 *.pid
 *.lock
-.cursor/
 .ruff_cache/
-.vscode/
-node_modules/
+test_frida_scripts/
+.dev/
+.archive/
+
+# Database files
+*.sqlite-shm
+*.sqlite-wal
+
+# User-specific config files
+pyproject.toml.user
+.prospector.yaml
+
+# Test and development files
+test_simple_hook.js
+tower_hook.js
+*.compiled.js
+
+# Build artifacts
+dist/
+target/
+gen/
