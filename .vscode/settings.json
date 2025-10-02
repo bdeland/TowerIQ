@@ -1,15 +1,27 @@
 {
-    "python.analysis.typeCheckingMode": "basic",
-    "python.analysis.autoImportCompletions": true,
-    "sqltools.connections": [
-        {
-            "previewLimit": 50,
-            "driver": "SQLite",
-            "name": "TowerIQ",
-            "database": "${workspaceFolder:TowerIQ}/data/toweriq.sqlite",
-            "group": "tower"
-        }
-    ],
-    "cursorpyright.analysis.autoImportCompletions": true,
-    "cursorpyright.analysis.typeCheckingMode": "basic"
+  "python.defaultInterpreterPath": "./venv/bin/python",
+  "python.terminal.activateEnvironment": true,
+  "typescript.preferences.includePackageJsonAutoImports": "on",
+  "editor.formatOnSave": true,
+  "editor.codeActionsOnSave": {
+    "source.organizeImports": "explicit"
+  },
+  "files.exclude": {
+    "**/node_modules": true,
+    "**/__pycache__": true,
+    "**/target": true,
+    "**/dist": true,
+    "**/*.pyc": true,
+    "**/.pytest_cache": true
+  },
+  "search.exclude": {
+    "**/node_modules": true,
+    "**/target": true,
+    "**/dist": true,
+    "**/logs": true
+  },
+  "python.analysis.autoImportCompletions": true,
+  "python.analysis.typeCheckingMode": "basic",
+  "typescript.preferences.includePackageJsonAutoImports": "on",
+  "rust-analyzer.checkOnSave.command": "check"
 }

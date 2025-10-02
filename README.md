@@ -17,27 +17,68 @@ TowerIQ provides advanced analysis and monitoring capabilities for mobile games,
 
 ## Installation
 
-### Development Setup
+### Quick Setup (Recommended)
 
-1. Clone the repository
-2. Install Python dependencies:
+**Windows:**
+
+```cmd
+scripts\setup.bat
+```
+
+**Unix/Linux/macOS:**
+
+```bash
+./scripts/setup.sh
+```
+
+**Manual (any platform):**
+
+```bash
+python scripts/setup_environment.py
+```
+
+### Manual Development Setup
+
+1. **Prerequisites:**
+
+   - Python 3.11+
+   - Node.js 18+ LTS
+   - Poetry (auto-installed by setup script)
+
+2. **Clone the repository:**
+
    ```bash
-   pip install -e .
-   # or
+   git clone https://github.com/your-repo/TowerIQ.git
+   cd TowerIQ
+   ```
+
+3. **Install Python dependencies:**
+
+   ```bash
    poetry install
    ```
 
-3. Install frontend dependencies:
+4. **Install frontend dependencies:**
+
    ```bash
    cd frontend
    npm install
+   cd ..
    ```
+
+5. **Install root Node.js dependencies:**
+   ```bash
+   npm install
+   ```
+
+> **For Cursor IDE users:** See [Cursor Environment Setup Guide](docs/cursor_environment_setup.md) for detailed configuration.
 
 ## Running TowerIQ
 
 ### Quick Start
 
 Run both backend and frontend together:
+
 ```bash
 python start.py
 ```
@@ -79,6 +120,7 @@ TowerIQ/
 ### Code Quality
 
 Run linting:
+
 ```bash
 python scripts/lint.py
 ```
@@ -86,6 +128,7 @@ python scripts/lint.py
 ### Type Checking
 
 Run type checker:
+
 ```bash
 pyright src/tower_iq
 ```
@@ -93,4 +136,3 @@ pyright src/tower_iq
 ## License
 
 Copyright © 2025 TowerIQ Team
-
