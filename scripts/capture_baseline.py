@@ -2,8 +2,8 @@
 """
 TowerIQ Dashboard Baseline Capture Script
 
-This script captures the current state of all dashboard configurations 
-to establish a baseline for the refactoring process. It exports both 
+This script captures the current state of all dashboard configurations
+to establish a baseline for the refactoring process. It exports both
 hardcoded TypeScript dashboards and database-stored dashboards.
 
 Usage:
@@ -37,7 +37,7 @@ MEMORY_DIR.mkdir(exist_ok=True)
 
 class DashboardBaseline:
     """Captures baseline dashboard configurations for refactoring safety."""
-    
+
     def __init__(self):
         self.baseline_data = {
             "capture_timestamp": datetime.utcnow().isoformat(),
@@ -47,59 +47,59 @@ class DashboardBaseline:
             "variable_patterns": {},
             "summary": {}
         }
-    
+
     async def capture_all(self) -> Dict[str, Any]:
         """Capture complete baseline of all dashboard configurations."""
         print("🔍 Starting TowerIQ Dashboard Baseline Capture...")
-        
+
         # Capture hardcoded TypeScript dashboards
         await self.capture_typescript_dashboards()
-        
+
         # Capture database-stored dashboards
         await self.capture_database_dashboards()
-        
+
         # Document variable substitution patterns
         self.document_variable_patterns()
-        
+
         # Test API endpoints
         await self.test_api_endpoints()
-        
+
         # Generate summary
         self.generate_summary()
-        
+
         return self.baseline_data
-    
+
     async def capture_typescript_dashboards(self):
         """Capture hardcoded TypeScript dashboard configurations."""
         print("📄 Capturing TypeScript dashboard configurations...")
-        
+
         dashboard_files = [
             "defaultDashboard.ts",
-            "databaseHealthDashboard.ts", 
+            "databaseHealthDashboard.ts",
             "liveRunTrackingDashboard.ts"
         ]
-        
+
         for file_name in dashboard_files:
             file_path = FRONTEND_CONFIG_DIR / file_name
             if file_path.exists():
                 try:
                     # Read the TypeScript file
                     content = file_path.read_text(encoding='utf-8')
-                    
+
                     # Extract dashboard configuration (simplified parsing)
                     dashboard_info = self.parse_typescript_dashboard(content, file_name)
-                    
+
                     if dashboard_info:
                         self.baseline_data["system_dashboards"][file_name] = dashboard_info
                         print(f"  ✅ Captured {file_name}")
                     else:
                         print(f"  ⚠️  Failed to parse {file_name}")
-                        
+
                 except Exception as e:
                     print(f"  ❌ Error reading {file_name}: {e}")
             else:
                 print(f"  ❌ File not found: {file_name}")
-    
+
     def parse_typescript_dashboard(self, content: str, file_name: str) -> Optional[Dict[str, Any]]:
         """Parse TypeScript dashboard configuration (simplified extraction)."""
         try:
@@ -112,45 +112,45 @@ class DashboardBaseline:
                 "variables": [],
                 "queries": []
             }
-            
+
             # Extract dashboard ID
             id_match = re.search(r"id:\s*['\"]([^'\"]+)['\"]", content)
             if id_match:
                 dashboard_info["id"] = id_match.group(1)
-            
+
             # Extract title
             title_match = re.search(r"title:\s*['\"]([^'\"]+)['\"]", content)
             if title_match:
                 dashboard_info["title"] = title_match.group(1)
-            
+
             # Extract description
             desc_match = re.search(r"description:\s*['\"]([^'\"]+)['\"]", content)
             if desc_match:
                 dashboard_info["description"] = desc_match.group(1)
-            
+
             # Count panels
             panel_matches = re.findall(r"{\s*id:\s*['\"][^'\"]+['\"]", content)
             dashboard_info["panel_count"] = len(panel_matches)
-            
+
             # Extract all queries
             query_matches = re.findall(r"query:\s*['\"]([^'\"]+)['\"]", content, re.MULTILINE | re.DOTALL)
             dashboard_info["queries"] = query_matches
             dashboard_info["query_count"] = len(query_matches)
-            
+
             # Extract variable patterns
             variable_patterns = re.findall(r"\$\{([^}]+)\}", content)
             dashboard_info["variable_patterns"] = list(set(variable_patterns))
-            
+
             return dashboard_info
-            
+
         except Exception as e:
             print(f"Error parsing {file_name}: {e}")
             return None
-    
+
     async def capture_database_dashboards(self):
         """Capture database-stored dashboard configurations via API."""
         print("🗄️  Capturing database dashboard configurations...")
-        
+
         try:
             async with aiohttp.ClientSession() as session:
                 # Get all dashboards
@@ -159,7 +159,7 @@ class DashboardBaseline:
                         dashboards = await response.json()
                         self.baseline_data["database_dashboards"] = dashboards
                         print(f"  ✅ Captured {len(dashboards)} database dashboards")
-                        
+
                         # Capture individual dashboard details
                         for dashboard in dashboards:
                             dashboard_id = dashboard.get("id")
@@ -168,24 +168,24 @@ class DashboardBaseline:
                                     if detail_response.status == 200:
                                         detail = await detail_response.json()
                                         dashboard["_detailed_config"] = detail
-                                        
+
                     else:
                         print(f"  ❌ API error: {response.status}")
                         self.baseline_data["database_dashboards"] = []
-                        
+
         except aiohttp.ClientError as e:
             print(f"  ⚠️  API connection failed: {e}")
             self.baseline_data["database_dashboards"] = []
         except Exception as e:
             print(f"  ❌ Unexpected error: {e}")
             self.baseline_data["database_dashboards"] = []
-    
+
     def document_variable_patterns(self):
         """Document all variable substitution patterns found."""
         print("🔍 Documenting variable substitution patterns...")
-        
+
         patterns = {}
-        
+
         # Extract patterns from TypeScript dashboards
         for file_name, dashboard in self.baseline_data["system_dashboards"].items():
             for pattern in dashboard.get("variable_patterns", []):
@@ -197,15 +197,15 @@ class DashboardBaseline:
                         "transformation_rules": self.get_transformation_rules(pattern)
                     }
                 patterns[pattern]["found_in"].append(file_name)
-                
+
                 # Add example queries containing this pattern
                 for query in dashboard.get("queries", []):
                     if f"${{{pattern}}}" in query:
                         patterns[pattern]["example_queries"].append(query)
-        
+
         self.baseline_data["variable_patterns"] = patterns
         print(f"  ✅ Documented {len(patterns)} variable patterns")
-    
+
     def get_transformation_rules(self, pattern: str) -> Dict[str, str]:
         """Get transformation rules for variable patterns."""
         rules = {
@@ -213,24 +213,24 @@ class DashboardBaseline:
             "limit_clause": "Transforms num_runs to SQL LIMIT clause: 10 → 'LIMIT 10'"
         }
         return {"description": rules.get(pattern, "Unknown transformation pattern")}
-    
+
     async def test_api_endpoints(self):
         """Test current API endpoints to document baseline behavior."""
         print("🔌 Testing API endpoints...")
-        
+
         endpoints = [
             {"method": "GET", "path": "/api/dashboards", "description": "List all dashboards"},
             {"method": "GET", "path": "/api/dashboards/default", "description": "Get default dashboard"},
             {"method": "POST", "path": "/api/query", "description": "Execute query"},
         ]
-        
+
         try:
             async with aiohttp.ClientSession() as session:
                 for endpoint in endpoints:
                     try:
                         method = endpoint["method"].lower()
                         url = f"{API_BASE_URL}{endpoint['path']}"
-                        
+
                         if method == "get":
                             async with session.get(url) as response:
                                 endpoint["status"] = response.status
@@ -241,19 +241,19 @@ class DashboardBaseline:
                             async with session.post(url, json=test_payload) as response:
                                 endpoint["status"] = response.status
                                 endpoint["available"] = response.status < 400
-                                
+
                     except Exception as e:
                         endpoint["status"] = "error"
                         endpoint["available"] = False
                         endpoint["error"] = str(e)
-                        
+
         except Exception as e:
             print(f"  ❌ API testing failed: {e}")
-        
+
         self.baseline_data["api_endpoints"] = endpoints
         available_count = sum(1 for ep in endpoints if ep.get("available", False))
         print(f"  ✅ Tested {len(endpoints)} endpoints, {available_count} available")
-    
+
     def generate_summary(self):
         """Generate summary of captured baseline data."""
         summary = {
@@ -264,15 +264,15 @@ class DashboardBaseline:
             "api_endpoints_tested": len(self.baseline_data["api_endpoints"]),
             "api_endpoints_available": sum(1 for ep in self.baseline_data["api_endpoints"] if ep.get("available", False))
         }
-        
+
         # Count total queries
         total_queries = 0
         for dashboard in self.baseline_data["system_dashboards"].values():
             total_queries += dashboard.get("query_count", 0)
-        
+
         summary["total_queries"] = total_queries
         self.baseline_data["summary"] = summary
-        
+
         print("\n📊 Baseline Capture Summary:")
         print(f"  • TypeScript Dashboards: {summary['typescript_dashboards']}")
         print(f"  • Database Dashboards: {summary['database_dashboards']}")
@@ -285,24 +285,24 @@ async def main():
     try:
         baseline = DashboardBaseline()
         data = await baseline.capture_all()
-        
+
         # Save to JSON file
         output_file = MEMORY_DIR / "pre_refactor_dashboards.json"
         with open(output_file, 'w', encoding='utf-8') as f:
             json.dump(data, f, indent=2, ensure_ascii=False)
-        
+
         print(f"\n💾 Baseline data saved to: {output_file}")
-        
+
         # Save variable patterns separately
         patterns_file = MEMORY_DIR / "variable_patterns_baseline.json"
         with open(patterns_file, 'w', encoding='utf-8') as f:
             json.dump(data["variable_patterns"], f, indent=2, ensure_ascii=False)
-        
+
         print(f"💾 Variable patterns saved to: {patterns_file}")
         print("\n✅ Baseline capture completed successfully!")
-        
+
         return True
-        
+
     except Exception as e:
         print(f"\n❌ Baseline capture failed: {e}")
         return False

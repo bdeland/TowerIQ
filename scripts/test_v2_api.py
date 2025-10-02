@@ -24,20 +24,20 @@ sys.path.insert(0, str(project_root))
 
 class V2APITester:
     """Tests v2 API endpoints"""
-    
+
     def __init__(self, base_url: str = "http://localhost:8000"):
         self.base_url = base_url.rstrip('/')
         self.session: aiohttp.ClientSession = None
         self.test_results: List[Dict[str, Any]] = []
-        
+
     async def __aenter__(self):
         self.session = aiohttp.ClientSession()
         return self
-    
+
     async def __aexit__(self, exc_type, exc_val, exc_tb):
         if self.session:
             await self.session.close()
-    
+
     def add_result(self, test_name: str, success: bool, message: str, details: Dict[str, Any] = None):
         """Add a test result"""
         self.test_results.append({
@@ -46,13 +46,13 @@ class V2APITester:
             'message': message,
             'details': details or {}
         })
-        
+
         status = "✓" if success else "✗"
         print(f"{status} {test_name}: {message}")
-        
+
         if not success and details:
             print(f"  Details: {json.dumps(details, indent=2)}")
-    
+
     async def test_api_health(self) -> bool:
         """Test if the API server is running"""
         try:
@@ -73,7 +73,7 @@ class V2APITester:
                         {"status_code": response.status}
                     )
                     return False
-                    
+
         except Exception as e:
             self.add_result(
                 "API Health Check",
@@ -81,7 +81,7 @@ class V2APITester:
                 f"Failed to connect to API server: {str(e)}"
             )
             return False
-    
+
     async def test_list_dashboards_v2(self) -> bool:
         """Test listing dashboards via v2 API"""
         try:
@@ -105,7 +105,7 @@ class V2APITester:
                         {"status_code": response.status, "response": error_text}
                     )
                     return False
-                    
+
         except Exception as e:
             self.add_result(
                 "List Dashboards v2",
@@ -113,7 +113,7 @@ class V2APITester:
                 f"Exception: {str(e)}"
             )
             return False
-    
+
     async def test_create_dashboard_v2(self) -> str:
         """Test creating a dashboard via v2 API"""
         try:
@@ -156,7 +156,7 @@ class V2APITester:
                     "theme": {"name": "toweriq-dark"}
                 }
             }
-            
+
             async with self.session.post(
                 f"{self.base_url}/api/v2/dashboards",
                 json=test_dashboard
@@ -180,7 +180,7 @@ class V2APITester:
                         {"status_code": response.status, "response": error_text}
                     )
                     return None
-                    
+
         except Exception as e:
             self.add_result(
                 "Create Dashboard v2",
@@ -188,7 +188,7 @@ class V2APITester:
                 f"Exception: {str(e)}"
             )
             return None
-    
+
     async def test_get_dashboard_v2(self, dashboard_id: str) -> bool:
         """Test getting a specific dashboard via v2 API"""
         if not dashboard_id:
@@ -198,7 +198,7 @@ class V2APITester:
                 "No dashboard ID provided"
             )
             return False
-            
+
         try:
             async with self.session.get(f"{self.base_url}/api/v2/dashboards/{dashboard_id}") as response:
                 if response.status == 200:
@@ -219,7 +219,7 @@ class V2APITester:
                         {"status_code": response.status, "response": error_text}
                     )
                     return False
-                    
+
         except Exception as e:
             self.add_result(
                 "Get Dashboard v2",
@@ -227,7 +227,7 @@ class V2APITester:
                 f"Exception: {str(e)}"
             )
             return False
-    
+
     async def test_list_data_sources(self) -> bool:
         """Test listing data sources"""
         try:
@@ -251,7 +251,7 @@ class V2APITester:
                         {"status_code": response.status, "response": error_text}
                     )
                     return False
-                    
+
         except Exception as e:
             self.add_result(
                 "List Data Sources",
@@ -259,7 +259,7 @@ class V2APITester:
                 f"Exception: {str(e)}"
             )
             return False
-    
+
     async def test_query_v2(self) -> bool:
         """Test v2 query endpoint"""
         try:
@@ -267,7 +267,7 @@ class V2APITester:
                 "query": "SELECT COUNT(*) as total_runs FROM runs",
                 "variables": {}
             }
-            
+
             async with self.session.post(
                 f"{self.base_url}/api/v2/query",
                 json=test_query
@@ -291,7 +291,7 @@ class V2APITester:
                         {"status_code": response.status, "response": error_text}
                     )
                     return False
-                    
+
         except Exception as e:
             self.add_result(
                 "Query v2",
@@ -299,7 +299,7 @@ class V2APITester:
                 f"Exception: {str(e)}"
             )
             return False
-    
+
     async def test_delete_dashboard_v2(self, dashboard_id: str) -> bool:
         """Test deleting a dashboard via v2 API"""
         if not dashboard_id:
@@ -309,7 +309,7 @@ class V2APITester:
                 "No dashboard ID provided"
             )
             return False
-            
+
         try:
             async with self.session.delete(f"{self.base_url}/api/v2/dashboards/{dashboard_id}") as response:
                 if response.status == 200:
@@ -330,7 +330,7 @@ class V2APITester:
                         {"status_code": response.status, "response": error_text}
                     )
                     return False
-                    
+
         except Exception as e:
             self.add_result(
                 "Delete Dashboard v2",
@@ -338,61 +338,61 @@ class V2APITester:
                 f"Exception: {str(e)}"
             )
             return False
-    
+
     async def run_all_tests(self) -> None:
         """Run all v2 API tests"""
         print("TowerIQ v2 API Test Suite")
         print("=" * 50)
-        
+
         # Test API health
         if not await self.test_api_health():
             print("❌ API server is not available. Please start the server first.")
             return
-        
+
         print()
-        
+
         # Test dashboard endpoints
         await self.test_list_dashboards_v2()
-        
+
         # Create a test dashboard
         test_dashboard_id = await self.test_create_dashboard_v2()
-        
+
         # Get the created dashboard
         if test_dashboard_id:
             await self.test_get_dashboard_v2(test_dashboard_id)
-        
+
         # Test data sources
         await self.test_list_data_sources()
-        
+
         # Test query endpoint
         await self.test_query_v2()
-        
+
         # Clean up - delete test dashboard
         if test_dashboard_id:
             await self.test_delete_dashboard_v2(test_dashboard_id)
-        
+
         # Print summary
         print("\n" + "=" * 50)
         print("Test Summary")
         print("=" * 50)
-        
+
         total_tests = len(self.test_results)
         passed_tests = sum(1 for result in self.test_results if result['success'])
         failed_tests = total_tests - passed_tests
-        
+
         print(f"Total tests: {total_tests}")
         print(f"Passed: {passed_tests}")
         print(f"Failed: {failed_tests}")
-        
+
         if failed_tests > 0:
             print("\nFailed tests:")
             for result in self.test_results:
                 if not result['success']:
                     print(f"  - {result['test']}: {result['message']}")
-        
+
         success_rate = (passed_tests / total_tests) * 100 if total_tests > 0 else 0
         print(f"\nSuccess rate: {success_rate:.1f}%")
-        
+
         if success_rate == 100:
             print("🎉 All tests passed! The v2 API is working correctly.")
         elif success_rate >= 75:
@@ -409,9 +409,9 @@ async def main():
         default="http://localhost:8000",
         help="Base URL for the TowerIQ API server (default: http://localhost:8000)"
     )
-    
+
     args = parser.parse_args()
-    
+
     async with V2APITester(args.base_url) as tester:
         await tester.run_all_tests()
 

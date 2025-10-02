@@ -13,22 +13,22 @@ from pathlib import Path
 def run_prospector(target_paths=None, strictness="medium", tools=None, output_format="grouped"):
     """Run Prospector with specified configuration."""
     cmd = ["prospector"]
-    
+
     if target_paths:
         cmd.extend(target_paths)
-    
+
     # Add configuration options
     cmd.extend([
         "--strictness", strictness,
         "--output-format", output_format
     ])
-    
+
     if tools:
         cmd.extend(["--uses", ",".join(tools)])
-    
+
     print(f"Running: {' '.join(cmd)}")
     print("-" * 60)
-    
+
     try:
         result = subprocess.run(cmd, check=False)
         return result.returncode
@@ -43,13 +43,13 @@ def run_prospector(target_paths=None, strictness="medium", tools=None, output_fo
 def main():
     parser = argparse.ArgumentParser(description="Run Prospector linting on TowerIQ codebase")
     parser.add_argument(
-        "paths", 
-        nargs="*", 
-        default=["backend", "scripts", "config"],
-        help="Paths to lint (default: backend, scripts, config)"
+        "paths",
+        nargs="*",
+        default=["src/tower_iq", "scripts", "config"],
+        help="Paths to lint (default: src/tower_iq, scripts, config)"
     )
     parser.add_argument(
-        "--strictness", 
+        "--strictness",
         choices=["verylow", "low", "medium", "high", "veryhigh"],
         default="medium",
         help="Linting strictness level (default: medium)"
@@ -79,9 +79,9 @@ def main():
         action="store_true",
         help="Run type checking with mypy only"
     )
-    
+
     args = parser.parse_args()
-    
+
     # Determine which tools to use based on flags
     tools = None
     if args.tools:
@@ -92,7 +92,7 @@ def main():
         tools = ["bandit", "dodgy"]
     elif args.type_check:
         tools = ["mypy"]
-    
+
     # Validate paths exist
     valid_paths = []
     for path in args.paths:
@@ -101,11 +101,11 @@ def main():
             valid_paths.append(path)
         else:
             print(f"Warning: Path '{path}' does not exist, skipping...")
-    
+
     if not valid_paths:
         print("Error: No valid paths found to lint")
         return 1
-    
+
     return run_prospector(
         target_paths=valid_paths,
         strictness=args.strictness,

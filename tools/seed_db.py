@@ -355,6 +355,7 @@ def generate_run_data_worker(args_tuple):
     Worker function for multiprocessing. Generates run data in memory without
     database operations to avoid SQLite locking issues.
     """
+    run_index = -1  # Default value in case unpacking fails
     try:
         (tier, min_wave, max_wave, start_date, end_date, time_weights, run_index, base_seed) = args_tuple
         

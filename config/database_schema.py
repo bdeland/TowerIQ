@@ -17,7 +17,7 @@ SCHEMA_VERSION = "1.0"
 # Data type constants
 DATA_TYPES = {
     "INTEGER": "integer",
-    "TEXT": "string", 
+    "TEXT": "string",
     "BLOB": "binary",
     "REAL": "float",
     "BOOLEAN": "boolean",
@@ -33,31 +33,31 @@ DATA_TYPES = {
 UNITS = {
     # Time units
     "MILLISECONDS": "ms",
-    "SECONDS": "s", 
+    "SECONDS": "s",
     "MINUTES": "m",
     "HOURS": "h",
     "DAYS": "d",
-    
+
     # Currency units
     "COINS": "coins",
-    "GEMS": "gems", 
+    "GEMS": "gems",
     "CELLS": "cells",
     "CASH": "cash",
     "STONES": "stones",
-    
+
     # Count units
     "COUNT": "count",
     "WAVES": "waves",
     "TAPS": "taps",
     "CLAIMS": "claims",
-    
+
     # Rate units
     "COINS_PER_HOUR": "coins/h",
     "WAVES_PER_MINUTE": "waves/min",
-    
+
     # Percentage
     "PERCENT": "%",
-    
+
     # Raw values
     "RAW": "raw",
     "SCALED": "scaled"
@@ -222,7 +222,7 @@ COLUMN_METADATA: Dict[str, Dict[str, Dict[str, Any]]] = {
             }
         }
     },
-    
+
     "metrics": {
         "id": {
             "data_type": DATA_TYPES["INTEGER"],
@@ -307,7 +307,7 @@ COLUMN_METADATA: Dict[str, Dict[str, Dict[str, Any]]] = {
             }
         }
     },
-    
+
     "events": {
         "id": {
             "data_type": DATA_TYPES["INTEGER"],
@@ -377,8 +377,8 @@ COLUMN_METADATA: Dict[str, Dict[str, Dict[str, Any]]] = {
 
 METRIC_METADATA: Dict[str, Dict[str, Any]] = {
     "round_coins": {
-        "display_name": "Round Coins", 
-        "description": "Total coins accumulated during the run.", 
+        "display_name": "Round Coins",
+        "description": "Total coins accumulated during the run.",
         "unit": UNITS["COINS"],
         "data_type": DATA_TYPES["INTEGER"],
         "formatting": {
@@ -389,8 +389,8 @@ METRIC_METADATA: Dict[str, Dict[str, Any]] = {
         }
     },
     "wave_coins": {
-        "display_name": "Wave Coins", 
-        "description": "Coins generated specifically by the completed wave.", 
+        "display_name": "Wave Coins",
+        "description": "Coins generated specifically by the completed wave.",
         "unit": UNITS["COINS"],
         "data_type": DATA_TYPES["INTEGER"],
         "formatting": {
@@ -401,8 +401,8 @@ METRIC_METADATA: Dict[str, Dict[str, Any]] = {
         }
     },
     "coins": {
-        "display_name": "Global Coins", 
-        "description": "The player's total coin balance, including global multipliers.", 
+        "display_name": "Global Coins",
+        "description": "The player's total coin balance, including global multipliers.",
         "unit": UNITS["COINS"],
         "data_type": DATA_TYPES["INTEGER"],
         "formatting": {
@@ -413,8 +413,8 @@ METRIC_METADATA: Dict[str, Dict[str, Any]] = {
         }
     },
     "gems": {
-        "display_name": "Total Gems", 
-        "description": "The player's total gem balance.", 
+        "display_name": "Total Gems",
+        "description": "The player's total gem balance.",
         "unit": UNITS["GEMS"],
         "data_type": DATA_TYPES["INTEGER"],
         "formatting": {
@@ -425,8 +425,8 @@ METRIC_METADATA: Dict[str, Dict[str, Any]] = {
         }
     },
     "round_cells": {
-        "display_name": "Round Cells", 
-        "description": "Total cells accumulated during the run.", 
+        "display_name": "Round Cells",
+        "description": "Total cells accumulated during the run.",
         "unit": UNITS["CELLS"],
         "data_type": DATA_TYPES["INTEGER"],
         "formatting": {
@@ -437,8 +437,8 @@ METRIC_METADATA: Dict[str, Dict[str, Any]] = {
         }
     },
     "wave_cells": {
-        "display_name": "Wave Cells", 
-        "description": "Cells generated specifically by the completed wave.", 
+        "display_name": "Wave Cells",
+        "description": "Cells generated specifically by the completed wave.",
         "unit": UNITS["CELLS"],
         "data_type": DATA_TYPES["INTEGER"],
         "formatting": {
@@ -449,8 +449,8 @@ METRIC_METADATA: Dict[str, Dict[str, Any]] = {
         }
     },
     "cells": {
-        "display_name": "Global Cells", 
-        "description": "The player's total cell balance, including global multipliers.", 
+        "display_name": "Global Cells",
+        "description": "The player's total cell balance, including global multipliers.",
         "unit": UNITS["CELLS"],
         "data_type": DATA_TYPES["INTEGER"],
         "formatting": {
@@ -461,8 +461,8 @@ METRIC_METADATA: Dict[str, Dict[str, Any]] = {
         }
     },
     "round_cash": {
-        "display_name": "Round Cash", 
-        "description": "Total cash accumulated during the run.", 
+        "display_name": "Round Cash",
+        "description": "Total cash accumulated during the run.",
         "unit": UNITS["CASH"],
         "data_type": DATA_TYPES["INTEGER"],
         "formatting": {
@@ -473,8 +473,8 @@ METRIC_METADATA: Dict[str, Dict[str, Any]] = {
         }
     },
     "cash": {
-        "display_name": "Global Cash", 
-        "description": "The player's total cash balance, including global multipliers.", 
+        "display_name": "Global Cash",
+        "description": "The player's total cash balance, including global multipliers.",
         "unit": UNITS["CASH"],
         "data_type": DATA_TYPES["INTEGER"],
         "formatting": {
@@ -485,8 +485,8 @@ METRIC_METADATA: Dict[str, Dict[str, Any]] = {
         }
     },
     "stones": {
-        "display_name": "Stones", 
-        "description": "Total stones accumulated.", 
+        "display_name": "Stones",
+        "description": "Total stones accumulated.",
         "unit": UNITS["STONES"],
         "data_type": DATA_TYPES["INTEGER"],
         "formatting": {
@@ -497,8 +497,8 @@ METRIC_METADATA: Dict[str, Dict[str, Any]] = {
         }
     },
     "round_gems_from_blocks_count": {
-        "display_name": "Gem Blocks Tapped (Count)", 
-        "description": "Number of times a gem block was tapped.", 
+        "display_name": "Gem Blocks Tapped (Count)",
+        "description": "Number of times a gem block was tapped.",
         "unit": UNITS["TAPS"],
         "data_type": DATA_TYPES["COUNT"],
         "formatting": {
@@ -509,8 +509,8 @@ METRIC_METADATA: Dict[str, Dict[str, Any]] = {
         }
     },
     "round_gems_from_blocks_value": {
-        "display_name": "Gems from Blocks", 
-        "description": "Total gem value from tapped blocks.", 
+        "display_name": "Gems from Blocks",
+        "description": "Total gem value from tapped blocks.",
         "unit": UNITS["GEMS"],
         "data_type": DATA_TYPES["INTEGER"],
         "formatting": {
@@ -521,8 +521,8 @@ METRIC_METADATA: Dict[str, Dict[str, Any]] = {
         }
     },
     "round_gems_from_ads_count": {
-        "display_name": "Ad Gems Claimed (Count)", 
-        "description": "Number of times gems were claimed from ads.", 
+        "display_name": "Ad Gems Claimed (Count)",
+        "description": "Number of times gems were claimed from ads.",
         "unit": UNITS["CLAIMS"],
         "data_type": DATA_TYPES["COUNT"],
         "formatting": {
@@ -533,8 +533,8 @@ METRIC_METADATA: Dict[str, Dict[str, Any]] = {
         }
     },
     "round_gems_from_ads_value": {
-        "display_name": "Gems from Ads", 
-        "description": "Total gem value from watching ads.", 
+        "display_name": "Gems from Ads",
+        "description": "Total gem value from watching ads.",
         "unit": UNITS["GEMS"],
         "data_type": DATA_TYPES["INTEGER"],
         "formatting": {
@@ -545,8 +545,8 @@ METRIC_METADATA: Dict[str, Dict[str, Any]] = {
         }
     },
     "round_gems_from_guardian": {
-        "display_name": "Gems from Guardian", 
-        "description": "Total gem value awarded by the Guardian.", 
+        "display_name": "Gems from Guardian",
+        "description": "Total gem value awarded by the Guardian.",
         "unit": UNITS["GEMS"],
         "data_type": DATA_TYPES["INTEGER"],
         "formatting": {
@@ -619,7 +619,7 @@ TABLE_DEFINITIONS: Dict[str, str] = {
             version_text TEXT UNIQUE NOT NULL
         )
     """,
-    
+
     "metric_names": """
         CREATE TABLE IF NOT EXISTS metric_names (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -629,7 +629,7 @@ TABLE_DEFINITIONS: Dict[str, str] = {
             unit TEXT
         )
     """,
-    
+
     "event_names": """
         CREATE TABLE IF NOT EXISTS event_names (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -637,7 +637,7 @@ TABLE_DEFINITIONS: Dict[str, str] = {
             description TEXT
         )
     """,
-    
+
     "runs": """
         CREATE TABLE IF NOT EXISTS runs (
             run_id BLOB PRIMARY KEY,
@@ -655,7 +655,7 @@ TABLE_DEFINITIONS: Dict[str, str] = {
             game_version_id INTEGER NOT NULL REFERENCES game_versions(id)
         )
     """,
-    
+
     "metrics": """
         CREATE TABLE IF NOT EXISTS metrics (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -667,7 +667,7 @@ TABLE_DEFINITIONS: Dict[str, str] = {
             metric_value INTEGER NOT NULL
         )
     """,
-    
+
     "events": """
         CREATE TABLE IF NOT EXISTS events (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -677,7 +677,7 @@ TABLE_DEFINITIONS: Dict[str, str] = {
             data TEXT
         )
     """,
-    
+
     "logs": """
         CREATE TABLE IF NOT EXISTS logs (
             timestamp INTEGER,
@@ -687,7 +687,7 @@ TABLE_DEFINITIONS: Dict[str, str] = {
             data TEXT
         )
     """,
-    
+
     "settings": """
         CREATE TABLE IF NOT EXISTS settings (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -703,7 +703,7 @@ TABLE_DEFINITIONS: Dict[str, str] = {
             version INTEGER DEFAULT 1
         )
     """,
-    
+
     "dashboards": """
         CREATE TABLE IF NOT EXISTS dashboards (
             id TEXT PRIMARY KEY,
@@ -719,7 +719,7 @@ TABLE_DEFINITIONS: Dict[str, str] = {
             schema_version INTEGER DEFAULT 1
         )
     """,
-    
+
     "dashboard_configs": """
         CREATE TABLE IF NOT EXISTS dashboard_configs (
             id TEXT PRIMARY KEY,
@@ -733,7 +733,7 @@ TABLE_DEFINITIONS: Dict[str, str] = {
             is_system BOOLEAN DEFAULT 0
         )
     """,
-    
+
     "data_sources": """
         CREATE TABLE IF NOT EXISTS data_sources (
             id TEXT PRIMARY KEY,
@@ -745,7 +745,7 @@ TABLE_DEFINITIONS: Dict[str, str] = {
             created_at TEXT DEFAULT (datetime('now', 'localtime'))
         )
     """,
-    
+
     "db_metric_names": """
         CREATE TABLE IF NOT EXISTS db_metric_names (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -753,7 +753,7 @@ TABLE_DEFINITIONS: Dict[str, str] = {
             description TEXT
         )
     """,
-    
+
     "db_monitored_objects": """
         CREATE TABLE IF NOT EXISTS db_monitored_objects (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -762,7 +762,7 @@ TABLE_DEFINITIONS: Dict[str, str] = {
             UNIQUE(name, type)
         )
     """,
-    
+
     "db_metrics": """
         CREATE TABLE IF NOT EXISTS db_metrics (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -797,32 +797,32 @@ INDEX_DEFINITIONS: Dict[str, str] = {
 def get_full_schema_script() -> str:
     """
     Generate the complete schema creation script.
-    
+
     Returns:
         str: Complete SQL script for creating all tables and indexes
     """
     script_parts = []
-    
+
     # Add all table definitions
     for table_name, table_sql in TABLE_DEFINITIONS.items():
         script_parts.append(table_sql.strip())
-    
+
     # Add all index definitions
     for index_name, index_sql in INDEX_DEFINITIONS.items():
         script_parts.append(index_sql.strip())
-    
+
     return ";\n\n".join(script_parts) + ";"
 
 def get_table_creation_order() -> List[str]:
     """
     Get the recommended order for creating tables (respecting foreign key dependencies).
-    
+
     Returns:
         List[str]: Table names in dependency order
     """
     return [
         "game_versions",
-        "metric_names", 
+        "metric_names",
         "event_names",
         "runs",
         "metrics",
@@ -840,19 +840,19 @@ def get_table_creation_order() -> List[str]:
 def get_tables_to_wipe() -> List[str]:
     """
     Get the list of tables that should be wiped during seeding (excluding system tables).
-    
+
     Returns:
         List[str]: Table names to wipe
     """
     return [
         "events",
-        "metrics", 
+        "metrics",
         "runs",
         "game_versions",
         "metric_names",
         "event_names",
         "db_metrics",
-        "db_metric_names", 
+        "db_metric_names",
         "db_monitored_objects"
     ]
 
@@ -863,7 +863,7 @@ def get_tables_to_wipe() -> List[str]:
 def validate_schema_consistency() -> Dict[str, Any]:
     """
     Validate that the schema configuration is internally consistent.
-    
+
     Returns:
         Dict[str, Any]: Validation results
     """
@@ -872,25 +872,25 @@ def validate_schema_consistency() -> Dict[str, Any]:
         "errors": [],
         "warnings": []
     }
-    
+
     # Check that all metadata references exist
     table_names = set(TABLE_DEFINITIONS.keys())
     wipe_tables = set(get_tables_to_wipe())
-    
+
     # Warn about tables in wipe list that don't exist in schema
     missing_tables = wipe_tables - table_names
     if missing_tables:
         results["warnings"].append(f"Tables in wipe list but not in schema: {missing_tables}")
-    
+
     # Check for required metadata
     if not METRIC_METADATA:
         results["errors"].append("METRIC_METADATA is empty")
         results["valid"] = False
-    
+
     if not EVENT_METADATA:
-        results["errors"].append("EVENT_METADATA is empty") 
+        results["errors"].append("EVENT_METADATA is empty")
         results["valid"] = False
-    
+
     return results
 
 # ============================================================================
@@ -900,7 +900,7 @@ def validate_schema_consistency() -> Dict[str, Any]:
 def get_schema_info() -> Dict[str, Any]:
     """
     Get summary information about the schema configuration.
-    
+
     Returns:
         Dict[str, Any]: Schema information
     """
@@ -922,11 +922,11 @@ def get_schema_info() -> Dict[str, Any]:
 def get_column_metadata(table_name: str, column_name: str) -> Dict[str, Any]:
     """
     Get metadata for a specific column.
-    
+
     Args:
         table_name: Name of the table
         column_name: Name of the column
-        
+
     Returns:
         Dict containing column metadata or empty dict if not found
     """
@@ -935,10 +935,10 @@ def get_column_metadata(table_name: str, column_name: str) -> Dict[str, Any]:
 def get_metric_metadata(metric_name: str) -> Dict[str, Any]:
     """
     Get metadata for a specific metric.
-    
+
     Args:
         metric_name: Name of the metric
-        
+
     Returns:
         Dict containing metric metadata or empty dict if not found
     """
@@ -947,82 +947,82 @@ def get_metric_metadata(metric_name: str) -> Dict[str, Any]:
 def convert_stored_to_display_value(value: Any, table_name: str, column_name: str) -> Any:
     """
     Convert a stored database value to its display value using column metadata.
-    
+
     Args:
         value: The stored value from the database
         table_name: Name of the table
         column_name: Name of the column
-        
+
     Returns:
         Converted value ready for display
     """
     if value is None:
         return None
-        
+
     metadata = get_column_metadata(table_name, column_name)
     if not metadata:
         return value
-        
+
     # Apply scaling factor if present
     scaling_factor = metadata.get('scaling_factor')
     if scaling_factor and isinstance(value, (int, float)):
         return value / scaling_factor
-        
+
     return value
 
 def convert_display_to_stored_value(value: Any, table_name: str, column_name: str) -> Any:
     """
     Convert a display value to its stored database value using column metadata.
-    
+
     Args:
         value: The display value
         table_name: Name of the table
         column_name: Name of the column
-        
+
     Returns:
         Converted value ready for database storage
     """
     if value is None:
         return None
-        
+
     metadata = get_column_metadata(table_name, column_name)
     if not metadata:
         return value
-        
+
     # Apply scaling factor if present
     scaling_factor = metadata.get('scaling_factor')
     if scaling_factor and isinstance(value, (int, float)):
         return int(value * scaling_factor)
-        
+
     return value
 
-def format_value_for_display(value: Any, table_name: str, column_name: str, 
+def format_value_for_display(value: Any, table_name: str, column_name: str,
                            format_type: str = "default") -> str:
     """
     Format a value for display using column metadata and formatting rules.
-    
+
     Args:
         value: The value to format
         table_name: Name of the table
         column_name: Name of the column
         format_type: Type of formatting ("default", "chart", "tooltip")
-        
+
     Returns:
         Formatted string for display
     """
     if value is None:
         return "N/A"
-        
+
     # Convert stored value to display value first
     display_value = convert_stored_to_display_value(value, table_name, column_name)
-    
+
     metadata = get_column_metadata(table_name, column_name)
     if not metadata:
         return str(display_value)
-        
+
     formatting = metadata.get('formatting', {})
     display_as = formatting.get('display_as', 'number')
-    
+
     if display_as == 'currency':
         return _format_currency(display_value, formatting, format_type)
     elif display_as == 'duration':
@@ -1041,7 +1041,7 @@ def format_value_for_display(value: Any, table_name: str, column_name: str,
 def _format_currency(value: float, formatting: Dict[str, Any], format_type: str) -> str:
     """Format a currency value using the existing formatting utilities."""
     suffix = formatting.get('suffix', '')
-    
+
     # Use the existing format_currency function from utils.py
     try:
         from src.tower_iq.core.utils import format_currency
@@ -1049,13 +1049,13 @@ def _format_currency(value: float, formatting: Dict[str, Any], format_type: str)
         # Fallback if import fails
         def format_currency(value, symbol="", pad_to_cents=False):
             return f"{value:.2f}"
-    
+
     # Convert to the format expected by the existing function
     formatted = format_currency(value, symbol="", pad_to_cents=False)
-    
+
     if suffix:
         formatted += f" {suffix}"
-        
+
     return formatted
 
 def _format_duration(value: float, formatting: Dict[str, Any]) -> str:
@@ -1081,18 +1081,18 @@ def _format_datetime(value: int, formatting: Dict[str, Any]) -> str:
         import pytz
     except ImportError:
         pytz = None
-    
+
     # Convert milliseconds to seconds if needed
     if value > 1e12:  # Likely milliseconds
         value = value / 1000
-        
+
     dt = datetime.fromtimestamp(value)
     timezone = formatting.get('timezone', 'UTC')
-    
+
     if timezone != 'UTC' and pytz:
         tz = pytz.timezone(timezone)
         dt = dt.replace(tzinfo=pytz.UTC).astimezone(tz)
-    
+
     return dt.strftime('%Y-%m-%d %H:%M:%S')
 
 def _format_number(value: float, formatting: Dict[str, Any], format_type: str) -> str:
@@ -1100,24 +1100,24 @@ def _format_number(value: float, formatting: Dict[str, Any], format_type: str) -
     precision = formatting.get('precision', 0)
     use_commas = formatting.get('use_commas', False)
     suffix = formatting.get('suffix', '')
-    
+
     if format_type == "chart":
         precision = min(precision, 1)
-    
+
     if precision > 0:
         formatted = f"{value:.{precision}f}"
     else:
         formatted = f"{int(value)}"
-        
+
     if use_commas and abs(value) >= 1000:
         # Add comma separators
         parts = formatted.split('.')
         parts[0] = f"{int(parts[0]):,}"
         formatted = '.'.join(parts)
-        
+
     if suffix:
         formatted += f" {suffix}"
-        
+
     return formatted
 
 def _format_uuid(value: bytes, formatting: Dict[str, Any]) -> str:
@@ -1140,11 +1140,11 @@ def _format_json(value: str, formatting: Dict[str, Any]) -> str:
 def get_scaling_factor(table_name: str, column_name: str) -> int:
     """
     Get the scaling factor for a column.
-    
+
     Args:
         table_name: Name of the table
         column_name: Name of the column
-        
+
     Returns:
         Scaling factor (default: 1)
     """
@@ -1154,11 +1154,11 @@ def get_scaling_factor(table_name: str, column_name: str) -> int:
 def get_unit(table_name: str, column_name: str) -> str:
     """
     Get the unit for a column.
-    
+
     Args:
         table_name: Name of the table
         column_name: Name of the column
-        
+
     Returns:
         Unit string
     """
@@ -1168,11 +1168,11 @@ def get_unit(table_name: str, column_name: str) -> str:
 def get_data_type(table_name: str, column_name: str) -> str:
     """
     Get the data type for a column.
-    
+
     Args:
         table_name: Name of the table
         column_name: Name of the column
-        
+
     Returns:
         Data type string
     """
@@ -1182,7 +1182,7 @@ def get_data_type(table_name: str, column_name: str) -> str:
 def validate_column_metadata() -> Dict[str, Any]:
     """
     Validate that all column metadata is consistent and complete.
-    
+
     Returns:
         Dict containing validation results
     """
@@ -1191,13 +1191,13 @@ def validate_column_metadata() -> Dict[str, Any]:
         "errors": [],
         "warnings": []
     }
-    
+
     # Check that all tables in COLUMN_METADATA exist in TABLE_DEFINITIONS
     for table_name in COLUMN_METADATA.keys():
         if table_name not in TABLE_DEFINITIONS:
             results["errors"].append(f"Table '{table_name}' in COLUMN_METADATA but not in TABLE_DEFINITIONS")
             results["valid"] = False
-    
+
     # Check that all columns have required metadata
     required_fields = ['data_type', 'unit', 'description']
     for table_name, columns in COLUMN_METADATA.items():
@@ -1205,5 +1205,5 @@ def validate_column_metadata() -> Dict[str, Any]:
             for field in required_fields:
                 if field not in metadata:
                     results["warnings"].append(f"Column '{table_name}.{column_name}' missing required field '{field}'")
-    
+
     return results
