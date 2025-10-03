@@ -656,17 +656,35 @@ class FridaService:
 
         try:
             if self._event_loop is not None and not self._event_loop.is_closed():
-                # Schedule the put operation on the correct event loop from this thread
-                if self._event_loop.is_running():
-                    # Use call_soon_threadsafe to directly schedule put_nowait
-                    # This avoids the overhead and race condition of creating async tasks
-                    self._event_loop.call_soon_threadsafe(
-                        self._message_queue.put_nowait, message
-                    )
-                    self.logger.debug(f"Message scheduled via call_soon_threadsafe, queue id: {id(self._message_queue)}")
-                else:
-                    self.logger.debug("Event loop not running, queuing directly")
-                    self._message_queue.put_nowait(message)
+                # Check if we're in the same thread as the event loop
+                # If so, we can queue directly without thread safety concerns
+                try:
+                    # Try to get the current task to see if we're in the event loop thread
+                    current_task = asyncio.current_task(self._event_loop)
+                    if current_task is not None:
+                        # We're in the event loop thread, queue directly
+                        self._message_queue.put_nowait(message)
+                        self.logger.debug(f"Message queued directly (same thread), queue id: {id(self._message_queue)}")
+                    else:
+                        # We're not in the event loop thread, use thread-safe method
+                        if self._event_loop.is_running():
+                            self._event_loop.call_soon_threadsafe(
+                                self._message_queue.put_nowait, message
+                            )
+                            self.logger.debug(f"Message scheduled via call_soon_threadsafe, queue id: {id(self._message_queue)}")
+                        else:
+                            self._message_queue.put_nowait(message)
+                            self.logger.debug("Event loop not running, queuing directly")
+                except RuntimeError:
+                    # No current task, we're not in the event loop thread
+                    if self._event_loop.is_running():
+                        self._event_loop.call_soon_threadsafe(
+                            self._message_queue.put_nowait, message
+                        )
+                        self.logger.debug(f"Message scheduled via call_soon_threadsafe, queue id: {id(self._message_queue)}")
+                    else:
+                        self._message_queue.put_nowait(message)
+                        self.logger.debug("Event loop not running, queuing directly")
             else:
                 self.logger.debug("No event loop available, attempting direct queue")
                 # Fallback to direct queuing

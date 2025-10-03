@@ -7,6 +7,9 @@
     "tests"
   ],
   "python.pythonPath": "./.venv/Scripts/python.exe",
+  "python.analysis.extraPaths": [
+    "./src"
+  ],
   "editor.formatOnSave": true,
   "editor.codeActionsOnSave": {
     "source.organizeImports": "explicit"
