@@ -152,15 +152,24 @@ def event_loop():
 def mock_aiohttp_session():
     """Provide a mock aiohttp ClientSession."""
     with patch('aiohttp.ClientSession') as mock_session_class:
-        mock_session = AsyncMock()
+        mock_session = MagicMock()
+
+        # Create a proper async context manager for the get method
         mock_response = AsyncMock()
         mock_response.raise_for_status = Mock()
         mock_response.read = AsyncMock(return_value=b"fake_binary_data")
-        
-        mock_session.get.return_value.__aenter__.return_value = mock_response
-        mock_session.__aenter__.return_value = mock_session
+
+        # Set up the async context manager chain for session.get()
+        mock_get_context = MagicMock()
+        mock_get_context.__aenter__ = AsyncMock(return_value=mock_response)
+        mock_get_context.__aexit__ = AsyncMock(return_value=None)
+        mock_session.get = MagicMock(return_value=mock_get_context)
+
+        # Set up the session context manager
+        mock_session.__aenter__ = AsyncMock(return_value=mock_session)
+        mock_session.__aexit__ = AsyncMock(return_value=None)
         mock_session_class.return_value = mock_session
-        
+
         yield mock_session
 
 

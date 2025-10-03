@@ -9,7 +9,6 @@ import asyncio
 from pathlib import Path
 from typing import Any, Optional
 
-
 try:
     import frida
 except ImportError:
@@ -489,6 +488,12 @@ class FridaService:
             return
 
         payload = message.get('payload', {})
+        
+        # Handle bulk messages (payload is a list)
+        if isinstance(payload, list):
+            self.logger.debug(f"📦 Bulk message with {len(payload)} items")
+            return
+        
         msg_type = payload.get('type', 'unknown')
         inner_payload = payload.get('payload', {})
 

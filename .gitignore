@@ -228,6 +228,11 @@ test_simple_hook.js
 tower_hook.js
 *.compiled.js
 
+# Test reports
+_reports/
+cursor_tests.ndjson
+cursor_test_report_min.md
+
 # Build artifacts
 dist/
 target/

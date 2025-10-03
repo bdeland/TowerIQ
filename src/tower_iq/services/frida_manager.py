@@ -3,9 +3,11 @@ import hashlib
 import lzma
 from pathlib import Path
 from typing import Any, Optional
+
 import aiohttp
 
-from ..core.utils import AdbWrapper, AdbError
+from ..core.utils import AdbError, AdbWrapper
+
 
 class FridaServerSetupError(Exception):
     """Raised when frida-server setup fails."""
@@ -516,5 +518,7 @@ class FridaServerManager:
         try:
             version_output = await self.adb.shell(device_id, f"{self.DEVICE_PATH} --version")
             return version_output.strip()
+        except AdbError:
+            return None
         except AdbError:
             return None

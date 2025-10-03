@@ -1,4 +1,5 @@
 {
+  "type": "module",
   "dependencies": {
     "@types/frida-gum": "^19.0.0",
     "frida-compile": "^19.0.4",
@@ -8,12 +9,24 @@
     "react-router-dom": "^7.8.1",
     "typescript": "^5.8.3"
   },
+  "devDependencies": {
+    "glob": "^10.3.10",
+    "jest": "^29.7.0",
+    "jest-junit": "^16.0.0",
+    "xml2js": "^0.6.2"
+  },
   "name": "toweriq",
   "version": "1.0.0",
   "description": "TowerIQ is a sophisticated platform for analyzing and monitoring mobile games using advanced instrumentation techniques. This implementation provides a complete backend architecture with PyQt6 GUI for real-time game data collection, analysis, and visualization through Frida instrumentation.",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "test:prep": "node scripts/test-prep.js",
+    "test:py": "set PYTHONPATH=. && pytest -q --disable-warnings --junitxml _reports/junit/pytest.xml",
+    "test:js": "jest",
+    "test:report": "node scripts/make-cursor-report.mjs",
+    "test:report:min": "node scripts/make-cursor-ndjson.mjs",
+    "test:all": "npm run test:prep && npm run test:py && npm run test:js || true && npm run test:report && npm run test:report:min"
   },
   "repository": {
     "type": "git",

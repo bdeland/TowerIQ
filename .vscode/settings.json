@@ -1,7 +1,12 @@
 {
-  "python.defaultInterpreterPath": "./venv/bin/python",
+  "python.defaultInterpreterPath": "./.venv/Scripts/python.exe",
   "python.terminal.activateEnvironment": true,
-  "typescript.preferences.includePackageJsonAutoImports": "on",
+  "python.testing.pytestEnabled": true,
+  "python.testing.unittestEnabled": false,
+  "python.testing.pytestArgs": [
+    "tests"
+  ],
+  "python.pythonPath": "./.venv/Scripts/python.exe",
   "editor.formatOnSave": true,
   "editor.codeActionsOnSave": {
     "source.organizeImports": "explicit"
@@ -22,6 +27,5 @@
   },
   "python.analysis.autoImportCompletions": true,
   "python.analysis.typeCheckingMode": "basic",
-  "typescript.preferences.includePackageJsonAutoImports": "on",
   "rust-analyzer.checkOnSave.command": "check"
 }
