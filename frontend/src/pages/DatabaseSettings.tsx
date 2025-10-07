@@ -1,8 +1,8 @@
-import { useEffect, useState } from 'react';
-import { Box, Typography, Card, CardContent, Switch, FormControlLabel, TextField, Button, InputAdornment, CircularProgress, Alert, List, ListItem, ListItemText, IconButton, CardHeader } from '@mui/material';
+import { CheckCircle, ContentCopy, Storage as DatabaseIcon, ExpandLess, ExpandMore, FolderOpen, Cable as GrafanaIcon, PlayArrow, Refresh as RefreshIcon, Save } from '@mui/icons-material';
+import { Alert, Box, Button, Card, CardContent, CardHeader, CircularProgress, Collapse, FormControlLabel, IconButton, InputAdornment, List, ListItem, ListItemText, Radio, RadioGroup, Snackbar, Switch, TextField, Typography } from '@mui/material';
 import Grid from '@mui/material/Grid';
-import { Storage as DatabaseIcon, FolderOpen, Save, PlayArrow, Refresh as RefreshIcon } from '@mui/icons-material';
 import { open } from '@tauri-apps/plugin-dialog';
+import { useEffect, useState } from 'react';
 import { API_CONFIG } from '../config/environment';
 
 export function DatabaseSettings() {
@@ -26,6 +26,20 @@ export function DatabaseSettings() {
   const [dbStats, setDbStats] = useState<any>(null);
   const [statsLoading, setStatsLoading] = useState(false);
   const [statsError, setStatsError] = useState<string | null>(null);
+  
+  // Grafana integration state
+  const [grafanaEnabled, setGrafanaEnabled] = useState(false);
+  const [grafanaBindAddress, setGrafanaBindAddress] = useState('localhost');
+  const [grafanaCustomIp, setGrafanaCustomIp] = useState('127.0.0.1');
+  const [grafanaPort, setGrafanaPort] = useState(8000);
+  const [grafanaQueryTimeout, setGrafanaQueryTimeout] = useState(30);
+  const [grafanaMaxRows, setGrafanaMaxRows] = useState(10000);
+  const [grafanaLoading, setGrafanaLoading] = useState(false);
+  const [grafanaSaving, setGrafanaSaving] = useState(false);
+  const [grafanaValidating, setGrafanaValidating] = useState(false);
+  const [grafanaValidationResult, setGrafanaValidationResult] = useState<any>(null);
+  const [showAdvancedGrafana, setShowAdvancedGrafana] = useState(false);
+  const [copySnackbarOpen, setCopySnackbarOpen] = useState(false);
 
   const loadSettings = async () => {
     try {
@@ -123,9 +137,126 @@ export function DatabaseSettings() {
     }
   };
 
+  const loadGrafanaSettings = async () => {
+    try {
+      setGrafanaLoading(true);
+      const response = await fetch(`${API_CONFIG.BASE_URL}/settings/grafana`);
+      const data = await response.json();
+      if (data) {
+        setGrafanaEnabled(data.enabled);
+        // Determine bind address type
+        if (data.bind_address === '127.0.0.1') {
+          setGrafanaBindAddress('localhost');
+        } else if (data.bind_address === '0.0.0.0') {
+          setGrafanaBindAddress('network');
+        } else {
+          setGrafanaBindAddress('custom');
+          setGrafanaCustomIp(data.bind_address);
+        }
+        setGrafanaPort(data.port);
+        setGrafanaQueryTimeout(data.query_timeout);
+        setGrafanaMaxRows(data.max_rows);
+      }
+    } catch (e: any) {
+      setError(e?.message || 'Failed to load Grafana settings');
+    } finally {
+      setGrafanaLoading(false);
+    }
+  };
+
+  const saveGrafanaSettings = async () => {
+    try {
+      setGrafanaSaving(true);
+      setError(null);
+      setSuccess(null);
+      setGrafanaValidationResult(null);
+      
+      // Determine actual bind address
+      let actualBindAddress = '127.0.0.1';
+      if (grafanaBindAddress === 'network') {
+        actualBindAddress = '0.0.0.0';
+      } else if (grafanaBindAddress === 'custom') {
+        actualBindAddress = grafanaCustomIp;
+      }
+      
+      const response = await fetch(`${API_CONFIG.BASE_URL}/settings/grafana`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          enabled: grafanaEnabled,
+          bind_address: actualBindAddress,
+          port: grafanaPort,
+          allow_read_only: true,
+          query_timeout: grafanaQueryTimeout,
+          max_rows: grafanaMaxRows
+        })
+      });
+      
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.detail || 'Failed to save settings');
+      }
+      
+      setSuccess('Grafana settings saved successfully. Restart TowerIQ to apply network changes.');
+    } catch (e: any) {
+      setError(e?.message || 'Failed to save Grafana settings');
+    } finally {
+      setGrafanaSaving(false);
+      setTimeout(() => setSuccess(null), 5000);
+    }
+  };
+
+  const validateGrafanaConnection = async () => {
+    try {
+      setGrafanaValidating(true);
+      setGrafanaValidationResult(null);
+      
+      const response = await fetch(`${API_CONFIG.BASE_URL}/settings/grafana/validate`, {
+        method: 'POST'
+      });
+      
+      const data = await response.json();
+      setGrafanaValidationResult(data);
+      
+      if (data.success) {
+        setSuccess(data.message);
+        setTimeout(() => setSuccess(null), 3000);
+      } else {
+        setError(data.message);
+        setTimeout(() => setError(null), 5000);
+      }
+    } catch (e: any) {
+      setError(e?.message || 'Failed to validate Grafana connection');
+      setTimeout(() => setError(null), 3000);
+    } finally {
+      setGrafanaValidating(false);
+    }
+  };
+
+  const getConnectionUrl = () => {
+    let actualBindAddress = '127.0.0.1';
+    if (grafanaBindAddress === 'network') {
+      actualBindAddress = '<laptop-ip>';
+    } else if (grafanaBindAddress === 'custom') {
+      actualBindAddress = grafanaCustomIp;
+    }
+    return `http://${actualBindAddress}:${grafanaPort}/api/grafana/query`;
+  };
+
+  const copyConnectionUrl = async () => {
+    try {
+      await navigator.clipboard.writeText(getConnectionUrl());
+      setCopySnackbarOpen(true);
+    } catch (e) {
+      setError('Failed to copy URL to clipboard');
+      setTimeout(() => setError(null), 2000);
+    }
+  };
+
   useEffect(() => {
     loadSettings();
     loadDatabaseStats();
+    loadGrafanaSettings();
   }, []);
 
   const browseForPath = async (setter: (v: string) => void, dir = false) => {
@@ -316,6 +447,227 @@ export function DatabaseSettings() {
 
         <Grid size={12}>
           <Card>
+            <CardHeader 
+              avatar={<GrafanaIcon sx={{ color: 'primary.main' }} />}
+              title="Grafana Integration"
+              subheader="Expose database for Grafana dashboards on your local network"
+            />
+            <CardContent>
+              {grafanaLoading && (
+                <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
+                  <CircularProgress size={20} sx={{ mr: 1 }} />
+                  <Typography variant="body2">Loading Grafana settings…</Typography>
+                </Box>
+              )}
+              
+              <Grid container spacing={2}>
+                <Grid size={12}>
+                  <FormControlLabel
+                    control={
+                      <Switch 
+                        checked={grafanaEnabled} 
+                        onChange={(e) => setGrafanaEnabled(e.target.checked)} 
+                      />
+                    }
+                    label="Enable Grafana Integration"
+                  />
+                </Grid>
+
+                {grafanaEnabled && (
+                  <>
+                    <Grid size={12}>
+                      <Alert severity="warning" sx={{ mb: 2 }}>
+                        ⚠️ This exposes your database for read-only SQL queries over the network. Only enable on trusted networks.
+                      </Alert>
+                    </Grid>
+
+                    <Grid size={12}>
+                      <Typography variant="subtitle2" sx={{ mb: 1 }}>Network Access</Typography>
+                      <RadioGroup 
+                        value={grafanaBindAddress} 
+                        onChange={(e) => setGrafanaBindAddress(e.target.value)}
+                      >
+                        <FormControlLabel 
+                          value="localhost" 
+                          control={<Radio />} 
+                          label="Localhost only (127.0.0.1) - Most secure, Grafana must run on this machine" 
+                        />
+                        <FormControlLabel 
+                          value="network" 
+                          control={<Radio />} 
+                          label="Local Network (0.0.0.0) - Accessible from other devices on your network" 
+                        />
+                        <FormControlLabel 
+                          value="custom" 
+                          control={<Radio />} 
+                          label="Custom IP Address" 
+                        />
+                      </RadioGroup>
+                    </Grid>
+
+                    {grafanaBindAddress === 'custom' && (
+                      <Grid size={{ xs: 12, md: 6 }}>
+                        <TextField
+                          fullWidth
+                          label="Custom IP Address"
+                          value={grafanaCustomIp}
+                          onChange={(e) => setGrafanaCustomIp(e.target.value)}
+                          placeholder="192.168.1.100"
+                          helperText="Enter the specific IP address to bind to"
+                        />
+                      </Grid>
+                    )}
+
+                    <Grid size={{ xs: 12, md: 6 }}>
+                      <TextField
+                        fullWidth
+                        type="number"
+                        label="Port"
+                        value={grafanaPort}
+                        onChange={(e) => setGrafanaPort(parseInt(e.target.value) || 8000)}
+                        helperText="Port 1024-65535 (requires restart to change)"
+                        inputProps={{ min: 1024, max: 65535 }}
+                      />
+                    </Grid>
+
+                    <Grid size={12}>
+                      <TextField
+                        fullWidth
+                        label="Connection URL"
+                        value={getConnectionUrl()}
+                        InputProps={{
+                          readOnly: true,
+                          endAdornment: (
+                            <InputAdornment position="end">
+                              <Button 
+                                size="small" 
+                                startIcon={<ContentCopy />} 
+                                onClick={copyConnectionUrl}
+                              >
+                                Copy
+                              </Button>
+                            </InputAdornment>
+                          )
+                        }}
+                        helperText="Use this URL in Grafana Infinity data source"
+                      />
+                    </Grid>
+
+                    <Grid size={12}>
+                      <Button
+                        variant="outlined"
+                        onClick={() => setShowAdvancedGrafana(!showAdvancedGrafana)}
+                        endIcon={showAdvancedGrafana ? <ExpandLess /> : <ExpandMore />}
+                      >
+                        Advanced Settings
+                      </Button>
+                    </Grid>
+
+                    <Grid size={12}>
+                      <Collapse in={showAdvancedGrafana}>
+                        <Grid container spacing={2} sx={{ mt: 1 }}>
+                          <Grid size={{ xs: 12, md: 6 }}>
+                            <TextField
+                              fullWidth
+                              type="number"
+                              label="Query Timeout (seconds)"
+                              value={grafanaQueryTimeout}
+                              onChange={(e) => setGrafanaQueryTimeout(parseInt(e.target.value) || 30)}
+                              helperText="Maximum query execution time"
+                              inputProps={{ min: 1, max: 300 }}
+                            />
+                          </Grid>
+                          <Grid size={{ xs: 12, md: 6 }}>
+                            <TextField
+                              fullWidth
+                              type="number"
+                              label="Max Rows per Query"
+                              value={grafanaMaxRows}
+                              onChange={(e) => setGrafanaMaxRows(parseInt(e.target.value) || 10000)}
+                              helperText="Maximum rows returned per query"
+                              inputProps={{ min: 1, max: 100000 }}
+                            />
+                          </Grid>
+                        </Grid>
+                      </Collapse>
+                    </Grid>
+
+                    <Grid size={12}>
+                      <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+                        <Button 
+                          variant="contained" 
+                          startIcon={grafanaSaving ? <CircularProgress size={16} /> : <Save />}
+                          onClick={saveGrafanaSettings}
+                          disabled={grafanaSaving}
+                        >
+                          Save Grafana Settings
+                        </Button>
+                        <Button 
+                          variant="outlined" 
+                          startIcon={grafanaValidating ? <CircularProgress size={16} /> : <CheckCircle />}
+                          onClick={validateGrafanaConnection}
+                          disabled={grafanaValidating}
+                        >
+                          Test Connection
+                        </Button>
+                      </Box>
+                    </Grid>
+
+                    {grafanaValidationResult && (
+                      <Grid size={12}>
+                        <Alert 
+                          severity={grafanaValidationResult.success ? 'success' : 'error'}
+                          sx={{ mt: 1 }}
+                        >
+                          <Typography variant="body2" sx={{ fontWeight: 'bold' }}>
+                            {grafanaValidationResult.message}
+                          </Typography>
+                          {grafanaValidationResult.errors && grafanaValidationResult.errors.length > 0 && (
+                            <List dense>
+                              {grafanaValidationResult.errors.map((err: string, idx: number) => (
+                                <ListItem key={idx} sx={{ py: 0 }}>
+                                  <ListItemText 
+                                    primary={err}
+                                    primaryTypographyProps={{ variant: 'body2' }}
+                                  />
+                                </ListItem>
+                              ))}
+                            </List>
+                          )}
+                        </Alert>
+                      </Grid>
+                    )}
+
+                    <Grid size={12}>
+                      <Alert severity="info" sx={{ mt: 1 }}>
+                        <Typography variant="body2" sx={{ fontWeight: 'bold', mb: 1 }}>
+                          Setup Instructions for Grafana:
+                        </Typography>
+                        <List dense>
+                          <ListItem sx={{ py: 0 }}>
+                            <ListItemText primary="1. Install 'Infinity' plugin in Grafana" />
+                          </ListItem>
+                          <ListItem sx={{ py: 0 }}>
+                            <ListItemText primary="2. Add new Infinity data source with Type: JSON, Method: POST" />
+                          </ListItem>
+                          <ListItem sx={{ py: 0 }}>
+                            <ListItemText primary='3. In panels, use Body: {"sql": "SELECT * FROM runs LIMIT 10"}' />
+                          </ListItem>
+                          <ListItem sx={{ py: 0 }}>
+                            <ListItemText primary="4. View available tables at: /api/grafana/schema" />
+                          </ListItem>
+                        </List>
+                      </Alert>
+                    </Grid>
+                  </>
+                )}
+              </Grid>
+            </CardContent>
+          </Card>
+        </Grid>
+
+        <Grid size={12}>
+          <Card>
             <CardContent>
               <Typography variant="h6" sx={{ mb: 2 }}>Database Backups</Typography>
               <Grid container spacing={2}>
@@ -415,6 +767,15 @@ export function DatabaseSettings() {
           </Card>
         </Grid>
       </Grid>
+
+      {/* Snackbar for copy feedback */}
+      <Snackbar
+        open={copySnackbarOpen}
+        autoHideDuration={2000}
+        onClose={() => setCopySnackbarOpen(false)}
+        message="URL copied to clipboard"
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+      />
     </Box>
   );
 }

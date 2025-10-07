@@ -6,16 +6,20 @@ Handles:
 - Database path configuration
 - Database statistics and health metrics
 - Backup settings management
+- Grafana integration settings
 """
 
 import asyncio
+import re
+import socket
 from pathlib import Path
+
 from fastapi import APIRouter, HTTPException
 
-from ..models import (
-    BackupSettings, BackupRunResponse, DatabasePathResponse,
-    DatabasePathUpdate, RestoreRequest, RestoreSuggestion
-)
+from ..models import (BackupRunResponse, BackupSettings, DatabasePathResponse,
+                      DatabasePathUpdate, GrafanaSettings,
+                      GrafanaValidateResponse, RestoreRequest,
+                      RestoreSuggestion)
 
 router = APIRouter()
 
@@ -223,4 +227,189 @@ async def collect_database_metrics():
             logger.error("Failed to collect database metrics", error=str(e))
 
         raise HTTPException(status_code=500, detail=f"Failed to collect database metrics: {str(e)}")
+
+
+# Grafana Integration Endpoints
+
+@router.get("/api/settings/grafana", response_model=GrafanaSettings)
+async def get_grafana_settings():
+    """Get Grafana integration settings."""
+    try:
+        if not config:
+            raise HTTPException(status_code=503, detail="Configuration not available")
+        
+        return GrafanaSettings(
+            enabled=bool(config.get('grafana.enabled', False)),
+            bind_address=str(config.get('grafana.bind_address', '127.0.0.1')),
+            port=int(config.get('grafana.port', 8000)),
+            allow_read_only=bool(config.get('grafana.allow_read_only', True)),
+            query_timeout=int(config.get('grafana.query_timeout', 30)),
+            max_rows=int(config.get('grafana.max_rows', 10000))
+        )
+    except Exception as e:
+        if logger:
+            logger.error("Error getting Grafana settings", error=str(e))
+        raise HTTPException(status_code=500, detail=f"Failed to get Grafana settings: {str(e)}")
+
+
+@router.put("/api/settings/grafana", response_model=GrafanaSettings)
+async def update_grafana_settings(settings: GrafanaSettings):
+    """Update Grafana integration settings."""
+    try:
+        if not config:
+            raise HTTPException(status_code=503, detail="Configuration not available")
+        
+        # Validate settings before saving
+        errors = []
+        
+        # Validate bind address
+        if not _is_valid_ip_address(settings.bind_address):
+            errors.append(f"Invalid bind address: {settings.bind_address}")
+        
+        # Validate port
+        if not (1024 <= settings.port <= 65535):
+            errors.append(f"Port must be between 1024 and 65535 (got {settings.port})")
+        
+        # Validate query timeout
+        if settings.query_timeout < 1 or settings.query_timeout > 300:
+            errors.append(f"Query timeout must be between 1 and 300 seconds (got {settings.query_timeout})")
+        
+        # Validate max rows
+        if settings.max_rows < 1 or settings.max_rows > 100000:
+            errors.append(f"Max rows must be between 1 and 100,000 (got {settings.max_rows})")
+        
+        if errors:
+            raise HTTPException(status_code=400, detail="; ".join(errors))
+        
+        # Save settings
+        config.set('grafana.enabled', settings.enabled, 
+                  description='Enable Grafana integration')
+        config.set('grafana.bind_address', settings.bind_address, 
+                  description='Bind address for API server (requires restart)')
+        config.set('grafana.port', settings.port, 
+                  description='Port for API server (requires restart)')
+        config.set('grafana.allow_read_only', settings.allow_read_only, 
+                  description='Allow read-only queries')
+        config.set('grafana.query_timeout', settings.query_timeout, 
+                  description='Query timeout in seconds')
+        config.set('grafana.max_rows', settings.max_rows, 
+                  description='Maximum rows per query')
+        
+        if logger:
+            logger.info("Grafana settings updated", 
+                       enabled=settings.enabled,
+                       bind_address=settings.bind_address,
+                       port=settings.port)
+        
+        return settings
+    except HTTPException:
+        raise
+    except Exception as e:
+        if logger:
+            logger.error("Error updating Grafana settings", error=str(e))
+        raise HTTPException(status_code=500, detail=f"Failed to update Grafana settings: {str(e)}")
+
+
+@router.post("/api/settings/grafana/validate", response_model=GrafanaValidateResponse)
+async def validate_grafana_settings():
+    """Validate Grafana settings and test connectivity."""
+    try:
+        if not config or not db_service:
+            raise HTTPException(status_code=503, detail="Services not available")
+        
+        errors = []
+        warnings = []
+        
+        # Get current settings
+        enabled = bool(config.get('grafana.enabled', False))
+        bind_address = str(config.get('grafana.bind_address', '127.0.0.1'))
+        port = int(config.get('grafana.port', 8000))
+        
+        if not enabled:
+            return GrafanaValidateResponse(
+                success=False,
+                message="Grafana integration is disabled",
+                errors=["Enable Grafana integration to validate settings"]
+            )
+        
+        # Validate bind address
+        if not _is_valid_ip_address(bind_address):
+            errors.append(f"Invalid bind address: {bind_address}")
+        
+        # Validate port
+        if not (1024 <= port <= 65535):
+            errors.append(f"Port must be between 1024 and 65535")
+        
+        # Check if port is available (if binding to 0.0.0.0 or localhost)
+        if bind_address in ['0.0.0.0', '127.0.0.1']:
+            try:
+                sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                sock.settimeout(1)
+                result = sock.connect_ex((bind_address if bind_address != '0.0.0.0' else '127.0.0.1', port))
+                sock.close()
+                
+                if result == 0:
+                    # Port is in use (which is expected if server is running)
+                    warnings.append(f"Port {port} is currently in use (expected if TowerIQ is running)")
+            except Exception as e:
+                warnings.append(f"Could not check port availability: {str(e)}")
+        
+        # Test database query execution
+        try:
+            cursor = db_service.sqlite_conn.cursor()
+            cursor.execute("SELECT 1 as test")
+            result = cursor.fetchone()
+            if result[0] != 1:
+                errors.append("Database query test failed")
+        except Exception as e:
+            errors.append(f"Database query test failed: {str(e)}")
+        
+        # Security warnings
+        if bind_address == '0.0.0.0':
+            warnings.append("⚠️ Binding to 0.0.0.0 exposes the database to all network interfaces. Ensure your firewall is configured.")
+        
+        if errors:
+            return GrafanaValidateResponse(
+                success=False,
+                message="Validation failed",
+                errors=errors + warnings
+            )
+        
+        success_msg = "Grafana integration is properly configured"
+        if warnings:
+            success_msg += f" (with {len(warnings)} warning(s))"
+        
+        return GrafanaValidateResponse(
+            success=True,
+            message=success_msg,
+            errors=warnings if warnings else None
+        )
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        if logger:
+            logger.error("Error validating Grafana settings", error=str(e))
+        raise HTTPException(status_code=500, detail=f"Validation failed: {str(e)}")
+
+
+def _is_valid_ip_address(ip: str) -> bool:
+    """Validate IPv4 address format."""
+    # Allow 0.0.0.0 for binding to all interfaces
+    if ip == '0.0.0.0':
+        return True
+    
+    # Validate IPv4 format
+    pattern = re.compile(r'^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$')
+    match = pattern.match(ip)
+    
+    if not match:
+        return False
+    
+    # Check each octet is 0-255
+    for octet in match.groups():
+        if int(octet) > 255:
+            return False
+    
+    return True
 

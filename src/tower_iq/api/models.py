@@ -3,7 +3,8 @@ Pydantic models for TowerIQ API requests and responses.
 Centralized location for all API models.
 """
 
-from typing import Dict, Any, List, Optional
+from typing import Any, Dict, List, Optional
+
 from pydantic import BaseModel
 
 
@@ -141,3 +142,19 @@ class SettingUpdate(BaseModel):
     key: str
     value: Any
 
+
+# Grafana Integration Models
+class GrafanaSettings(BaseModel):
+    enabled: bool
+    bind_address: str
+    port: int
+    allow_read_only: bool
+    query_timeout: int
+    max_rows: int
+
+
+class GrafanaValidateResponse(BaseModel):
+    success: bool
+    message: str
+    errors: Optional[List[str]] = None
+    errors: Optional[List[str]] = None

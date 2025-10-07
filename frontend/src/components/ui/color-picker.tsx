@@ -1,29 +1,21 @@
 'use client';
 
+import { Button, TextField } from '@mui/material';
+import * as Slider from '@radix-ui/react-slider';
 import Color from 'color';
 import { PipetteIcon } from 'lucide-react';
-import * as Slider from '@radix-ui/react-slider';
 import {
-  type ComponentProps,
-  createContext,
-  type HTMLAttributes,
-  memo,
-  useCallback,
-  useContext,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
+    type ComponentProps,
+    createContext,
+    type HTMLAttributes,
+    memo,
+    useCallback,
+    useContext,
+    useEffect,
+    useMemo,
+    useRef,
+    useState,
 } from 'react';
-import { Button } from '@mui/material';
-import { TextField } from '@mui/material';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from './select';
 import { cn } from '../../lib/utils';
 
 interface ColorPickerContextValue {
@@ -51,7 +43,7 @@ export const useColorPicker = () => {
   return context;
 };
 
-export type ColorPickerProps = HTMLAttributes<HTMLDivElement> & {
+export type ColorPickerProps = Omit<HTMLAttributes<HTMLDivElement>, 'onChange'> & {
   value?: Parameters<typeof Color>[0];
   defaultValue?: Parameters<typeof Color>[0];
   onChange?: (value: string) => void;
@@ -324,7 +316,7 @@ export const ColorPickerOutput = ({
         fullWidth
         size="small"
         value={hex}
-        readOnly
+        InputProps={{ readOnly: true }}
         sx={{ 
           '& .MuiOutlinedInput-root': {
             backgroundColor: 'background.paper',

@@ -1,23 +1,22 @@
-import React, { useState } from 'react';
 import {
-  Select,
-  MenuItem,
-  FormControl,
-  Box,
-  Dialog,
-  DialogTitle,
-  DialogContent,
-  DialogActions,
-  Button,
-  Chip,
+    Box,
+    Button,
+    Dialog,
+    DialogActions,
+    DialogContent,
+    DialogTitle,
+    FormControl,
+    MenuItem,
+    Select
 } from '@mui/material';
+import { useState } from 'react';
 import {
-  ColorPicker,
-  ColorPickerSelection,
-  ColorPickerHue,
-  ColorPickerAlpha,
-  ColorPickerOutput,
-  ColorPickerEyeDropper,
+    ColorPicker,
+    ColorPickerAlpha,
+    ColorPickerEyeDropper,
+    ColorPickerHue,
+    ColorPickerOutput,
+    ColorPickerSelection,
 } from './ui/color-picker';
 
 // Predefined color palette

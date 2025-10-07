@@ -22,6 +22,5 @@
   "typeCheckingMode": "basic",
   "useLibraryCodeForTypes": true,
   "autoImportCompletions": true,
-  "autoSearchPaths": true,
   "extraPaths": ["./src"]
 }

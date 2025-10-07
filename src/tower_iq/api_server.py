@@ -6,30 +6,31 @@ with the existing Python backend services.
 """
 
 import asyncio
-import sys
 import os
+import sys
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
-from contextlib import asynccontextmanager
 
+import structlog
+import uvicorn
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-import uvicorn
-import structlog
 
+from tower_iq.api import dependencies
+# Import all routers
+from tower_iq.api.routers import (adb, connection, dashboards_v1,
+                                  dashboards_v2, data_sources, database,
+                                  devices, frida, grafana, health, queries,
+                                  scripts)
 from tower_iq.core.config import ConfigurationManager
 from tower_iq.core.logging_config import setup_logging
-from tower_iq.core.sqlmodel_engine import initialize_sqlmodel_engine, get_sqlmodel_session, get_sqlmodel_engine
+from tower_iq.core.sqlmodel_engine import (get_sqlmodel_engine,
+                                           get_sqlmodel_session,
+                                           initialize_sqlmodel_engine)
 from tower_iq.main_controller import MainController
-from tower_iq.services.database_service import DatabaseService
 from tower_iq.models.dashboard_models import QueryService
-
-# Import all routers
-from tower_iq.api.routers import (
-    health, adb, scripts, devices, connection, frida, queries,
-    database, dashboards_v1, dashboards_v2, data_sources
-)
-from tower_iq.api import dependencies
+from tower_iq.services.database_service import DatabaseService
 
 
 # Configure logging at module level to ensure it's set up before Uvicorn starts
@@ -120,7 +121,8 @@ async def lifespan(app: FastAPI):
 
     # Initialize data source manager for v2 dashboard system
     try:
-        from tower_iq.services.data_source_executors import initialize_default_data_source
+        from tower_iq.services.data_source_executors import \
+            initialize_default_data_source
         await initialize_default_data_source(database_path)
         logger.info("Data source manager initialized successfully")
     except Exception as e:
@@ -246,6 +248,7 @@ async def lifespan(app: FastAPI):
     dashboards_v1.initialize(logger, db_service)
     dashboards_v2.initialize(logger, db_service)
     data_sources.initialize(logger, db_service)
+    grafana.initialize(logger, db_service, config)
 
     # Register all routers with the app
     app.include_router(health.router)
@@ -259,6 +262,14 @@ async def lifespan(app: FastAPI):
     app.include_router(dashboards_v1.router)
     app.include_router(dashboards_v2.router)
     app.include_router(data_sources.router)
+    
+    # Conditionally register Grafana router based on settings
+    grafana_enabled = bool(config.get('grafana.enabled', False))
+    if grafana_enabled:
+        app.include_router(grafana.router)
+        logger.info("Grafana integration router registered (enabled in settings)")
+    else:
+        logger.info("Grafana integration router not registered (disabled in settings)")
 
     logger.info("All API routers registered successfully")
 
@@ -329,8 +340,27 @@ app.add_middleware(
 # and registered in the lifespan function above
 
 
-def start_server(host: str = "127.0.0.1", port: int = 8000):
-    """Start the FastAPI server."""
+def start_server(host: str = None, port: int = None):
+    """
+    Start the FastAPI server.
+    
+    Args:
+        host: Bind address (defaults to config or 127.0.0.1)
+        port: Port number (defaults to config or 8000)
+    """
+    # Read bind settings from configuration
+    if host is None:
+        host = str(config.get('grafana.bind_address', '127.0.0.1'))
+    if port is None:
+        port = int(config.get('grafana.port', 8000))
+    
+    logger.info(f"Starting FastAPI server", host=host, port=port)
+    
+    # Show warning if binding to 0.0.0.0
+    if host == '0.0.0.0':
+        logger.warning("Server is binding to 0.0.0.0 - accessible from all network interfaces. "
+                      "Ensure your firewall is properly configured.")
+    
     uvicorn.run(
         "tower_iq.api_server:app",
         host=host,
@@ -340,5 +370,7 @@ def start_server(host: str = "127.0.0.1", port: int = 8000):
     )
 
 
+if __name__ == "__main__":
+    start_server()
 if __name__ == "__main__":
     start_server()

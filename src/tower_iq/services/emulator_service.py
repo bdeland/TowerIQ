@@ -13,16 +13,17 @@ Key principles:
 """
 
 import asyncio
-from typing import Any, Optional, Dict, List
+import socket
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-import socket
+from typing import Any, Dict, List, Optional
 
 try:
     import frida
     FridaError = Exception
     try:
-        from frida import InvalidArgumentError, InvalidOperationError, ServerNotRunningError
+        from frida import (InvalidArgumentError, InvalidOperationError,
+                           ServerNotRunningError)
         FridaError = (InvalidArgumentError, InvalidOperationError, ServerNotRunningError, Exception)
     except ImportError:
         FridaError = Exception
@@ -30,19 +31,13 @@ except ImportError:
     frida = None
     FridaError = Exception
 
-try:
-    from device_detector import DeviceDetector
-    DEVICE_DETECTOR_AVAILABLE = True
-except ImportError:
-    DeviceDetector = None
-    DEVICE_DETECTOR_AVAILABLE = False
+from device_detector import DeviceDetector
 
 from ..core.config import ConfigurationManager
 from ..core.errors import DeviceConnectionError
-from ..core.utils import AdbWrapper, AdbError
-from .frida_manager import FridaServerManager
 from ..core.session import AdbStatus
-
+from ..core.utils import AdbError, AdbWrapper
+from .frida_manager import FridaServerManager
 
 # Module-level constants for configuration
 _EMULATOR_INDICATORS = [
@@ -228,11 +223,7 @@ class EmulatorService:
         self.adb = AdbWrapper(self.logger, self._verbose_debug)
         self.frida_manager = FridaServerManager(self.logger, self.adb)
 
-        # Device detector is required for device information
-        if DEVICE_DETECTOR_AVAILABLE:
-            self.logger.debug("Device detector library available")
-        else:
-            self.logger.error("Device detector library is required but not available")
+        # Device detector is available for enhanced device information
 
         # Centralized caching
         self._cache: Dict[str, CacheEntry] = {}
@@ -890,8 +881,6 @@ class EmulatorService:
 
     async def _get_device_info_with_detector(self, model: str, brand: str, manufacturer: str, product_name: str, product_device: str, android_version: str) -> Dict[str, Optional[str]]:
         """Get enhanced device information using DeviceDetector library."""
-        if not DEVICE_DETECTOR_AVAILABLE or DeviceDetector is None:
-            raise RuntimeError("DeviceDetector library is not available")
 
         # Create a user agent string that DeviceDetector can parse using actual Android version
         user_agent = f"Mozilla/5.0 (Linux; Android {android_version}; {model}) AppleWebKit/537.36"

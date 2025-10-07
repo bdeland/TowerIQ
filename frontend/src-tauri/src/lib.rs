@@ -500,8 +500,57 @@ fn greet(name: &str) -> String {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
+        .setup(|app| {
+            // Start the backend sidecar on application startup
+            let app_handle = app.handle().clone();
+            tauri::async_runtime::spawn(async move {
+                use tauri_plugin_shell::ShellExt;
+                
+                match app_handle.shell().sidecar("toweriq-backend") {
+                    Ok(sidecar_command) => {
+                        match sidecar_command.spawn() {
+                            Ok((mut rx, mut _child)) => {
+                                println!("✅ Backend sidecar started successfully");
+                                
+                                // Monitor backend output
+                                tauri::async_runtime::spawn(async move {
+                                    use tauri_plugin_shell::process::CommandEvent;
+                                    while let Some(event) = rx.recv().await {
+                                        match event {
+                                            CommandEvent::Stdout(line) => {
+                                                if let Ok(text) = String::from_utf8(line) {
+                                                    println!("Backend: {}", text.trim());
+                                                }
+                                            }
+                                            CommandEvent::Stderr(line) => {
+                                                if let Ok(text) = String::from_utf8(line) {
+                                                    eprintln!("Backend Error: {}", text.trim());
+                                                }
+                                            }
+                                            CommandEvent::Terminated(payload) => {
+                                                println!("Backend terminated with code: {:?}", payload.code);
+                                            }
+                                            _ => {}
+                                        }
+                                    }
+                                });
+                            }
+                            Err(e) => {
+                                eprintln!("❌ Failed to start backend sidecar: {}", e);
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        eprintln!("❌ Failed to get backend sidecar command: {}", e);
+                    }
+                }
+            });
+            
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             greet,
             get_backend_status,

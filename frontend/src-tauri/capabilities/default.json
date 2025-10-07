@@ -6,6 +6,16 @@
   "permissions": [
     "core:default",
     "opener:default",
-    "dialog:default"
+    "dialog:default",
+    "shell:allow-execute",
+    {
+      "identifier": "shell:allow-spawn",
+      "allow": [
+        {
+          "name": "binaries/toweriq-backend",
+          "sidecar": true
+        }
+      ]
+    }
   ]
 }
