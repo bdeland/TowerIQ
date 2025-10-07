@@ -237,3 +237,11 @@ cursor_test_report_min.md
 dist/
 target/
 gen/
+*.exe
+*.dll
+*.so
+*.dylib
+
+# Tauri binaries
+frontend/src-tauri/binaries/
+frontend/src-tauri/target/
