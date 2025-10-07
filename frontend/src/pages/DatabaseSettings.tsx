@@ -107,9 +107,8 @@ export function DatabaseSettings() {
       const stats = await statsResponse.json();
       setDbStats(stats);
       
-      // Show success message briefly
+      // Show success message (Snackbar will auto-dismiss)
       setSuccess('Database metrics collected and statistics refreshed');
-      setTimeout(() => setSuccess(null), 3000);
       
     } catch (e: any) {
       setStatsError(e?.message || 'Failed to refresh database statistics');
@@ -202,7 +201,6 @@ export function DatabaseSettings() {
       setError(e?.message || 'Failed to save Grafana settings');
     } finally {
       setGrafanaSaving(false);
-      setTimeout(() => setSuccess(null), 5000);
     }
   };
 
@@ -220,14 +218,11 @@ export function DatabaseSettings() {
       
       if (data.success) {
         setSuccess(data.message);
-        setTimeout(() => setSuccess(null), 3000);
       } else {
         setError(data.message);
-        setTimeout(() => setError(null), 5000);
       }
     } catch (e: any) {
       setError(e?.message || 'Failed to validate Grafana connection');
-      setTimeout(() => setError(null), 3000);
     } finally {
       setGrafanaValidating(false);
     }
@@ -249,7 +244,6 @@ export function DatabaseSettings() {
       setCopySnackbarOpen(true);
     } catch (e) {
       setError('Failed to copy URL to clipboard');
-      setTimeout(() => setError(null), 2000);
     }
   };
 
@@ -266,7 +260,6 @@ export function DatabaseSettings() {
       if (Array.isArray(selected) && selected.length > 0) setter(String(selected[0]));
     } catch (e: any) {
       setError(e?.message || 'Failed to open dialog');
-      setTimeout(() => setError(null), 2500);
     }
   };
 
@@ -300,7 +293,6 @@ export function DatabaseSettings() {
       setError(e?.message || 'Failed to save settings');
     } finally {
       setSaving(false);
-      setTimeout(() => setSuccess(null), 2000);
     }
   };
 
@@ -317,7 +309,6 @@ export function DatabaseSettings() {
       setError(e?.message || 'Failed to run backup');
     } finally {
       setRunningBackup(false);
-      setTimeout(() => setSuccess(null), 2000);
     }
   };
 
@@ -339,12 +330,6 @@ export function DatabaseSettings() {
           <CircularProgress size={20} sx={{ mr: 1 }} />
           <Typography variant="body2">Loading settings…</Typography>
         </Box>
-      )}
-      {error && (
-        <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>
-      )}
-      {success && (
-        <Alert severity="success" sx={{ mb: 2 }}>{success}</Alert>
       )}
       
       <Grid container spacing={3} sx={{ mt: 2 }}>
@@ -754,10 +739,8 @@ export function DatabaseSettings() {
                       throw new Error(data?.detail || 'Restore failed');
                     }
                     setSuccess('Restore completed');
-                    setTimeout(() => setSuccess(null), 2000);
                   } catch (e: any) {
                     setError(e?.message || 'Failed to restore database');
-                    setTimeout(() => setError(null), 3000);
                   }
                 }}>
                   Restore from Backup
@@ -768,7 +751,7 @@ export function DatabaseSettings() {
         </Grid>
       </Grid>
 
-      {/* Snackbar for copy feedback */}
+      {/* Snackbars for feedback with auto-dismiss (Pattern #10: Debounce/throttle instead of sleep) */}
       <Snackbar
         open={copySnackbarOpen}
         autoHideDuration={2000}
@@ -776,6 +759,30 @@ export function DatabaseSettings() {
         message="URL copied to clipboard"
         anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
       />
+      
+      {/* Success message snackbar with auto-dismiss */}
+      <Snackbar
+        open={!!success}
+        autoHideDuration={3000}
+        onClose={() => setSuccess(null)}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+      >
+        <Alert severity="success" onClose={() => setSuccess(null)} sx={{ width: '100%' }}>
+          {success}
+        </Alert>
+      </Snackbar>
+      
+      {/* Error message snackbar with auto-dismiss */}
+      <Snackbar
+        open={!!error}
+        autoHideDuration={4000}
+        onClose={() => setError(null)}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+      >
+        <Alert severity="error" onClose={() => setError(null)} sx={{ width: '100%' }}>
+          {error}
+        </Alert>
+      </Snackbar>
     </Box>
   );
 }

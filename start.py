@@ -11,15 +11,17 @@ import os
 import shutil
 import subprocess
 import sys
-import time
 from pathlib import Path
 
 import aiohttp
 import structlog
 
 # Import the same logging configuration as the main application
+from tower_iq.core.async_utils import wait_for_condition
 from tower_iq.core.config import ConfigurationManager
 from tower_iq.core.logging_config import setup_logging
+from tower_iq.core.process_monitor import (ProcessMonitor,
+                                           wait_for_process_alive)
 
 # Initialize configuration and logging the same way as the main app
 app_root = Path(__file__).parent
@@ -31,28 +33,47 @@ config._recreate_logger()
 
 logger = structlog.get_logger(__name__)
 
-async def check_backend_health(url: str = "http://127.0.0.1:8000/", max_retries: int = 30) -> bool:
-    """Check if the backend server is healthy."""
-    timeout = aiohttp.ClientTimeout(total=2)
+async def check_backend_health(url: str = "http://127.0.0.1:8000/", timeout: float = 30.0) -> bool:
+    """
+    Check if the backend server is healthy using proper polling with exponential backoff.
     
-    for i in range(max_retries):
+    Implements Pattern #3: Poll properly with exponential backoff + jitter.
+    """
+    async def health_check() -> bool:
+        """Check if health endpoint returns 200."""
         try:
-            async with aiohttp.ClientSession(timeout=timeout) as session:
+            check_timeout = aiohttp.ClientTimeout(total=2)
+            async with aiohttp.ClientSession(timeout=check_timeout) as session:
                 async with session.get(url) as response:
-                    if response.status == 200:
-                        logger.info("Backend server is healthy", url=url)
-                        return True
-        except (aiohttp.ClientError, asyncio.TimeoutError) as e:
-            logger.warning("Request failed", error=str(e))
-        
-        logger.info("Waiting for backend server", attempt=i + 1, max_attempts=max_retries)
-        await asyncio.sleep(1)
+                    return response.status == 200
+        except (aiohttp.ClientError, asyncio.TimeoutError):
+            return False
     
-    logger.error("Backend server failed to start")
-    return False
+    logger.info("Waiting for backend server to become healthy", url=url, timeout=timeout)
+    
+    # Use wait_for_condition with exponential backoff
+    success = await wait_for_condition(
+        health_check,
+        timeout=timeout,
+        initial_delay=0.5,
+        max_delay=2.0,
+        backoff_factor=1.5,
+        condition_name="backend health"
+    )
+    
+    if success:
+        logger.info("Backend server is healthy", url=url)
+    else:
+        logger.error("Backend server failed to become healthy within timeout", timeout=timeout)
+    
+    return success
 
-def start_backend_server():
-    """Start the FastAPI backend server."""
+async def start_backend_server():
+    """
+    Start the FastAPI backend server.
+    
+    Implements Pattern #10: Use proper readiness contracts instead of sleep.
+    """
     logger.info("Starting TowerIQ FastAPI backend server")
     
     # Get the path to the API server
@@ -71,19 +92,24 @@ def start_backend_server():
         
         logger.info("Backend server started", pid=process.pid)
         
-        # Check if process is still running after a moment
-        time.sleep(2)
-        if process.poll() is not None:
-            logger.error("Backend server process exited immediately")
+        # Check if process stays alive (replaces time.sleep(2) + poll())
+        is_alive = await wait_for_process_alive(process, check_duration=2.0)
+        if not is_alive:
+            logger.error("Backend server process exited immediately", returncode=process.returncode)
             return None
         
+        logger.info("Backend server process is running")
         return process
     except Exception as e:
         logger.error("Failed to start backend server", error=str(e))
         return None
 
-def start_tauri_frontend():
-    """Start the Tauri frontend."""
+async def start_tauri_frontend():
+    """
+    Start the Tauri frontend.
+    
+    Implements Pattern #10: Use proper readiness contracts.
+    """
     logger.info("Starting TowerIQ Tauri frontend")
     
     # Get the path to the Tauri app
@@ -154,26 +180,41 @@ def start_tauri_frontend():
         return None
 
 async def main():
-    """Main startup function."""
+    """
+    Main startup function.
+    
+    Implements Pattern #4: Use OS/runtime primitives for process monitoring.
+    """
     logger.info("TowerIQ Startup Script", version="1.0.0")
     
     backend_process = None
     frontend_process = None
+    backend_monitor = None
+    frontend_monitor = None
     
     try:
         # Start Tauri frontend FIRST (with splash screen)
-        frontend_process = start_tauri_frontend()
+        frontend_process = await start_tauri_frontend()
         if not frontend_process:
             logger.error("Failed to start Tauri frontend. Exiting.")
             return 1
         
-        # Give frontend a moment to start up
-        await asyncio.sleep(2)
+        # Create monitor for frontend process
+        frontend_monitor = ProcessMonitor(frontend_process)
         
         # Start backend server in background
-        backend_process = start_backend_server()
+        backend_process = await start_backend_server()
         if not backend_process:
             logger.error("Failed to start backend server. Exiting.")
+            return 1
+        
+        # Create monitor for backend process
+        backend_monitor = ProcessMonitor(backend_process)
+        
+        # Wait for backend to be healthy
+        backend_healthy = await check_backend_health(timeout=30.0)
+        if not backend_healthy:
+            logger.error("Backend server failed to become healthy. Exiting.")
             return 1
         
         logger.info("TowerIQ is now running", 
@@ -181,48 +222,59 @@ async def main():
                    backend_url="http://localhost:8000",
                    api_docs="http://localhost:8000/docs")
         
-        # Wait for processes to complete
+        # Use proper wait primitives instead of polling loop
+        # Wait for either process to exit
         while True:
-            if backend_process.poll() is not None:
-                logger.error("Backend server stopped unexpectedly")
+            backend_exited = await backend_monitor.wait_for_exit(timeout=1.0)
+            if backend_exited:
+                logger.error("Backend server stopped unexpectedly", 
+                           returncode=backend_monitor.returncode)
                 break
-            if frontend_process.poll() is not None:
-                logger.error("Frontend stopped unexpectedly")
+            
+            frontend_exited = await frontend_monitor.wait_for_exit(timeout=1.0)
+            if frontend_exited:
+                logger.error("Frontend stopped unexpectedly",
+                           returncode=frontend_monitor.returncode)
                 break
-            await asyncio.sleep(1)
     
     except KeyboardInterrupt:
         logger.info("Shutting down TowerIQ")
     
     finally:
-        # Cleanup processes
-        if backend_process:
+        # Cleanup processes with proper wait primitives
+        if backend_monitor and backend_process:
             logger.info("Stopping backend server")
             # Attempt graceful shutdown via API so DB can cleanup WAL/SHM
             try:
-                timeout = aiohttp.ClientTimeout(total=2)
-                async with aiohttp.ClientSession(timeout=timeout) as session:
+                shutdown_timeout = aiohttp.ClientTimeout(total=2)
+                async with aiohttp.ClientSession(timeout=shutdown_timeout) as session:
                     await session.post("http://127.0.0.1:8000/api/shutdown")
             except Exception:
                 pass
-            # Then terminate the process
-            backend_process.terminate()
-            try:
-                backend_process.wait(timeout=5)
-            except subprocess.TimeoutExpired:
-                backend_process.kill()
+            
+            # Use proper wait primitive instead of manual timeout handling
+            graceful = await backend_monitor.terminate_and_wait(timeout=5.0)
+            if graceful:
+                logger.info("Backend server shut down gracefully")
+            else:
+                logger.warning("Backend server had to be force-killed")
+            
+            backend_monitor.cleanup()
         
-        if frontend_process:
+        if frontend_monitor and frontend_process:
             logger.info("Stopping frontend")
-            frontend_process.terminate()
-            try:
-                frontend_process.wait(timeout=5)
-            except subprocess.TimeoutExpired:
-                frontend_process.kill()
+            graceful = await frontend_monitor.terminate_and_wait(timeout=5.0)
+            if graceful:
+                logger.info("Frontend shut down gracefully")
+            else:
+                logger.warning("Frontend had to be force-killed")
+            
+            frontend_monitor.cleanup()
         
         logger.info("TowerIQ shutdown complete")
     
     return 0
 
 if __name__ == "__main__":
+    sys.exit(asyncio.run(main()))
     sys.exit(asyncio.run(main()))

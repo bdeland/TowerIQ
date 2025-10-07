@@ -8,6 +8,8 @@ from typing import Any, Optional
 
 import aiohttp
 
+from ..core.async_utils import (wait_for_condition,
+                                wait_for_condition_with_result)
 from ..core.utils import AdbError, AdbWrapper
 
 
@@ -454,11 +456,31 @@ class FridaServerManager:
                 raise e2
 
     async def _start_server(self, device_id: str):
+        """
+        Start frida-server using proper wait conditions instead of fixed delays.
+        
+        Implements Pattern #3: Poll properly with exponential backoff.
+        """
         self.logger.info("Starting frida-server on device...")
         try:
             # Kill any existing frida-server processes
             await self.stop_server(device_id)
-            await asyncio.sleep(1)  # Give it time to clean up
+            
+            # Wait for process to actually be killed (poll instead of sleep)
+            async def check_stopped() -> bool:
+                try:
+                    pid_output = await self.adb.shell(device_id, "pidof frida-server")
+                    return not pid_output.strip()  # True if no process found
+                except AdbError:
+                    return True  # Assume stopped if pidof fails
+            
+            await wait_for_condition(
+                check_stopped,
+                timeout=3.0,
+                initial_delay=0.1,
+                max_delay=0.5,
+                condition_name="frida-server stopped"
+            )
 
             # Use a more reliable method to start frida-server in background
             # Try multiple approaches with shorter timeouts to avoid hanging
@@ -487,18 +509,31 @@ class FridaServerManager:
             if not started:
                 raise AdbError("Failed to start frida-server with any method")
 
-            # Give the server a moment to start
-            await asyncio.sleep(2)
-
-            # Quick check to see if the process exists for faster feedback
-            try:
-                pid_output = await self.adb.shell(device_id, "pidof frida-server")
-                if pid_output.strip():
-                    self.logger.info(f"Frida-server process found with PID: {pid_output.strip()}")
-                else:
-                    self.logger.warning("Frida-server process not found after startup")
-            except AdbError:
-                self.logger.debug("Could not check frida-server PID - process may not be running yet")
+            # Wait for process to actually start (poll instead of fixed delay)
+            async def check_started() -> bool:
+                try:
+                    pid_output = await self.adb.shell(device_id, "pidof frida-server")
+                    return bool(pid_output.strip())
+                except AdbError:
+                    return False
+            
+            process_started = await wait_for_condition(
+                check_started,
+                timeout=5.0,
+                initial_delay=0.2,
+                max_delay=1.0,
+                condition_name="frida-server started"
+            )
+            
+            if process_started:
+                try:
+                    pid_output = await self.adb.shell(device_id, "pidof frida-server")
+                    self.logger.info(f"Frida-server process started with PID: {pid_output.strip()}")
+                except AdbError:
+                    pass
+            else:
+                self.logger.warning("Frida-server process not found after startup attempts")
+                
         except Exception as e:
             self.logger.error(f"Error in _start_server: {e}")
             raise
@@ -510,14 +545,18 @@ class FridaServerManager:
         frida_instance=None,
         timeout: int = 15,
     ) -> bool:
+        """
+        Wait for frida-server to become responsive using proper polling.
+        
+        Implements Pattern #3: Poll properly with exponential backoff + jitter.
+        """
         self.logger.info(
             f"Waiting for frida-server to become responsive on {device_id}"
             f" (expecting version {target_version})"
         )
 
-        last_error: Optional[FridaServerSetupError] = None
-
-        for attempt in range(1, timeout + 1):
+        async def check_responsive() -> tuple[bool, Optional[Exception]]:
+            """Check if frida-server is responsive."""
             try:
                 await self._verify_installation(device_id)
                 await self._verify_running_state(device_id)
@@ -532,36 +571,37 @@ class FridaServerManager:
                         await loop.run_in_executor(None, device.enumerate_processes)
                     except Exception as e:
                         message = f"Failed to communicate with frida-server API: {e}"
-                        self.logger.error(
-                            f"Frida-server API responsiveness check failed on {device_id}: {e}"
-                        )
-                        raise FridaServerSetupError(message) from e
+                        return (False, FridaServerSetupError(message))
 
-                self.logger.info(
-                    f"Frida-server passed verification checks on {device_id}."
-                )
-                return True
+                return (True, None)
 
             except FridaServerSetupError as e:
-                last_error = e
-                if attempt < timeout:
-                    self.logger.debug(
-                        f"Frida-server verification attempt {attempt} failed for {device_id}: {e}."
-                        " Retrying..."
-                    )
-                    await asyncio.sleep(1)
+                return (False, e)
             except Exception as e:
                 message = f"Unexpected error while verifying frida-server on {device_id}: {e}"
-                self.logger.error(message)
-                last_error = FridaServerSetupError(message)
-                if attempt < timeout:
-                    await asyncio.sleep(1)
+                return (False, FridaServerSetupError(message))
 
+        # Use proper polling with exponential backoff
+        success, last_error = await wait_for_condition_with_result(
+            check_responsive,
+            timeout=float(timeout),
+            initial_delay=0.5,
+            max_delay=2.0,
+            backoff_factor=1.5,
+            condition_name=f"frida-server responsive on {device_id}"
+        )
+
+        if success:
+            self.logger.info(f"Frida-server passed verification checks on {device_id}")
+            return True
+        
         if last_error is not None:
             self.logger.error(
                 f"Frida-server failed verification after retries on {device_id}: {last_error}"
             )
-            raise last_error
+            if isinstance(last_error, Exception):
+                raise last_error
+            raise FridaServerSetupError(str(last_error))
 
         message = "Frida-server verification failed for unknown reasons."
         self.logger.error(f"{message} (device {device_id})")
@@ -633,7 +673,9 @@ class FridaServerManager:
 
     async def start_server(self, device_id: str) -> bool:
         """
-        Start the frida-server on the device.
+        Start the frida-server on the device with proper wait conditions.
+
+        Implements Pattern #3: Poll properly with exponential backoff.
 
         Args:
             device_id: Device serial ID
@@ -654,29 +696,35 @@ class FridaServerManager:
             # Kill any existing processes first
             await self.stop_server(device_id)
 
-            # Start the server
+            # Start the server (already uses wait_for_condition internally)
             await self._start_server(device_id)
 
-            # Give it more time to start up
-            await asyncio.sleep(3)
-
-            # Verify it's running with multiple checks
-            for attempt in range(3):
+            # Verify it's running using proper polling
+            async def check_running() -> tuple[bool, Optional[str]]:
+                """Check if frida-server is running and return PID."""
                 try:
                     pid_output = await self.adb.shell(device_id, "pidof frida-server")
-                    if pid_output.strip():
-                        self.logger.info(f"Frida-server started successfully with PID: {pid_output.strip()}")
-                        return True
-                    else:
-                        self.logger.warning(f"Frida-server process not found on attempt {attempt + 1}")
-                        if attempt < 2:
-                            await asyncio.sleep(2)  # Wait a bit more before next check
+                    pid = pid_output.strip()
+                    if pid:
+                        return (True, pid)
+                    return (False, None)
                 except AdbError:
-                    self.logger.warning(f"Could not check frida-server PID on attempt {attempt + 1}")
-                    if attempt < 2:
-                        await asyncio.sleep(2)
+                    return (False, None)
+            
+            success, pid = await wait_for_condition_with_result(
+                check_running,
+                timeout=10.0,
+                initial_delay=0.5,
+                max_delay=2.0,
+                backoff_factor=1.5,
+                condition_name="frida-server running"
+            )
 
-            self.logger.error("Frida-server failed to start - no process found after multiple attempts")
+            if success and pid:
+                self.logger.info(f"Frida-server started successfully with PID: {pid}")
+                return True
+            
+            self.logger.error("Frida-server failed to start - no process found after polling")
             return False
 
         except Exception as e:
@@ -685,7 +733,9 @@ class FridaServerManager:
 
     async def stop_server(self, device_id: str) -> bool:
         """
-        Stop the frida-server on the device.
+        Stop the frida-server on the device with proper wait conditions.
+
+        Implements Pattern #3: Poll properly with exponential backoff.
 
         Args:
             device_id: Device serial ID
@@ -727,32 +777,46 @@ class FridaServerManager:
                     continue
 
             if stopped:
-                # Give it time to stop
-                await asyncio.sleep(2)
+                # Wait for process to actually stop (poll instead of sleep)
+                async def check_stopped() -> bool:
+                    try:
+                        pid_output = await self.adb.shell(device_id, "pidof frida-server")
+                        return not pid_output.strip()  # True if process stopped
+                    except AdbError:
+                        return True  # Assume stopped if pidof fails
+                
+                process_stopped = await wait_for_condition(
+                    check_stopped,
+                    timeout=5.0,
+                    initial_delay=0.2,
+                    max_delay=1.0,
+                    condition_name="frida-server stopped"
+                )
 
-                # Verify it's stopped
-                try:
-                    pid_output = await self.adb.shell(device_id, "pidof frida-server")
-                    if not pid_output.strip():
-                        self.logger.info("Frida-server stopped successfully")
-                        return True
-                    else:
-                        self.logger.warning("Frida-server process still running after stop attempt")
-                        # Try one more aggressive stop
-                        try:
-                            await self.adb.shell(device_id, "su -c 'kill -9 $(pidof frida-server)'", timeout=5.0)
-                            await asyncio.sleep(1)
-                            pid_output = await self.adb.shell(device_id, "pidof frida-server")
-                            if not pid_output.strip():
-                                self.logger.info("Frida-server force-stopped successfully")
-                                return True
-                        except AdbError:
-                            pass
-                        return False
-                except AdbError:
-                    # If pidof fails, assume it's stopped
+                if process_stopped:
                     self.logger.info("Frida-server stopped successfully")
                     return True
+                else:
+                    self.logger.warning("Frida-server process still running after stop attempt")
+                    # Try one more aggressive stop
+                    try:
+                        await self.adb.shell(device_id, "su -c 'kill -9 $(pidof frida-server)'", timeout=5.0)
+                        
+                        # Check again with polling
+                        force_stopped = await wait_for_condition(
+                            check_stopped,
+                            timeout=3.0,
+                            initial_delay=0.1,
+                            max_delay=0.5,
+                            condition_name="frida-server force-stopped"
+                        )
+                        
+                        if force_stopped:
+                            self.logger.info("Frida-server force-stopped successfully")
+                            return True
+                    except AdbError:
+                        pass
+                    return False
             else:
                 self.logger.warning("No frida-server process found to stop")
                 return True  # Consider this success if no process was running
@@ -848,4 +912,5 @@ class FridaServerManager:
             version_output = await self.adb.shell(device_id, f"{self.DEVICE_PATH} --version")
             return version_output.strip()
         except AdbError:
+            return None
             return None

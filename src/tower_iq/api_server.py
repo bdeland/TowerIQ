@@ -25,6 +25,7 @@ from tower_iq.api.routers import (adb, connection, dashboards_v1,
                                   scripts)
 from tower_iq.core.config import ConfigurationManager
 from tower_iq.core.logging_config import setup_logging
+from tower_iq.core.scheduler import TaskScheduler
 from tower_iq.core.sqlmodel_engine import (get_sqlmodel_engine,
                                            get_sqlmodel_session,
                                            initialize_sqlmodel_engine)
@@ -65,12 +66,13 @@ logger: Any = structlog.get_logger()
 controller: Any = None
 db_service: Any = None
 query_service: Any = None
+task_scheduler: Any = None
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Manage the lifespan of the FastAPI application and backend services."""
-    global config, logger, controller, db_service, query_service
+    global config, logger, controller, db_service, query_service, task_scheduler
 
     # Initialize paths & environment
     app_root = Path(__file__).parent.parent.parent
@@ -138,69 +140,58 @@ async def lifespan(app: FastAPI):
     controller.loading_manager.mark_step_complete('frida_service')
     controller.loading_manager.mark_step_complete('hook_scripts')
 
-    # Simulate some startup time for services
-    await asyncio.sleep(2)  # Simulate 2 seconds of startup time
-
-    # Signal that the API server is ready
+    # Signal that the API server is ready (no artificial delays)
     controller.signal_loading_complete()
+    logger.info("API server is ready")
 
-    # Periodic backup task
-    async def _periodic_backup_task():
-        try:
-            while True:
-                try:
-                    if config and db_service and bool(config.get('database.backup.enabled', True)):
-                        interval = int(config.get('database.backup.interval_seconds', 86400))
-                        await asyncio.sleep(max(60, interval))
-                        await asyncio.to_thread(db_service.backup_database)
-                    else:
-                        # Sleep a default period if disabled to avoid tight loop
-                        await asyncio.sleep(600)
-                except asyncio.CancelledError:
-                    break
-                except Exception as e:
-                    if logger:
-                        logger.warning("Periodic backup failed", error=str(e))
-                    await asyncio.sleep(600)
-        except Exception:
-            pass
+    # Initialize task scheduler for periodic tasks
+    task_scheduler = TaskScheduler(logger)
+    task_scheduler.start()
 
-    backup_task = asyncio.create_task(_periodic_backup_task())
+    # Schedule periodic backup task if enabled
+    if config and db_service and bool(config.get('database.backup.enabled', True)):
+        interval = int(config.get('database.backup.interval_seconds', 86400))
+        # Ensure minimum interval of 60 seconds
+        interval = max(60, interval)
+        
+        async def run_backup():
+            """Scheduled backup task."""
+            try:
+                logger.info("Starting scheduled database backup")
+                await asyncio.to_thread(db_service.backup_database)
+                logger.info("Scheduled database backup completed successfully")
+            except Exception as e:
+                logger.warning("Scheduled backup failed", error=str(e))
+        
+        task_scheduler.add_interval_job(
+            run_backup,
+            interval_seconds=interval,
+            job_id="periodic_backup",
+            initial_delay=60  # Wait 1 minute after startup
+        )
+        logger.info(f"Scheduled periodic backup every {interval}s")
 
-    # Periodic metrics collection task
-    async def _periodic_metrics_collection_task():
-        """Periodic task to collect database metrics every 24 hours."""
-        try:
-            # Wait a bit before starting metrics collection (let services initialize)
-            await asyncio.sleep(300)  # Wait 5 minutes after startup
-
-            while True:
-                try:
-                    if db_service:
-                        if logger:
-                            logger.info("Starting scheduled database metrics collection")
-                        success = await asyncio.to_thread(db_service.collect_and_store_db_metrics)
-                        if success:
-                            if logger:
-                                logger.info("Scheduled database metrics collection completed successfully")
-                        else:
-                            if logger:
-                                logger.warning("Scheduled database metrics collection failed")
-
-                    # Sleep for 24 hours (86400 seconds)
-                    await asyncio.sleep(86400)
-
-                except asyncio.CancelledError:
-                    break
-                except Exception as e:
-                    if logger:
-                        logger.warning("Periodic metrics collection failed", error=str(e))
-                    # Wait 1 hour before retrying on error
-                    await asyncio.sleep(3600)
-        except Exception:
-            pass
-
-    metrics_task = asyncio.create_task(_periodic_metrics_collection_task())
+    # Schedule periodic metrics collection
+    if db_service:
+        async def run_metrics_collection():
+            """Scheduled metrics collection task."""
+            try:
+                logger.info("Starting scheduled database metrics collection")
+                success = await asyncio.to_thread(db_service.collect_and_store_db_metrics)
+                if success:
+                    logger.info("Scheduled database metrics collection completed successfully")
+                else:
+                    logger.warning("Scheduled database metrics collection failed")
+            except Exception as e:
+                logger.warning("Periodic metrics collection failed", error=str(e))
+        
+        task_scheduler.add_interval_job(
+            run_metrics_collection,
+            interval_seconds=86400,  # Daily
+            job_id="periodic_metrics",
+            initial_delay=300  # Wait 5 minutes after startup
+        )
+        logger.info("Scheduled periodic metrics collection every 24 hours")
 
     # Compute restore suggestion: if db file missing or empty and backups exist
     restore_suggestion = {
@@ -276,24 +267,22 @@ async def lifespan(app: FastAPI):
     yield
 
     # Cleanup
+    # Shutdown task scheduler
+    if task_scheduler:
+        try:
+            logger.info("Shutting down task scheduler")
+            await task_scheduler.shutdown(wait=True)
+        except Exception as e:
+            logger.warning("Error shutting down task scheduler", error=str(e))
+
     # Optionally run a shutdown backup
     try:
         if config and db_service and bool(config.get('database.backup.on_shutdown', True)):
+            logger.info("Running shutdown backup")
             db_service.backup_database()
     except Exception as e:
         if logger:
             logger.warning("Shutdown backup failed", error=str(e))
-
-    # Cancel periodic tasks
-    try:
-        backup_task.cancel()
-    except Exception:
-        pass
-
-    try:
-        metrics_task.cancel()
-    except Exception:
-        pass
 
     if controller:
         if logger:

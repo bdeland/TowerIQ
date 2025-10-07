@@ -29,6 +29,7 @@ sqlmodel = "^0.0.16"
 uvicorn = "^0.37.0"
 fastapi = "^0.118.0"
 device-detector = "^5.0.1"
+apscheduler = "^3.10.4"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^7.4"

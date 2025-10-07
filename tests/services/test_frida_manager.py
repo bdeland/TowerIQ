@@ -268,12 +268,24 @@ class TestFridaServerManagerServerControl:
     """Test server start/stop operations."""
     
     @pytest.mark.asyncio
-    async def test_start_server_success(self, logger, mock_adb_wrapper):
-        """Test successful server start."""
+    async def test_start_server_success(self, logger, mock_adb_wrapper, fast_polling_env):
+        """Test successful server start with new wait_for_condition pattern."""
         manager = FridaServerManager(logger, mock_adb_wrapper)
         
-        # Mock successful start
-        mock_adb_wrapper.shell.return_value = ""
+        # Mock successful start - need to handle both stop and start checks
+        call_count = 0
+        def mock_shell_side_effect(*args, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            cmd = args[1] if len(args) > 1 else ""
+            # Return appropriate values for pidof checks
+            if "pidof frida-server" in cmd:
+                # First call: checking if stopped (return empty = stopped)
+                # Later calls: checking if started (return PID = started)
+                return "" if call_count <= 2 else "12345"
+            return ""
+        
+        mock_adb_wrapper.shell.side_effect = mock_shell_side_effect
         
         await manager._start_server("device123")
         
@@ -538,8 +550,8 @@ class TestFridaServerManagerVerification:
         assert result is True
     
     @pytest.mark.asyncio
-    async def test_wait_for_responsive_with_retries(self, logger, mock_adb_wrapper):
-        """Test responsiveness check with retries."""
+    async def test_wait_for_responsive_with_retries(self, logger, mock_adb_wrapper, fast_polling_env):
+        """Test responsiveness check with retries using new wait_for_condition pattern."""
         manager = FridaServerManager(logger, mock_adb_wrapper)
         
         # Mock first attempt fails, second succeeds
@@ -561,9 +573,9 @@ class TestFridaServerManagerVerification:
         result = await manager._wait_for_responsive("device123", "15.2.2", timeout=3)
         
         assert result is True
-        # First attempt: _verify_installation fails (1 call)
-        # Second attempt: all 3 verification methods succeed (3 calls)
-        assert call_count == 4  # Total of 4 shell calls
+        # With wait_for_condition_with_result, it will retry until success
+        # The exact count may vary due to polling, so just verify it succeeded
+        assert call_count >= 4  # At least 4 shell calls (may be more due to retries)
     
     @pytest.mark.asyncio
     async def test_wait_for_responsive_timeout(self, logger, mock_adb_wrapper):
