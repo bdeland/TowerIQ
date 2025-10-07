@@ -9,9 +9,11 @@ import asyncio
 import hashlib
 import lzma
 import tempfile
+import time
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, Mock, call, patch
 
+import aiohttp
 import pytest
 
 from src.tower_iq.services.frida_manager import (FridaServerManager,
@@ -1067,6 +1069,531 @@ class TestFridaServerManagerIntegration:
                 tmp_path.unlink()
 
         assert is_installed is False
+
+
+class TestSecureDownload:
+    """Test secure download functionality with retry logic and checksum verification."""
+    
+    @pytest.mark.asyncio
+    async def test_download_file_success(self, logger, mock_adb_wrapper):
+        """Test successful file download with progress logging."""
+        manager = FridaServerManager(logger, mock_adb_wrapper)
+        
+        # Create mock response with chunked data
+        mock_response = AsyncMock()
+        mock_response.raise_for_status = Mock()
+        mock_response.headers = {'Content-Length': '1048576'}  # 1 MB
+        
+        # Mock chunked content with proper async iterator
+        chunks = [b'x' * 8192 for _ in range(128)]  # 1 MB in 8KB chunks
+        
+        async def async_chunk_iter(size):
+            for chunk in chunks:
+                yield chunk
+        
+        mock_response.content.iter_chunked = Mock(return_value=async_chunk_iter(8192))
+        
+        # Create mock session
+        mock_session = MagicMock()
+        mock_get_context = MagicMock()
+        mock_get_context.__aenter__ = AsyncMock(return_value=mock_response)
+        mock_get_context.__aexit__ = AsyncMock(return_value=None)
+        mock_session.get = MagicMock(return_value=mock_get_context)
+        
+        # Download file
+        result = await manager._download_file(
+            session=mock_session,
+            url="https://test.com/file.xz",
+            filename="test-file"
+        )
+        
+        assert len(result) == 1048576
+        assert result == b'x' * 1048576
+        mock_response.raise_for_status.assert_called_once()
+    
+    @pytest.mark.asyncio
+    async def test_download_file_size_validation_too_small(self, logger, mock_adb_wrapper):
+        """Test file download rejects files that are too small."""
+        manager = FridaServerManager(logger, mock_adb_wrapper)
+        
+        # Create mock response with file too small
+        mock_response = AsyncMock()
+        mock_response.raise_for_status = Mock()
+        mock_response.headers = {'Content-Length': '500000'}  # 500 KB (< 1 MB min)
+        
+        # Create mock session
+        mock_session = MagicMock()
+        mock_get_context = MagicMock()
+        mock_get_context.__aenter__ = AsyncMock(return_value=mock_response)
+        mock_get_context.__aexit__ = AsyncMock(return_value=None)
+        mock_session.get = MagicMock(return_value=mock_get_context)
+        
+        # Should raise ClientError for file too small
+        with pytest.raises(aiohttp.ClientError, match="File size too small"):
+            await manager._download_file(
+                session=mock_session,
+                url="https://test.com/file.xz",
+                filename="test-file"
+            )
+    
+    @pytest.mark.asyncio
+    async def test_download_file_size_validation_too_large(self, logger, mock_adb_wrapper):
+        """Test file download rejects files that are too large."""
+        manager = FridaServerManager(logger, mock_adb_wrapper)
+        
+        # Create mock response with file too large
+        mock_response = AsyncMock()
+        mock_response.raise_for_status = Mock()
+        mock_response.headers = {'Content-Length': '250000000'}  # 250 MB (> 200 MB max)
+        
+        # Create mock session
+        mock_session = MagicMock()
+        mock_get_context = MagicMock()
+        mock_get_context.__aenter__ = AsyncMock(return_value=mock_response)
+        mock_get_context.__aexit__ = AsyncMock(return_value=None)
+        mock_session.get = MagicMock(return_value=mock_get_context)
+        
+        # Should raise ClientError for file too large
+        with pytest.raises(aiohttp.ClientError, match="File size too large"):
+            await manager._download_file(
+                session=mock_session,
+                url="https://test.com/file.xz",
+                filename="test-file"
+            )
+    
+    @pytest.mark.asyncio
+    async def test_download_file_without_content_length(self, logger, mock_adb_wrapper):
+        """Test file download when Content-Length header is missing."""
+        manager = FridaServerManager(logger, mock_adb_wrapper)
+        
+        # Create mock response without Content-Length
+        mock_response = AsyncMock()
+        mock_response.raise_for_status = Mock()
+        mock_response.headers = {}  # No Content-Length
+        
+        # Mock chunked content with proper async iterator
+        chunks = [b'x' * 8192 for _ in range(10)]
+        
+        async def async_chunk_iter(size):
+            for chunk in chunks:
+                yield chunk
+        
+        mock_response.content.iter_chunked = Mock(return_value=async_chunk_iter(8192))
+        
+        # Create mock session
+        mock_session = MagicMock()
+        mock_get_context = MagicMock()
+        mock_get_context.__aenter__ = AsyncMock(return_value=mock_response)
+        mock_get_context.__aexit__ = AsyncMock(return_value=None)
+        mock_session.get = MagicMock(return_value=mock_get_context)
+        
+        # Download file
+        result = await manager._download_file(
+            session=mock_session,
+            url="https://test.com/file.xz",
+            filename="test-file"
+        )
+        
+        assert len(result) == 81920  # 10 chunks of 8KB
+        mock_response.raise_for_status.assert_called_once()
+    
+    @pytest.mark.asyncio
+    async def test_verify_checksum_success(self, logger, mock_adb_wrapper):
+        """Test successful checksum verification."""
+        manager = FridaServerManager(logger, mock_adb_wrapper)
+        
+        compressed_data = b"test_compressed_data"
+        expected_checksum = hashlib.sha256(compressed_data).hexdigest()
+        
+        # Create mock response with checksum
+        mock_response = AsyncMock()
+        mock_response.status = 200
+        mock_response.raise_for_status = Mock()
+        mock_response.text = AsyncMock(return_value=f"{expected_checksum}  frida-server-15.2.2-android-arm64.xz")
+        
+        # Create mock session
+        mock_session = MagicMock()
+        mock_get_context = MagicMock()
+        mock_get_context.__aenter__ = AsyncMock(return_value=mock_response)
+        mock_get_context.__aexit__ = AsyncMock(return_value=None)
+        mock_session.get = MagicMock(return_value=mock_get_context)
+        
+        # Verify checksum
+        result = await manager._verify_checksum(
+            session=mock_session,
+            version="15.2.2",
+            binary_filename="frida-server-15.2.2-android-arm64",
+            frida_arch="arm64",
+            compressed_data=compressed_data
+        )
+        
+        assert result is True
+    
+    @pytest.mark.asyncio
+    async def test_verify_checksum_mismatch(self, logger, mock_adb_wrapper):
+        """Test checksum verification failure when checksums don't match."""
+        manager = FridaServerManager(logger, mock_adb_wrapper)
+        
+        compressed_data = b"test_compressed_data"
+        wrong_checksum = "0" * 64  # Intentionally wrong checksum
+        
+        # Create mock response with wrong checksum
+        mock_response = AsyncMock()
+        mock_response.status = 200
+        mock_response.raise_for_status = Mock()
+        mock_response.text = AsyncMock(return_value=f"{wrong_checksum}  frida-server-15.2.2-android-arm64.xz")
+        
+        # Create mock session
+        mock_session = MagicMock()
+        mock_get_context = MagicMock()
+        mock_get_context.__aenter__ = AsyncMock(return_value=mock_response)
+        mock_get_context.__aexit__ = AsyncMock(return_value=None)
+        mock_session.get = MagicMock(return_value=mock_get_context)
+        
+        # Should raise FridaServerSetupError for checksum mismatch
+        with pytest.raises(FridaServerSetupError, match="Checksum verification failed"):
+            await manager._verify_checksum(
+                session=mock_session,
+                version="15.2.2",
+                binary_filename="frida-server-15.2.2-android-arm64",
+                frida_arch="arm64",
+                compressed_data=compressed_data
+            )
+    
+    @pytest.mark.asyncio
+    async def test_verify_checksum_no_checksum_file(self, logger, mock_adb_wrapper):
+        """Test checksum verification when no checksum file is available."""
+        manager = FridaServerManager(logger, mock_adb_wrapper)
+        
+        compressed_data = b"test_compressed_data"
+        
+        # Create mock response with 404 for all checksum URLs
+        mock_response = AsyncMock()
+        mock_response.status = 404
+        mock_response.raise_for_status = Mock()
+        
+        # Create mock session that returns 404 for all checksum URLs
+        mock_session = MagicMock()
+        mock_get_context = MagicMock()
+        mock_get_context.__aenter__ = AsyncMock(return_value=mock_response)
+        mock_get_context.__aexit__ = AsyncMock(return_value=None)
+        mock_session.get = MagicMock(return_value=mock_get_context)
+        
+        # Should return False (graceful degradation)
+        result = await manager._verify_checksum(
+            session=mock_session,
+            version="15.2.2",
+            binary_filename="frida-server-15.2.2-android-arm64",
+            frida_arch="arm64",
+            compressed_data=compressed_data
+        )
+        
+        assert result is False
+    
+    @pytest.mark.asyncio
+    async def test_verify_checksum_with_sha256_file(self, logger, mock_adb_wrapper):
+        """Test checksum verification with individual .sha256 file."""
+        manager = FridaServerManager(logger, mock_adb_wrapper)
+        
+        compressed_data = b"test_compressed_data"
+        expected_checksum = hashlib.sha256(compressed_data).hexdigest()
+        
+        # Create mock response for .sha256 file (just the hash)
+        mock_response = AsyncMock()
+        mock_response.status = 200
+        mock_response.raise_for_status = Mock()
+        mock_response.text = AsyncMock(return_value=f"{expected_checksum}\n")
+        
+        # Create mock session
+        mock_session = MagicMock()
+        mock_get_context = MagicMock()
+        mock_get_context.__aenter__ = AsyncMock(return_value=mock_response)
+        mock_get_context.__aexit__ = AsyncMock(return_value=None)
+        mock_session.get = MagicMock(return_value=mock_get_context)
+        
+        # Verify checksum
+        result = await manager._verify_checksum(
+            session=mock_session,
+            version="15.2.2",
+            binary_filename="frida-server-15.2.2-android-arm64",
+            frida_arch="arm64",
+            compressed_data=compressed_data
+        )
+        
+        assert result is True
+    
+    @pytest.mark.asyncio
+    async def test_download_with_retry_success_first_attempt(self, logger, mock_adb_wrapper):
+        """Test successful download on first attempt."""
+        manager = FridaServerManager(logger, mock_adb_wrapper)
+        
+        compressed_data = b"test_compressed_data"
+        expected_checksum = hashlib.sha256(compressed_data).hexdigest()
+        
+        # Mock _download_file to return data
+        with patch.object(manager, '_download_file', return_value=compressed_data):
+            # Mock _verify_checksum to return True
+            with patch.object(manager, '_verify_checksum', return_value=True):
+                result = await manager._download_with_retry(
+                    version="15.2.2",
+                    binary_filename="frida-server-15.2.2-android-arm64",
+                    frida_arch="arm64"
+                )
+        
+        assert result == compressed_data
+    
+    @pytest.mark.asyncio
+    async def test_download_with_retry_success_after_failures(self, logger, mock_adb_wrapper):
+        """Test successful download after initial failures."""
+        manager = FridaServerManager(logger, mock_adb_wrapper)
+        
+        compressed_data = b"test_compressed_data"
+        
+        # Mock _download_file to fail twice, then succeed
+        call_count = 0
+        async def mock_download_file(*args, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            if call_count < 3:
+                raise aiohttp.ClientError("Connection failed")
+            return compressed_data
+        
+        with patch.object(manager, '_download_file', side_effect=mock_download_file):
+            # Mock _verify_checksum
+            with patch.object(manager, '_verify_checksum', return_value=True):
+                result = await manager._download_with_retry(
+                    version="15.2.2",
+                    binary_filename="frida-server-15.2.2-android-arm64",
+                    frida_arch="arm64",
+                    max_retries=3,
+                    base_delay=0.01  # Fast retries for testing
+                )
+        
+        assert result == compressed_data
+        assert call_count == 3  # Two failures + one success
+    
+    @pytest.mark.asyncio
+    async def test_download_with_retry_all_attempts_fail(self, logger, mock_adb_wrapper):
+        """Test download failure after all retry attempts."""
+        manager = FridaServerManager(logger, mock_adb_wrapper)
+        
+        # Mock _download_file to always fail
+        async def mock_download_file(*args, **kwargs):
+            raise aiohttp.ClientError("Connection failed")
+        
+        with patch.object(manager, '_download_file', side_effect=mock_download_file):
+            with pytest.raises(FridaServerSetupError, match="Failed to download frida-server after 3 attempts"):
+                await manager._download_with_retry(
+                    version="15.2.2",
+                    binary_filename="frida-server-15.2.2-android-arm64",
+                    frida_arch="arm64",
+                    max_retries=3,
+                    base_delay=0.01  # Fast retries for testing
+                )
+    
+    @pytest.mark.asyncio
+    async def test_download_with_retry_timeout(self, logger, mock_adb_wrapper):
+        """Test download with timeout error."""
+        manager = FridaServerManager(logger, mock_adb_wrapper)
+        
+        # Mock _download_file to timeout
+        async def mock_download_file(*args, **kwargs):
+            raise asyncio.TimeoutError("Download timed out")
+        
+        with patch.object(manager, '_download_file', side_effect=mock_download_file):
+            with pytest.raises(FridaServerSetupError, match="Download timed out after 3 attempts"):
+                await manager._download_with_retry(
+                    version="15.2.2",
+                    binary_filename="frida-server-15.2.2-android-arm64",
+                    frida_arch="arm64",
+                    max_retries=3,
+                    base_delay=0.01
+                )
+    
+    @pytest.mark.asyncio
+    async def test_download_with_retry_unexpected_error(self, logger, mock_adb_wrapper):
+        """Test download with unexpected error (no retry)."""
+        manager = FridaServerManager(logger, mock_adb_wrapper)
+        
+        # Mock _download_file to raise unexpected error
+        async def mock_download_file(*args, **kwargs):
+            raise ValueError("Unexpected error")
+        
+        with patch.object(manager, '_download_file', side_effect=mock_download_file):
+            with pytest.raises(FridaServerSetupError, match="Unexpected error during download"):
+                await manager._download_with_retry(
+                    version="15.2.2",
+                    binary_filename="frida-server-15.2.2-android-arm64",
+                    frida_arch="arm64",
+                    max_retries=3,
+                    base_delay=0.01
+                )
+    
+    @pytest.mark.asyncio
+    async def test_get_frida_server_binary_secure_download_success(self, logger, mock_adb_wrapper):
+        """Test secure download of frida-server binary with all verifications."""
+        manager = FridaServerManager(logger, mock_adb_wrapper)
+        
+        # ELF binary data (starts with ELF magic number)
+        elf_data = b'\x7fELF' + b'x' * 10000
+        compressed_data = lzma.compress(elf_data)
+        
+        try:
+            # Mock download with retry
+            with patch.object(manager, '_download_with_retry', return_value=compressed_data):
+                result = await manager._get_frida_server_binary("arm64-v8a", "15.2.2")
+            
+            # Verify result
+            assert result.exists()
+            assert result.name == "frida-server-15.2.2-android-arm64"
+            
+            # Verify file content
+            downloaded_data = result.read_bytes()
+            assert downloaded_data == elf_data
+        finally:
+            # Cleanup
+            if result.exists():
+                result.unlink()
+    
+    @pytest.mark.asyncio
+    async def test_get_frida_server_binary_invalid_elf(self, logger, mock_adb_wrapper):
+        """Test rejection of non-ELF binary."""
+        manager = FridaServerManager(logger, mock_adb_wrapper)
+        
+        # Non-ELF data
+        non_elf_data = b'NOT_ELF' + b'x' * 10000
+        compressed_data = lzma.compress(non_elf_data)
+        
+        # Mock download with retry
+        with patch.object(manager, '_download_with_retry', return_value=compressed_data):
+            try:
+                with pytest.raises(FridaServerSetupError, match="not a valid ELF binary"):
+                    await manager._get_frida_server_binary("arm64-v8a", "15.2.2")
+            finally:
+                # Cleanup any temp files
+                potential_file = manager.cache_dir / "frida-server-15.2.2-android-arm64"
+                if potential_file.exists():
+                    potential_file.unlink()
+    
+    @pytest.mark.asyncio
+    async def test_get_frida_server_binary_decompression_failure(self, logger, mock_adb_wrapper):
+        """Test handling of decompression failure."""
+        manager = FridaServerManager(logger, mock_adb_wrapper)
+        
+        # Invalid compressed data
+        invalid_compressed_data = b"not_valid_lzma_data"
+        
+        # Mock download with retry
+        with patch.object(manager, '_download_with_retry', return_value=invalid_compressed_data):
+            try:
+                with pytest.raises(FridaServerSetupError, match="Failed to decompress"):
+                    await manager._get_frida_server_binary("arm64-v8a", "15.2.2")
+            finally:
+                # Cleanup any temp files
+                potential_file = manager.cache_dir / "frida-server-15.2.2-android-arm64"
+                if potential_file.exists():
+                    potential_file.unlink()
+    
+    @pytest.mark.asyncio
+    async def test_get_frida_server_binary_atomic_operation(self, logger, mock_adb_wrapper):
+        """Test atomic file operation (temp file + rename)."""
+        manager = FridaServerManager(logger, mock_adb_wrapper)
+        
+        # ELF binary data
+        elf_data = b'\x7fELF' + b'x' * 10000
+        compressed_data = lzma.compress(elf_data)
+        
+        # Track temp files created
+        temp_files_created = []
+        original_mkstemp = tempfile.mkstemp
+        
+        def mock_mkstemp(*args, **kwargs):
+            fd, path = original_mkstemp(*args, **kwargs)
+            temp_files_created.append(Path(path))
+            return fd, path
+        
+        try:
+            with patch('src.tower_iq.services.frida_manager.tempfile.mkstemp', side_effect=mock_mkstemp):
+                with patch.object(manager, '_download_with_retry', return_value=compressed_data):
+                    result = await manager._get_frida_server_binary("arm64-v8a", "15.2.2")
+            
+            # Verify temp file was cleaned up (renamed to final location)
+            assert len(temp_files_created) == 1
+            temp_file = temp_files_created[0]
+            assert not temp_file.exists()  # Temp file should be renamed/deleted
+            
+            # Verify final file exists
+            assert result.exists()
+        finally:
+            # Cleanup
+            if result.exists():
+                result.unlink()
+    
+    @pytest.mark.asyncio
+    async def test_get_frida_server_binary_uses_cache(self, logger, mock_adb_wrapper):
+        """Test that cached binary is returned without re-downloading."""
+        manager = FridaServerManager(logger, mock_adb_wrapper)
+        
+        # Create a cached binary
+        cached_binary = manager.cache_dir / "frida-server-15.2.2-android-arm64"
+        cached_binary.write_bytes(b'\x7fELF' + b'cached' * 100)
+        
+        try:
+            # Mock _download_with_retry to track if it's called
+            download_called = False
+            async def mock_download(*args, **kwargs):
+                nonlocal download_called
+                download_called = True
+                return b"should_not_be_called"
+            
+            with patch.object(manager, '_download_with_retry', side_effect=mock_download):
+                result = await manager._get_frida_server_binary("arm64-v8a", "15.2.2")
+            
+            # Verify cache was used
+            assert not download_called
+            assert result == cached_binary
+            assert b'cached' in result.read_bytes()
+        finally:
+            # Cleanup
+            if cached_binary.exists():
+                cached_binary.unlink()
+    
+    @pytest.mark.asyncio
+    async def test_download_with_retry_exponential_backoff(self, logger, mock_adb_wrapper):
+        """Test that retry delays follow exponential backoff."""
+        manager = FridaServerManager(logger, mock_adb_wrapper)
+        
+        delays = []
+        original_sleep = asyncio.sleep
+        
+        async def mock_sleep(delay):
+            delays.append(delay)
+            await original_sleep(0.001)  # Fast sleep for testing
+        
+        # Mock download to fail twice then succeed
+        call_count = 0
+        async def mock_download_file(*args, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            if call_count < 3:
+                raise aiohttp.ClientError("Temporary failure")
+            return b"success"
+        
+        with patch('asyncio.sleep', side_effect=mock_sleep):
+            with patch.object(manager, '_download_file', side_effect=mock_download_file):
+                with patch.object(manager, '_verify_checksum', return_value=True):
+                    await manager._download_with_retry(
+                        version="15.2.2",
+                        binary_filename="frida-server-15.2.2-android-arm64",
+                        frida_arch="arm64",
+                        max_retries=3,
+                        base_delay=1.0
+                    )
+        
+        # Verify exponential backoff: 1s, 2s (1 * 2^1)
+        assert len(delays) == 2  # Two retries after initial failure
+        assert delays[0] == 1.0  # First retry delay
+        assert delays[1] == 2.0  # Second retry delay (exponential)
 
 
 

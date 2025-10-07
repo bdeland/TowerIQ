@@ -340,7 +340,7 @@ app.add_middleware(
 # and registered in the lifespan function above
 
 
-def start_server(host: str = None, port: int = None):
+def start_server(host: str | None = None, port: int | None = None):
     """
     Start the FastAPI server.
     

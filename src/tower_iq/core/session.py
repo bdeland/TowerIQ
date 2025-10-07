@@ -5,18 +5,18 @@ This module provides the SessionManager class for centralized, thread-safe
 management of application volatile state.
 """
 
-import structlog
 import asyncio
-from typing import Optional, List, Dict, Any, Union
+import threading
+import time
 from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum
-from PyQt6.QtCore import QObject, pyqtSignal, QMutex, QMutexLocker
-import threading
-import time
+from typing import Any, Dict, List, Optional, Union
+
+import structlog
 
 from .errors import DeviceConnectionError
-
+from .event_system import Signal
 
 _DEVICE_CONNECTION_MAX_ATTEMPTS = 3
 _DEVICE_CONNECTION_RETRY_INITIAL_DELAY = 1.0
@@ -214,38 +214,38 @@ class ConnectionStateSnapshot:
 
         return inconsistencies
 
-class SessionManager(QObject):
+class SessionManager:
     """
     Manages volatile application state with signals for reactive UI updates.
     Enhanced with state machine logic and consistency validation.
     """
-    # Signals for individual state changes
-    round_status_changed = pyqtSignal(bool) # True if a round is active
-    available_emulators_changed = pyqtSignal(list)
-    available_processes_changed = pyqtSignal(list)
-    selected_process_changed = pyqtSignal()
-
-    # New state machine signals
-    connection_main_state_changed = pyqtSignal(ConnectionState)
-    connection_sub_state_changed = pyqtSignal(object)  # Can be ConnectionSubState or None
-    state_inconsistency_detected = pyqtSignal(list)  # List of StateInconsistency
-    state_recovery_attempted = pyqtSignal(bool)  # True if recovery succeeded
-    connection_stages_changed = pyqtSignal(list)
-
-    # Script status signals
-    script_status_changed = pyqtSignal(object)  # ScriptStatus object
-    script_heartbeat_received = pyqtSignal(datetime)  # Timestamp of heartbeat
-    script_health_changed = pyqtSignal(bool)  # True if healthy, False if unhealthy
-
-    # ADB status signals
-    adb_status_changed = pyqtSignal(object)  # AdbStatus object
 
     def __init__(self):
-        super().__init__()
         self.logger = structlog.get_logger().bind(source="SessionManager")
 
+        # Signals for individual state changes
+        self.round_status_changed = Signal()  # bool - True if a round is active
+        self.available_emulators_changed = Signal()  # list
+        self.available_processes_changed = Signal()  # list
+        self.selected_process_changed = Signal()
+
+        # New state machine signals
+        self.connection_main_state_changed = Signal()  # ConnectionState
+        self.connection_sub_state_changed = Signal()  # ConnectionSubState or None
+        self.state_inconsistency_detected = Signal()  # List of StateInconsistency
+        self.state_recovery_attempted = Signal()  # bool - True if recovery succeeded
+        self.connection_stages_changed = Signal()  # list
+
+        # Script status signals
+        self.script_status_changed = Signal()  # ScriptStatus object
+        self.script_heartbeat_received = Signal()  # datetime - Timestamp of heartbeat
+        self.script_health_changed = Signal()  # bool - True if healthy, False if unhealthy
+
+        # ADB status signals
+        self.adb_status_changed = Signal()  # AdbStatus object
+
         # Thread safety
-        self._mutex = QMutex()
+        self._mutex = threading.RLock()
 
         # State machine properties
         self._connection_main_state = ConnectionState.DISCONNECTED
@@ -289,7 +289,7 @@ class SessionManager(QObject):
         }
 
         # Initialize state variables
-        with QMutexLocker(self._mutex):
+        with self._mutex:
             self._current_round_seed = None
             self._is_round_active = False
             self._connected_emulator_serial = None
@@ -316,7 +316,7 @@ class SessionManager(QObject):
 
     def _set_property(self, name: str, value: Any, signal: Any = None):
         """Generic thread-safe property setter that emits a signal on change."""
-        with QMutexLocker(self._mutex):
+        with self._mutex:
             current_value = getattr(self, name)
             if current_value == value:
                 return False # No change
@@ -329,12 +329,12 @@ class SessionManager(QObject):
     # --- Properties ---
     @property
     def is_hook_active(self) -> bool:
-        with QMutexLocker(self._mutex):
+        with self._mutex:
             return self._connection_main_state == ConnectionState.ACTIVE
 
     @property
     def is_round_active(self) -> bool:
-        with QMutexLocker(self._mutex):
+        with self._mutex:
             return self._is_round_active
     @is_round_active.setter
     def is_round_active(self, value: bool):
@@ -343,16 +343,16 @@ class SessionManager(QObject):
     # Add other properties here using the same pattern if they need signals
     @property
     def current_round_seed(self) -> Optional[Union[int, str]]:
-        with QMutexLocker(self._mutex):
+        with self._mutex:
             return self._current_round_seed
     @current_round_seed.setter
     def current_round_seed(self, value: Optional[Union[int, str]]):
-        with QMutexLocker(self._mutex):
+        with self._mutex:
             self._current_round_seed = value
 
     @property
     def available_emulators(self) -> List[Dict[str, Any]]:
-        with QMutexLocker(self._mutex):
+        with self._mutex:
             return self._available_emulators
     @available_emulators.setter
     def available_emulators(self, value: List[Dict[str, Any]]):
@@ -362,16 +362,16 @@ class SessionManager(QObject):
     # For brevity, only showing the ones with signals. Implement the rest as needed.
     @property
     def connected_emulator_serial(self) -> Optional[str]:
-        with QMutexLocker(self._mutex):
+        with self._mutex:
             return self._connected_emulator_serial
     @connected_emulator_serial.setter
     def connected_emulator_serial(self, value: Optional[str]):
-        with QMutexLocker(self._mutex):
+        with self._mutex:
             self._connected_emulator_serial = value
 
     @property
     def available_processes(self) -> List[Dict[str, Any]]:
-        with QMutexLocker(self._mutex):
+        with self._mutex:
             return self._available_processes
     @available_processes.setter
     def available_processes(self, value: List[Dict[str, Any]]):
@@ -379,21 +379,21 @@ class SessionManager(QObject):
 
     @property
     def selected_target_pid(self) -> Optional[int]:
-        with QMutexLocker(self._mutex):
+        with self._mutex:
             return self._selected_target_pid
     @selected_target_pid.setter
     def selected_target_pid(self, value: Optional[int]):
-        with QMutexLocker(self._mutex):
+        with self._mutex:
             self._selected_target_pid = value
         self.selected_process_changed.emit()
 
     @property
     def script_status(self) -> ScriptStatus:
-        with QMutexLocker(self._mutex):
+        with self._mutex:
             return self._script_status
     @script_status.setter
     def script_status(self, value: ScriptStatus):
-        with QMutexLocker(self._mutex):
+        with self._mutex:
             old_health = self._script_status.is_healthy() if self._script_status else False
             self._script_status = value
             new_health = value.is_healthy() if value else False
@@ -405,12 +405,12 @@ class SessionManager(QObject):
 
     @property
     def is_emulator_connected(self) -> bool:
-        with QMutexLocker(self._mutex):
+        with self._mutex:
             return self._connection_main_state in [ConnectionState.CONNECTED, ConnectionState.ACTIVE]
 
     @property
     def adb_status(self) -> AdbStatus:
-        with QMutexLocker(self._mutex):
+        with self._mutex:
             return self._adb_status
     @adb_status.setter
     def adb_status(self, value: AdbStatus):
@@ -418,58 +418,58 @@ class SessionManager(QObject):
 
     @property
     def selected_target_package(self) -> Optional[str]:
-        with QMutexLocker(self._mutex):
+        with self._mutex:
             return self._selected_target_package
     @selected_target_package.setter
     def selected_target_package(self, value: Optional[str]):
-        with QMutexLocker(self._mutex):
+        with self._mutex:
             self._selected_target_package = value
 
     @property
     def selected_target_version(self) -> Optional[str]:
-        with QMutexLocker(self._mutex):
+        with self._mutex:
             return self._selected_target_version
     @selected_target_version.setter
     def selected_target_version(self, value: Optional[str]):
-        with QMutexLocker(self._mutex):
+        with self._mutex:
             self._selected_target_version = value
 
     @property
     def is_hook_compatible(self) -> bool:
-        with QMutexLocker(self._mutex):
+        with self._mutex:
             return self._is_hook_compatible
     @is_hook_compatible.setter
     def is_hook_compatible(self, value: bool):
-        with QMutexLocker(self._mutex):
+        with self._mutex:
             self._is_hook_compatible = value
 
     # Device connection state properties (moved from EmulatorService)
     @property
     def connected_device_serial(self) -> Optional[str]:
-        with QMutexLocker(self._mutex):
+        with self._mutex:
             return self._connected_device_serial
     @connected_device_serial.setter
     def connected_device_serial(self, value: Optional[str]):
-        with QMutexLocker(self._mutex):
+        with self._mutex:
             self._connected_device_serial = value
 
     @property
     def device_architecture(self) -> Optional[str]:
-        with QMutexLocker(self._mutex):
+        with self._mutex:
             return self._device_architecture
     @device_architecture.setter
     def device_architecture(self, value: Optional[str]):
-        with QMutexLocker(self._mutex):
+        with self._mutex:
             self._device_architecture = value
 
     @property
     def hook_activation_stage(self) -> str:
-        with QMutexLocker(self._mutex):
+        with self._mutex:
             return self._get_stage_from_sub_state(self._connection_sub_state) if self._connection_main_state == ConnectionState.CONNECTING else self._connection_main_state.value
 
     @property
     def hook_activation_message(self) -> str:
-        with QMutexLocker(self._mutex):
+        with self._mutex:
             # This can be made more sophisticated later if needed
             if self._connection_main_state == ConnectionState.ERROR and self._last_error_info:
                 return self._last_error_info.user_message
@@ -477,7 +477,7 @@ class SessionManager(QObject):
 
     def reset_to_disconnected(self) -> None:
         """Resets all connection-related state and transitions to DISCONNECTED."""
-        with QMutexLocker(self._mutex):
+        with self._mutex:
             self._connected_emulator_serial = None
             self._available_processes = []
             self._selected_target_package = None
@@ -497,12 +497,12 @@ class SessionManager(QObject):
 
         # Since this is a hard reset, also clear non-connection state
         # (or decide if this should be separate)
-        with QMutexLocker(self._mutex):
+        with self._mutex:
              self._current_round_seed = None
              self._is_round_active = False
 
     def get_status_summary(self) -> dict:
-        with QMutexLocker(self._mutex):
+        with self._mutex:
             return self.__dict__.copy()
 
     # --- State Machine Methods ---
@@ -510,13 +510,13 @@ class SessionManager(QObject):
     @property
     def connection_main_state(self) -> ConnectionState:
         """Get the current main connection state."""
-        with QMutexLocker(self._mutex):
+        with self._mutex:
             return self._connection_main_state
 
     @property
     def connection_sub_state(self) -> Optional[ConnectionSubState]:
         """Get the current connection sub-state."""
-        with QMutexLocker(self._mutex):
+        with self._mutex:
             return self._connection_sub_state
 
     def transition_to_state(self, new_state: ConnectionState,
@@ -533,7 +533,7 @@ class SessionManager(QObject):
         Returns:
             True if transition was successful, False otherwise
         """
-        with QMutexLocker(self._mutex):
+        with self._mutex:
             current_state = self._connection_main_state
 
             # Validate transition
@@ -593,7 +593,7 @@ class SessionManager(QObject):
 
     def get_current_state_snapshot(self) -> ConnectionStateSnapshot:
         """Get a complete snapshot of the current connection state."""
-        with QMutexLocker(self._mutex):
+        with self._mutex:
             return ConnectionStateSnapshot(
                 main_state=self._connection_main_state,
                 sub_state=self._connection_sub_state,
@@ -634,7 +634,7 @@ class SessionManager(QObject):
 
         recovery_success = False
 
-        with QMutexLocker(self._mutex):
+        with self._mutex:
             # Attempt recovery based on inconsistency types
             for inconsistency in inconsistencies:
                 if inconsistency == StateInconsistency.MAIN_SUB_STATE_MISMATCH:
@@ -682,22 +682,22 @@ class SessionManager(QObject):
 
     def update_stage_progress(self, stage_name: str, progress: StageProgress):
         """Update progress for a specific connection stage."""
-        with QMutexLocker(self._mutex):
+        with self._mutex:
             self._stage_progress[stage_name] = progress
 
     def get_stage_progress(self, stage_name: str) -> Optional[StageProgress]:
         """Get progress for a specific connection stage."""
-        with QMutexLocker(self._mutex):
+        with self._mutex:
             return self._stage_progress.get(stage_name)
 
     def clear_stage_progress(self):
         """Clear all stage progress information."""
-        with QMutexLocker(self._mutex):
+        with self._mutex:
             self._stage_progress.clear()
 
     def set_error_info(self, error_info: ErrorInfo):
         """Set error information and transition to error state if not already there."""
-        with QMutexLocker(self._mutex):
+        with self._mutex:
             self._last_error_info = error_info
             if self._connection_main_state != ConnectionState.ERROR:
                 # Transition to error state
@@ -710,12 +710,12 @@ class SessionManager(QObject):
 
     def get_last_error_info(self) -> Optional[ErrorInfo]:
         """Get the last error information."""
-        with QMutexLocker(self._mutex):
+        with self._mutex:
             return self._last_error_info
 
     def update_script_heartbeat(self, is_game_reachable: bool = False) -> None:
         """Update the script status with a new heartbeat."""
-        with QMutexLocker(self._mutex):
+        with self._mutex:
             if self._script_status:
                 self._script_status.last_heartbeat = datetime.now()
                 self._script_status.is_game_reachable = is_game_reachable
@@ -739,7 +739,7 @@ class SessionManager(QObject):
             error_count = message_data.get('error_count', 0)
             last_error = message_data.get('last_error')
 
-            with QMutexLocker(self._mutex):
+            with self._mutex:
                 if self._script_status:
                     # Update heartbeat
                     self._script_status.last_heartbeat = datetime.now()
@@ -792,7 +792,7 @@ class SessionManager(QObject):
 
     def set_connected_device(self, device_serial: str, device_architecture: Optional[str] = None) -> None:
         """Set the connected device information for monitoring."""
-        with QMutexLocker(self._mutex):
+        with self._mutex:
             self._connected_device_serial = device_serial
             self._device_architecture = device_architecture
             self.logger.info("Connected device set", device=device_serial, architecture=device_architecture)
@@ -824,7 +824,7 @@ class SessionManager(QObject):
         while self._device_monitor_running:
             try:
                 device_serial = None
-                with QMutexLocker(self._mutex):
+                with self._mutex:
                     # Only monitor if we have a connected device
                     if (self._connection_main_state in [ConnectionState.CONNECTED, ConnectionState.ACTIVE] and
                         self._connected_device_serial and self._emulator_service):
@@ -875,7 +875,7 @@ class SessionManager(QObject):
         """Handle device disconnection by cleaning up state and notifying."""
         self.logger.warning("Handling device disconnection", device=device_serial)
 
-        with QMutexLocker(self._mutex):
+        with self._mutex:
             # Reset simulation flag
             self._simulate_disconnection = False
 
@@ -931,7 +931,7 @@ class SessionManager(QObject):
         """Monitor script heartbeats and detect timeouts."""
         while self._heartbeat_running:
             try:
-                with QMutexLocker(self._mutex):
+                with self._mutex:
                     if not self._script_status or not self._script_status.is_active:
                         # No active script, stop monitoring
                         self._heartbeat_running = False
@@ -967,7 +967,7 @@ class SessionManager(QObject):
 
     def set_script_active(self, script_name: str, injection_time: Optional[datetime] = None) -> None:
         """Set the script as active with injection details."""
-        with QMutexLocker(self._mutex):
+        with self._mutex:
             if injection_time is None:
                 injection_time = datetime.now()
 
@@ -985,7 +985,7 @@ class SessionManager(QObject):
 
     def set_script_inactive(self) -> None:
         """Set the script as inactive."""
-        with QMutexLocker(self._mutex):
+        with self._mutex:
             self._script_status = ScriptStatus(is_active=False)
             self.script_status_changed.emit(self._script_status)
             self.script_health_changed.emit(False)
@@ -995,35 +995,35 @@ class SessionManager(QObject):
 
     def clear_error_info(self):
         """Clear error information."""
-        with QMutexLocker(self._mutex):
+        with self._mutex:
             self._last_error_info = None
 
     # --- Frida connection object accessors ---
     @property
     def frida_device(self):
-        with QMutexLocker(self._mutex):
+        with self._mutex:
             return self._frida_device
     @frida_device.setter
     def frida_device(self, value):
-        with QMutexLocker(self._mutex):
+        with self._mutex:
             self._frida_device = value
 
     @property
     def frida_session(self):
-        with QMutexLocker(self._mutex):
+        with self._mutex:
             return self._frida_session
     @frida_session.setter
     def frida_session(self, value):
-        with QMutexLocker(self._mutex):
+        with self._mutex:
             self._frida_session = value
 
     @property
     def frida_script(self):
-        with QMutexLocker(self._mutex):
+        with self._mutex:
             return self._frida_script
     @frida_script.setter
     def frida_script(self, value):
-        with QMutexLocker(self._mutex):
+        with self._mutex:
             self._frida_script = value
 
     def cleanup_frida_connection(self) -> None:
@@ -1033,7 +1033,7 @@ class SessionManager(QObject):
         """
         script_to_unload = None
         session_to_detach = None
-        with QMutexLocker(self._mutex):
+        with self._mutex:
             script_to_unload = self._frida_script
             session_to_detach = self._frida_session
         try:
@@ -1048,7 +1048,7 @@ class SessionManager(QObject):
                 except Exception as e:
                     self.logger.warning("Failed to detach frida session", error=str(e))
         finally:
-            with QMutexLocker(self._mutex):
+            with self._mutex:
                 self._frida_script = None
                 self._frida_session = None
                 self._frida_device = None
@@ -1056,11 +1056,11 @@ class SessionManager(QObject):
 
     @property
     def frida_attached_pid(self) -> Optional[int]:
-        with QMutexLocker(self._mutex):
+        with self._mutex:
             return self._frida_attached_pid
     @frida_attached_pid.setter
     def frida_attached_pid(self, value: Optional[int]):
-        with QMutexLocker(self._mutex):
+        with self._mutex:
             self._frida_attached_pid = value
 
     # --- Device Connection Management (moved from EmulatorService) ---
@@ -1131,7 +1131,7 @@ class SessionManager(QObject):
             architecture = properties.get('ro.product.cpu.abi', 'unknown')
 
             # Update session state
-            with QMutexLocker(self._mutex):
+            with self._mutex:
                 self._connected_device_serial = device_serial
                 self._device_architecture = architecture
 
@@ -1157,7 +1157,7 @@ class SessionManager(QObject):
         Returns:
             True if disconnection was successful, False otherwise
         """
-        with QMutexLocker(self._mutex):
+        with self._mutex:
             if not self._connected_device_serial:
                 self.logger.info("No device currently connected")
                 return True
@@ -1172,7 +1172,7 @@ class SessionManager(QObject):
     # --- New connection stages state for UI live updates ---
     def update_connection_stages(self, stages: list):
         """Update connection stages and emit change signal (thread-safe)."""
-        with QMutexLocker(self._mutex):
+        with self._mutex:
             self._connection_stages = stages
         self.connection_stages_changed.emit(stages)
 

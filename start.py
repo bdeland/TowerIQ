@@ -6,13 +6,15 @@ This script launches both the FastAPI backend server and the Tauri frontend.
 It ensures the backend is running before starting the frontend.
 """
 
+import asyncio
+import os
+import shutil
 import subprocess
 import sys
 import time
-import os
-import shutil
 from pathlib import Path
-import requests
+
+import aiohttp
 import structlog
 
 # Import the same logging configuration as the main application
@@ -29,19 +31,22 @@ config._recreate_logger()
 
 logger = structlog.get_logger(__name__)
 
-def check_backend_health(url: str = "http://127.0.0.1:8000/", max_retries: int = 30) -> bool:
+async def check_backend_health(url: str = "http://127.0.0.1:8000/", max_retries: int = 30) -> bool:
     """Check if the backend server is healthy."""
+    timeout = aiohttp.ClientTimeout(total=2)
+    
     for i in range(max_retries):
         try:
-            response = requests.get(url, timeout=2)
-            if response.status_code == 200:
-                logger.info("Backend server is healthy", url=url)
-                return True
-        except requests.exceptions.RequestException as e:
+            async with aiohttp.ClientSession(timeout=timeout) as session:
+                async with session.get(url) as response:
+                    if response.status == 200:
+                        logger.info("Backend server is healthy", url=url)
+                        return True
+        except (aiohttp.ClientError, asyncio.TimeoutError) as e:
             logger.warning("Request failed", error=str(e))
         
         logger.info("Waiting for backend server", attempt=i + 1, max_attempts=max_retries)
-        time.sleep(1)
+        await asyncio.sleep(1)
     
     logger.error("Backend server failed to start")
     return False
@@ -148,7 +153,7 @@ def start_tauri_frontend():
             pass
         return None
 
-def main():
+async def main():
     """Main startup function."""
     logger.info("TowerIQ Startup Script", version="1.0.0")
     
@@ -163,7 +168,7 @@ def main():
             return 1
         
         # Give frontend a moment to start up
-        time.sleep(2)
+        await asyncio.sleep(2)
         
         # Start backend server in background
         backend_process = start_backend_server()
@@ -184,7 +189,7 @@ def main():
             if frontend_process.poll() is not None:
                 logger.error("Frontend stopped unexpectedly")
                 break
-            time.sleep(1)
+            await asyncio.sleep(1)
     
     except KeyboardInterrupt:
         logger.info("Shutting down TowerIQ")
@@ -195,7 +200,9 @@ def main():
             logger.info("Stopping backend server")
             # Attempt graceful shutdown via API so DB can cleanup WAL/SHM
             try:
-                requests.post("http://127.0.0.1:8000/api/shutdown", timeout=2)
+                timeout = aiohttp.ClientTimeout(total=2)
+                async with aiohttp.ClientSession(timeout=timeout) as session:
+                    await session.post("http://127.0.0.1:8000/api/shutdown")
             except Exception:
                 pass
             # Then terminate the process
@@ -218,4 +225,4 @@ def main():
     return 0
 
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(asyncio.run(main()))

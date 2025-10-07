@@ -1,6 +1,8 @@
 import asyncio
 import hashlib
 import lzma
+import tempfile
+import time
 from pathlib import Path
 from typing import Any, Optional
 
@@ -72,25 +74,352 @@ class FridaServerManager:
             return False
 
     async def _get_frida_server_binary(self, arch: str, version: str) -> Path:
+        """
+        Download and verify frida-server binary with retry logic and checksum verification.
+        
+        Args:
+            arch: Device architecture (e.g., 'arm64-v8a', 'x86_64')
+            version: Frida version to download
+            
+        Returns:
+            Path to the verified frida-server binary
+            
+        Raises:
+            FridaServerSetupError: If download or verification fails after all retries
+        """
         arch_map = {"arm64-v8a": "arm64", "armeabi-v7a": "arm", "x86_64": "x86_64", "x86": "x86"}
         frida_arch = arch_map.get(arch, arch)
         binary_filename = f"frida-server-{version}-android-{frida_arch}"
         local_path = self.cache_dir / binary_filename
 
+        # Return cached binary if it exists
         if local_path.exists():
+            self.logger.debug(f"Using cached frida-server binary: {local_path}")
             return local_path
 
+        # Download with retry logic
         self.logger.info(f"Downloading frida-server v{version} for {frida_arch}...")
-        url = f"https://github.com/frida/frida/releases/download/{version}/{binary_filename}.xz"
-        async with aiohttp.ClientSession() as session:
-            async with session.get(url) as response:
-                response.raise_for_status()
-                compressed_data = await response.read()
+        
+        try:
+            compressed_data = await self._download_with_retry(
+                version=version,
+                binary_filename=binary_filename,
+                frida_arch=frida_arch
+            )
+            
+            # Decompress the data
+            try:
+                self.logger.debug(f"Decompressing {binary_filename}.xz...")
+                decompressed_data = lzma.decompress(compressed_data)
+                self.logger.debug(f"Decompressed size: {len(decompressed_data)} bytes")
+            except lzma.LZMAError as e:
+                error_msg = f"Failed to decompress frida-server binary: {e}"
+                self.logger.error(error_msg)
+                raise FridaServerSetupError(error_msg) from e
+            
+            # Write to temporary file first (atomic operation)
+            try:
+                temp_fd, temp_path = tempfile.mkstemp(
+                    dir=self.cache_dir,
+                    prefix=f"{binary_filename}_",
+                    suffix=".tmp"
+                )
+                temp_path_obj = Path(temp_path)
+                
+                try:
+                    # Write decompressed data
+                    with open(temp_fd, 'wb') as f:
+                        f.write(decompressed_data)
+                    
+                    # Set executable permissions
+                    temp_path_obj.chmod(0o755)
+                    
+                    # Verify it's a valid ELF binary (basic check)
+                    if len(decompressed_data) < 4 or decompressed_data[:4] != b'\x7fELF':
+                        error_msg = f"Downloaded file is not a valid ELF binary"
+                        self.logger.error(error_msg)
+                        temp_path_obj.unlink(missing_ok=True)
+                        raise FridaServerSetupError(error_msg)
+                    
+                    # Atomic rename
+                    temp_path_obj.rename(local_path)
+                    self.logger.info(f"Successfully downloaded and verified frida-server to {local_path}")
+                    
+                except Exception:
+                    # Cleanup temp file on any error
+                    temp_path_obj.unlink(missing_ok=True)
+                    raise
+                    
+            except OSError as e:
+                error_msg = f"Failed to write frida-server binary to {local_path}: {e}"
+                self.logger.error(error_msg)
+                raise FridaServerSetupError(error_msg) from e
+            
+            return local_path
+            
+        except FridaServerSetupError:
+            raise
+        except Exception as e:
+            error_msg = f"Unexpected error downloading frida-server: {e}"
+            self.logger.error(error_msg)
+            raise FridaServerSetupError(error_msg) from e
 
-        decompressed_data = lzma.decompress(compressed_data)
-        local_path.write_bytes(decompressed_data)
-        local_path.chmod(0o755)
-        return local_path
+    async def _download_with_retry(
+        self,
+        version: str,
+        binary_filename: str,
+        frida_arch: str,
+        max_retries: int = 3,
+        base_delay: float = 1.0
+    ) -> bytes:
+        """
+        Download frida-server binary with retry logic and checksum verification.
+        
+        Args:
+            version: Frida version
+            binary_filename: Name of the binary file
+            frida_arch: Frida architecture string
+            max_retries: Maximum number of retry attempts
+            base_delay: Base delay in seconds for exponential backoff
+            
+        Returns:
+            Compressed binary data
+            
+        Raises:
+            FridaServerSetupError: If download fails after all retries
+        """
+        url = f"https://github.com/frida/frida/releases/download/{version}/{binary_filename}.xz"
+        
+        last_error = None
+        for attempt in range(max_retries):
+            try:
+                if attempt > 0:
+                    delay = base_delay * (2 ** (attempt - 1))
+                    self.logger.info(f"Retrying download in {delay}s (attempt {attempt + 1}/{max_retries})...")
+                    await asyncio.sleep(delay)
+                
+                # Create session with timeouts
+                timeout = aiohttp.ClientTimeout(
+                    total=300,  # 5 minutes total
+                    connect=30,  # 30 seconds to connect
+                    sock_read=60  # 60 seconds between reads
+                )
+                
+                async with aiohttp.ClientSession(timeout=timeout) as session:
+                    # Download the binary
+                    compressed_data = await self._download_file(
+                        session=session,
+                        url=url,
+                        filename=binary_filename
+                    )
+                    
+                    # Try to verify checksum
+                    checksum_verified = await self._verify_checksum(
+                        session=session,
+                        version=version,
+                        binary_filename=binary_filename,
+                        frida_arch=frida_arch,
+                        compressed_data=compressed_data
+                    )
+                    
+                    if not checksum_verified:
+                        self.logger.warning(
+                            "Checksum verification skipped (no checksum file available). "
+                            "Proceeding with download."
+                        )
+                    
+                    return compressed_data
+                    
+            except aiohttp.ClientError as e:
+                last_error = e
+                self.logger.warning(f"Download attempt {attempt + 1} failed: {e}")
+                if attempt == max_retries - 1:
+                    error_msg = f"Failed to download frida-server after {max_retries} attempts: {e}"
+                    self.logger.error(error_msg)
+                    raise FridaServerSetupError(error_msg) from e
+                    
+            except asyncio.TimeoutError as e:
+                last_error = e
+                self.logger.warning(f"Download attempt {attempt + 1} timed out: {e}")
+                if attempt == max_retries - 1:
+                    error_msg = f"Download timed out after {max_retries} attempts"
+                    self.logger.error(error_msg)
+                    raise FridaServerSetupError(error_msg) from e
+                    
+            except Exception as e:
+                # For unexpected errors, don't retry
+                error_msg = f"Unexpected error during download: {e}"
+                self.logger.error(error_msg)
+                raise FridaServerSetupError(error_msg) from e
+        
+        # Should not reach here, but just in case
+        error_msg = f"Failed to download frida-server after {max_retries} attempts"
+        if last_error:
+            error_msg += f": {last_error}"
+        raise FridaServerSetupError(error_msg)
+
+    async def _download_file(
+        self,
+        session: aiohttp.ClientSession,
+        url: str,
+        filename: str
+    ) -> bytes:
+        """
+        Download a file with progress logging.
+        
+        Args:
+            session: aiohttp session
+            url: URL to download from
+            filename: Name of the file being downloaded
+            
+        Returns:
+            Downloaded file data
+            
+        Raises:
+            aiohttp.ClientError: If download fails
+        """
+        start_time = time.time()
+        
+        async with session.get(url) as response:
+            response.raise_for_status()
+            
+            # Get content length if available
+            content_length = response.headers.get('Content-Length')
+            if content_length:
+                total_size = int(content_length)
+                self.logger.info(f"Downloading {filename}.xz ({total_size / 1024 / 1024:.2f} MB)...")
+                
+                # Validate size (frida-server binaries are typically 30-80 MB compressed)
+                if total_size < 1_000_000:  # Less than 1 MB
+                    raise aiohttp.ClientError(f"File size too small: {total_size} bytes")
+                if total_size > 200_000_000:  # More than 200 MB
+                    raise aiohttp.ClientError(f"File size too large: {total_size} bytes")
+            else:
+                total_size = None
+                self.logger.info(f"Downloading {filename}.xz (size unknown)...")
+            
+            # Download with progress tracking
+            downloaded = 0
+            chunks = []
+            last_progress_log = 0
+            
+            async for chunk in response.content.iter_chunked(8192):
+                chunks.append(chunk)
+                downloaded += len(chunk)
+                
+                # Log progress every 10 MB or 25%
+                if total_size:
+                    progress_pct = (downloaded / total_size) * 100
+                    if progress_pct - last_progress_log >= 25:
+                        self.logger.debug(
+                            f"Download progress: {downloaded / 1024 / 1024:.2f} MB "
+                            f"({progress_pct:.1f}%)"
+                        )
+                        last_progress_log = progress_pct
+                elif downloaded - last_progress_log >= 10_000_000:  # Every 10 MB
+                    self.logger.debug(f"Download progress: {downloaded / 1024 / 1024:.2f} MB")
+                    last_progress_log = downloaded
+            
+            compressed_data = b''.join(chunks)
+            duration = time.time() - start_time
+            
+            # Calculate speed, avoid division by zero for very fast downloads
+            if duration > 0:
+                speed_mbps = len(compressed_data) / 1024 / 1024 / duration
+                self.logger.info(
+                    f"Download completed: {len(compressed_data) / 1024 / 1024:.2f} MB "
+                    f"in {duration:.1f}s ({speed_mbps:.2f} MB/s)"
+                )
+            else:
+                self.logger.info(
+                    f"Download completed: {len(compressed_data) / 1024 / 1024:.2f} MB "
+                    f"in < 0.1s"
+                )
+            
+            return compressed_data
+
+    async def _verify_checksum(
+        self,
+        session: aiohttp.ClientSession,
+        version: str,
+        binary_filename: str,
+        frida_arch: str,
+        compressed_data: bytes
+    ) -> bool:
+        """
+        Verify the checksum of downloaded data against GitHub release checksums.
+        
+        Args:
+            session: aiohttp session
+            version: Frida version
+            binary_filename: Name of the binary file
+            frida_arch: Frida architecture string
+            compressed_data: The downloaded compressed data
+            
+        Returns:
+            True if checksum verified, False if checksum file not available
+            
+        Raises:
+            FridaServerSetupError: If checksum verification fails
+        """
+        # Try common checksum file patterns
+        checksum_urls = [
+            f"https://github.com/frida/frida/releases/download/{version}/{binary_filename}.xz.sha256",
+            f"https://github.com/frida/frida/releases/download/{version}/SHA256SUMS",
+            f"https://github.com/frida/frida/releases/download/{version}/checksums.txt",
+        ]
+        
+        for checksum_url in checksum_urls:
+            try:
+                async with session.get(checksum_url) as response:
+                    if response.status == 404:
+                        continue
+                    response.raise_for_status()
+                    checksum_content = await response.text()
+                    
+                    # Parse checksum
+                    expected_checksum = None
+                    if checksum_url.endswith('.sha256'):
+                        # Single file checksum
+                        expected_checksum = checksum_content.strip().split()[0]
+                    else:
+                        # Multi-file checksum (find the line for our file)
+                        for line in checksum_content.splitlines():
+                            if f"{binary_filename}.xz" in line:
+                                expected_checksum = line.strip().split()[0]
+                                break
+                    
+                    if expected_checksum:
+                        # Compute actual checksum
+                        actual_checksum = hashlib.sha256(compressed_data).hexdigest()
+                        
+                        self.logger.debug(
+                            f"Verifying checksum: expected={expected_checksum}, actual={actual_checksum}"
+                        )
+                        
+                        if actual_checksum.lower() != expected_checksum.lower():
+                            error_msg = (
+                                f"Checksum verification failed for {binary_filename}.xz: "
+                                f"expected {expected_checksum}, got {actual_checksum}"
+                            )
+                            self.logger.error(error_msg)
+                            raise FridaServerSetupError(error_msg)
+                        
+                        self.logger.info(f"Checksum verification passed for {binary_filename}.xz")
+                        return True
+                        
+            except aiohttp.ClientError:
+                # Try next checksum URL
+                continue
+            except FridaServerSetupError:
+                # Re-raise checksum failures
+                raise
+            except Exception as e:
+                self.logger.debug(f"Error checking {checksum_url}: {e}")
+                continue
+        
+        # No checksum file found - this is OK, just log it
+        return False
 
     async def _is_push_required(self, device_id: str, local_path: Path) -> bool:
         try:
@@ -518,7 +847,5 @@ class FridaServerManager:
         try:
             version_output = await self.adb.shell(device_id, f"{self.DEVICE_PATH} --version")
             return version_output.strip()
-        except AdbError:
-            return None
         except AdbError:
             return None

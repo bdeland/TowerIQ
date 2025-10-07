@@ -1,36 +1,31 @@
 """
 TowerIQ v1.0 - Main Application Entry Point
 
-This module provides the main entry point for starting the TowerIQ GUI application.
-It uses Qt's native threading instead of qasync to avoid timer conflicts.
+This module provides the main entry point for starting the TowerIQ backend application.
+The frontend is a React/Tauri application that communicates with this backend via API.
 """
 
-import sys
-import os
-from pathlib import Path
 import argparse
-
-from PyQt6.QtWidgets import QApplication
-from PyQt6.QtGui import QFont
+import asyncio
+import os
+import signal
+import sys
+from pathlib import Path
 
 from tower_iq.core.config import ConfigurationManager
 from tower_iq.core.logging_config import setup_logging
 from tower_iq.main_controller import MainController
-from tower_iq.gui.main_window import MainWindow
-
-os.environ["QT_API"] = "pyqt6"
 
 
 def main() -> None:
     """
-    Orchestrates the entire application startup sequence using Qt-native threading.
+    Orchestrates the entire application startup sequence.
     
     This function:
     1. Initializes paths & environment
     2. Creates core components (config, logging)
-    3. Initializes PyQt Application (no qasync)
-    4. Uses QThread for background operations
-    5. Runs the application with Qt's native event loop
+    3. Starts the backend controller
+    4. Runs indefinitely until interrupted
     """
     # Argument parsing for CLI flags
     parser = argparse.ArgumentParser(description="TowerIQ Application")
@@ -62,8 +57,6 @@ def main() -> None:
         # Handle --reset-frida mode
         if args.reset_frida:
             logger.info("Running in reset-frida mode")
-            # Note: This would need to be adapted to Qt threading
-            # For now, just exit with a message
             logger.info("Reset-frida mode not yet implemented in current version")
             return
         
@@ -121,31 +114,36 @@ def main() -> None:
         # Mark hook scripts as ready
         controller.loading_manager.mark_step_complete('hook_scripts')
         
-        # Initialize PyQt Application
-        app = QApplication(sys.argv)
-        app.setFont(QFont("Roboto", 11))
-        app.setApplicationName("TowerIQ")
-        app.setApplicationVersion("1.0")
-
-        # Database service is already connected and linked
+        logger.info("Starting backend controller")
         
-        # Create main window
-        window = MainWindow(session_manager=controller.session, config_manager=controller.config, controller=controller)
+        # Setup signal handlers for graceful shutdown
+        shutdown_event = asyncio.Event()
+        
+        def signal_handler(sig, frame):
+            logger.info("Shutdown signal received", signal=sig)
+            shutdown_event.set()
+        
+        signal.signal(signal.SIGINT, signal_handler)
+        signal.signal(signal.SIGTERM, signal_handler)
 
         try:
-            logger.info("Showing main window")
-            window.show()
-            logger.info("Main window shown successfully")
-            logger.info("Starting main event loop")
-            
             # Start controller in background thread
             controller.start_background_operations()
             
-            # Run Qt's native event loop
-            sys.exit(app.exec())
+            logger.info("Backend is running. Press Ctrl+C to stop.")
             
+            # Run indefinitely until interrupted
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            try:
+                loop.run_until_complete(shutdown_event.wait())
+            finally:
+                loop.close()
+            
+        except KeyboardInterrupt:
+            logger.info("Keyboard interrupt received")
         except Exception as e:
-            logger.error("Exception in event loop", error=str(e))
+            logger.error("Exception in main loop", error=str(e))
             raise
         finally:
             # Cleanup

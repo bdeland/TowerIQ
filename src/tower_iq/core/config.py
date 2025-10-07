@@ -5,29 +5,29 @@ This module provides the ConfigurationManager class, which serves as the single
 source of truth for all application configuration settings.
 """
 
+import json
+from pathlib import Path
+# Forward reference for type hinting
+from typing import TYPE_CHECKING, Any, Dict, List, Optional
+
 import structlog
 import yaml
-import json
-from typing import Any, Optional, Dict, List
-from pathlib import Path
-from PyQt6.QtCore import QObject, pyqtSignal
 
-# Forward reference for type hinting
-from typing import TYPE_CHECKING
+from .event_system import Signal
+
 if TYPE_CHECKING:
     from ..services.database_service import DatabaseService
 
-class ConfigurationManager(QObject):
+class ConfigurationManager:
     """
     Manages application configuration with a layered approach and signals.
     1. Loads default settings from a YAML file.
     2. Loads and overlays user-specific settings from the database.
     3. Provides a unified interface to get/set settings and emits signals on change.
     """
-    settingChanged = pyqtSignal(str, object)
 
     def __init__(self, yaml_path: str = 'config/main_config.yaml'):
-        super().__init__()
+        self.settingChanged = Signal()  # Signal(str, object)
         self._logger = None  # Will be created after logging is configured
         self._db_service: Optional[DatabaseService] = None
         self._file_config: dict = self._load_from_file(yaml_path)
@@ -452,4 +452,5 @@ class ConfigurationManager(QObject):
             # Clear the issues list since they're now fixed
             self._value_type_issues = []
             # Reload settings to update the cache
+            self._load_all_user_settings()
             self._load_all_user_settings()

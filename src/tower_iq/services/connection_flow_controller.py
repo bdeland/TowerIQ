@@ -8,20 +8,19 @@ connection flow orchestration with proper error handling and state management.
 import asyncio
 import random
 from datetime import datetime
-from typing import Optional, Dict, Any, List, Callable
 from enum import Enum
+from typing import Any, Callable, Dict, List, Optional
 
-from PyQt6.QtCore import QObject, pyqtSignal
+import structlog
 
-from ..core.session import (
-    SessionManager, ConnectionState, ConnectionSubState, ErrorInfo, ErrorType,
-    StageProgress, StageStatus, StateInconsistency
-)
 from ..core.cleanup_manager import ResourceCleanupManager
+from ..core.event_system import Signal
+from ..core.session import (ConnectionState, ConnectionSubState, ErrorInfo,
+                            ErrorType, SessionManager, StageProgress,
+                            StageStatus, StateInconsistency)
 from .connection_stage_manager import ConnectionStageManager
 from .emulator_service import EmulatorService
 from .frida_service import FridaService
-import structlog
 
 logger = structlog.get_logger(__name__)
 
@@ -67,20 +66,13 @@ class ConnectionStage(Enum):
     CONNECTION_VERIFICATION = "connection_verification"
 
 
-class ConnectionFlowController(QObject):
+class ConnectionFlowController:
     """
     Centralized controller for managing the entire connection flow lifecycle.
 
     This controller orchestrates connection establishment, state management,
     error handling, and resource cleanup across all services.
     """
-
-    # Signals for flow events
-    flow_started = pyqtSignal(str)  # flow_type
-    flow_completed = pyqtSignal(str, bool)  # flow_type, success
-    flow_error = pyqtSignal(str, object)  # flow_type, error_info
-    state_validation_failed = pyqtSignal(list)  # inconsistencies
-    cleanup_completed = pyqtSignal(bool)  # success
 
     def __init__(self, session_manager: SessionManager,
                  cleanup_manager: ResourceCleanupManager,
@@ -101,7 +93,12 @@ class ConnectionFlowController(QObject):
             config_manager: Configuration manager (optional)
             logger_instance: Logger instance (optional)
         """
-        super().__init__()
+        # Signals for flow events
+        self.flow_started = Signal()  # flow_type
+        self.flow_completed = Signal()  # flow_type, success
+        self.flow_error = Signal()  # flow_type, error_info
+        self.state_validation_failed = Signal()  # inconsistencies
+        self.cleanup_completed = Signal()  # success
 
         self.session_manager = session_manager
         self.cleanup_manager = cleanup_manager
