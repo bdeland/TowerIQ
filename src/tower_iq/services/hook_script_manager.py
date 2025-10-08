@@ -12,7 +12,8 @@ import json
 import re
 import uuid
 from pathlib import Path
-from typing import List, Dict, Optional
+from typing import Dict, List, Optional
+
 import structlog
 
 
@@ -40,12 +41,20 @@ class HookScriptManager:
         """
         self.scripts.clear()
         if not self.hooks_dir_path.exists():
+            self.logger.warning("Hook scripts directory does not exist", path=str(self.hooks_dir_path))
             return
 
-        for script_path in self.hooks_dir_path.glob("*.js"):
+        self.logger.info("Scanning for hook scripts", path=str(self.hooks_dir_path))
+        
+        js_files = list(self.hooks_dir_path.glob("*.js"))
+        self.logger.info("Found JS files", count=len(js_files), files=[f.name for f in js_files])
+
+        for script_path in js_files:
             try:
                 file_content = script_path.read_text(encoding="utf-8")
-            except Exception:
+                self.logger.debug("Reading script file", file=script_path.name, size=len(file_content))
+            except Exception as e:
+                self.logger.warning("Failed to read script file", file=script_path.name, error=str(e))
                 continue
 
             match = re.search(
@@ -54,6 +63,7 @@ class HookScriptManager:
                 re.DOTALL,
             )
             if not match:
+                self.logger.warning("No metadata block found in script", file=script_path.name)
                 continue
 
             json_str = match.group(1)
@@ -73,9 +83,14 @@ class HookScriptManager:
                 # Prefer the actual filename on disk to avoid load failures
                 metadata["fileName"] = actual_name
                 self.scripts.append(metadata)
-            except Exception:
-                # Ignore malformed metadata blocks
-                continue
+                self.logger.info("Successfully loaded script metadata", 
+                               file=actual_name,
+                               scriptName=metadata.get("scriptName", "Unknown"))
+            except Exception as e:
+                # Ignore malformed metadata blocks but log the error
+                self.logger.warning("Failed to parse metadata JSON", 
+                                  file=script_path.name, 
+                                  error=str(e))
 
     def get_compatible_scripts(self, package_name: str, app_version: str) -> list:
         """

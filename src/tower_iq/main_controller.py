@@ -5,18 +5,18 @@ This module provides the main controller that uses standard Python threading
 instead of Qt components for compatibility with FastAPI server.
 """
 
-import os
-import time
-import threading
 import asyncio
-from typing import Any, Optional, Callable, Dict, List
+import os
+import threading
+import time
+from typing import Any, Callable, Dict, List, Optional
 
 from .core.config import ConfigurationManager
-from .core.session import SessionManager, ConnectionState
+from .core.session import ConnectionState, SessionManager
 from .services.database_service import DatabaseService
 from .services.emulator_service import EmulatorService
-from .services.hook_script_manager import HookScriptManager
 from .services.frida_service import FridaService
+from .services.hook_script_manager import HookScriptManager
 
 
 class DeviceScanWorker:
@@ -39,7 +39,7 @@ class DeviceScanWorker:
             # Use the new list_devices_with_details method
             # Since this is a thread, we need to run the async method in a new event loop
             import asyncio
-            
+
             # Create a new event loop for this thread
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
@@ -218,12 +218,22 @@ class MainController:
         
         # Initialize hooks directory
         project_root = self.config.get_project_root()
-        hooks_dir = os.path.join(project_root, 'src', 'tower_iq', 'scripts')
+        hooks_dir = os.path.join(project_root, 'tower_iq', 'scripts')
         self.hook_script_manager = HookScriptManager(hooks_dir)
         try:
+            self.logger.info("Discovering hook scripts", hooks_dir=hooks_dir)
             self.hook_script_manager.discover_scripts()
-        except Exception:
-            pass
+            discovered_count = len(self.hook_script_manager.scripts)
+            self.logger.info("Hook script discovery completed", 
+                           discovered_count=discovered_count,
+                           hooks_dir=hooks_dir)
+            if discovered_count == 0:
+                self.logger.warning("No hook scripts found in directory", hooks_dir=hooks_dir)
+        except Exception as e:
+            self.logger.error("Failed to discover hook scripts", 
+                            error=str(e), 
+                            hooks_dir=hooks_dir,
+                            exc_info=True)
         
         # Test mode flags
         self._test_mode = False
