@@ -13,7 +13,7 @@ from pathlib import Path
 
 def test_backend_build():
     """Test the backend build process"""
-    print("🧪 Testing TowerIQ Backend Build")
+    print("Testing TowerIQ Backend Build")
     print("=" * 50)
     
     root_dir = Path(__file__).parent.parent
@@ -21,14 +21,14 @@ def test_backend_build():
     dist_dir = root_dir / "dist"
     
     # Clean previous builds
-    print("🧹 Cleaning previous builds...")
+    print("Cleaning previous builds...")
     for dir_path in [build_dir, dist_dir]:
         if dir_path.exists():
             shutil.rmtree(dir_path)
         dir_path.mkdir(parents=True, exist_ok=True)
     
     # Create clean build environment
-    print("🔧 Creating clean build environment...")
+    print("Creating clean build environment...")
     temp_build_dir = root_dir / "temp_build"
     if temp_build_dir.exists():
         shutil.rmtree(temp_build_dir)
@@ -50,7 +50,7 @@ def test_backend_build():
         os.chdir(temp_build_dir)
         
         # Build with PyInstaller
-        print("🐍 Building backend with PyInstaller...")
+        print("Building backend with PyInstaller...")
         cmd = [
             sys.executable, "-m", "PyInstaller",
             "--clean",
@@ -60,7 +60,7 @@ def test_backend_build():
         
         result = subprocess.run(cmd, capture_output=True, text=True)
         if result.returncode != 0:
-            print(f"❌ Backend build failed: {result.stderr}")
+            print(f"[ERROR] Backend build failed: {result.stderr}")
             return False
         
         # Check if executable was created
@@ -69,27 +69,27 @@ def test_backend_build():
             # Copy to main dist directory
             target_exe = dist_dir / "toweriq-backend.exe"
             shutil.copy2(built_exe, target_exe)
-            print("✅ Backend executable created successfully!")
-            print(f"📁 Location: {target_exe}")
+            print("[SUCCESS] Backend executable created successfully!")
+            print(f"Location: {target_exe}")
             
             # Also copy to Tauri binaries folder with platform-specific name
             tauri_binaries = root_dir / "frontend" / "src-tauri" / "binaries"
             if tauri_binaries.exists():
                 platform_exe = tauri_binaries / "toweriq-backend-x86_64-pc-windows-msvc.exe"
                 shutil.copy2(built_exe, platform_exe)
-                print(f"📁 Copied to Tauri binaries: {platform_exe}")
+                print(f"Copied to Tauri binaries: {platform_exe}")
             
             # Check file size
             file_size = target_exe.stat().st_size
-            print(f"📊 File size: {file_size / (1024*1024):.1f} MB")
+            print(f"File size: {file_size / (1024*1024):.1f} MB")
             
             return True
         else:
-            print("❌ Backend executable not found after build")
+            print("[ERROR] Backend executable not found after build")
             return False
             
     except Exception as e:
-        print(f"❌ Build failed: {e}")
+        print(f"[ERROR] Build failed: {e}")
         return False
     finally:
         # Return to original directory
@@ -99,19 +99,19 @@ def test_backend_build():
             try:
                 shutil.rmtree(temp_build_dir)
             except PermissionError:
-                print("⚠️ Could not clean temp build directory")
+                print("[WARNING] Could not clean temp build directory")
 
 def main():
     success = test_backend_build()
     if success:
-        print("\n🎉 Backend build test completed successfully!")
-        print("\n💡 Next steps:")
+        print("\n[SUCCESS] Backend build test completed successfully!")
+        print("\nNext steps:")
         print("  - Test the executable: dist/toweriq-backend.exe")
         print("  - Build Tauri app: cd frontend && npm run tauri build")
         print("  - Verify installer doesn't include user-specific data")
         print("  - Test on a clean system")
     else:
-        print("\n❌ Backend build test failed!")
+        print("\n[ERROR] Backend build test failed!")
         sys.exit(1)
 
 if __name__ == "__main__":

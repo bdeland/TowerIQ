@@ -3,6 +3,7 @@ import subprocess
 from datetime import datetime
 from typing import Tuple
 
+
 def format_currency(value: float, symbol: str = "$", pad_to_cents: bool = False) -> str:
     """
     Formats a number into a Grafana-style abbreviated currency string up to decillion.
@@ -205,13 +206,54 @@ class AdbWrapper:
             raise
 
     async def restart_server(self) -> None:
-        """Restart the ADB server."""
+        """Restart the ADB server using proper condition waiting."""
+        from .async_utils import wait_for_condition
+        
         try:
             self.logger.info("Restarting ADB server...")
             await self.kill_server()
-            await asyncio.sleep(1)  # Give it time to clean up
+            
+            # Wait for server to actually stop (not arbitrary delay)
+            async def server_stopped():
+                # Force a fresh check by clearing cache first
+                self._server_running = None
+                self._last_check = None
+                return not await self._is_server_running_cached()
+            
+            stopped = await wait_for_condition(
+                server_stopped,
+                timeout=5.0,
+                initial_delay=0.1,
+                max_delay=1.0,
+                condition_name="ADB server stopped"
+            )
+            
+            if not stopped:
+                self.logger.warning("Timed out waiting for ADB server to stop, proceeding anyway")
+            
             await self.start_server()
-            self.logger.info("ADB server restarted successfully")
+            
+            # Verify server is actually running (not just assuming)
+            async def server_running():
+                # Force a fresh check
+                self._server_running = None
+                self._last_check = None
+                return await self._is_server_running_cached()
+            
+            started = await wait_for_condition(
+                server_running,
+                timeout=5.0,
+                initial_delay=0.1,
+                max_delay=1.0,
+                condition_name="ADB server started"
+            )
+            
+            if started:
+                self.logger.info("ADB server restarted successfully")
+            else:
+                self.logger.error("ADB server restart completed but verification check failed")
+                raise AdbError("ADB server failed to start after restart")
+                
         except AdbError as e:
             self.logger.error(f"Failed to restart ADB server: {e}")
             raise

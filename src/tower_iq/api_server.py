@@ -133,6 +133,15 @@ async def lifespan(app: FastAPI):
     # Initialize main controller (do not start message loop until a script is injected)
     controller = MainController(config, logger, db_service=db_service)
 
+    # Restart ADB server on startup to ensure device detection works properly
+    # This resolves issues where ADB doesn't detect devices if the server was already running
+    try:
+        logger.info("Restarting ADB server on application startup")
+        await controller.emulator_service.restart_adb_server()
+        logger.info("ADB server restarted successfully")
+    except Exception as e:
+        logger.warning("Failed to restart ADB server on startup", error=str(e))
+
     # Start the loading sequence
     controller.loading_manager.start_loading()
     controller.loading_manager.mark_step_complete('database')
