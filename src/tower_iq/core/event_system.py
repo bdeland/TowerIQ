@@ -5,11 +5,14 @@ This module provides a simple event/callback system to replace PyQt signals.
 """
 
 import threading
-from dataclasses import dataclass
 from typing import Any, Callable, Dict, List
 
+import structlog
 
-@dataclass
+# Module-level logger for efficient reuse
+logger = structlog.get_logger(__name__)
+
+
 class Signal:
     """A simple signal implementation that can emit values to connected callbacks."""
     
@@ -39,12 +42,11 @@ class Signal:
                 callback(*args, **kwargs)
             except Exception as e:
                 # Log but don't crash on callback errors
-                import structlog
-                logger = structlog.get_logger()
                 logger.error("Error in signal callback", error=str(e), callback=callback.__name__)
     
     def disconnect_all(self) -> None:
         """Disconnect all callbacks from this signal."""
         with self._lock:
             self._callbacks.clear()
+
 

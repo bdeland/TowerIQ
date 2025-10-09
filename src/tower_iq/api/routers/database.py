@@ -97,8 +97,8 @@ async def run_backup_now():
 async def get_restore_suggestion():
     try:
         # Return computed suggestion captured during startup
-        import builtins
-        suggest = getattr(builtins, '_restore_suggestion_cache', None)
+        from tower_iq.api import dependencies
+        suggest = dependencies.get_restore_suggestion()
         if suggest is None:
             # Fallback compute if cache is missing
             if not config:

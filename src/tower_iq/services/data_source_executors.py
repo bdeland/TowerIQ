@@ -6,13 +6,13 @@ allowing the dashboard system to query SQLite, PostgreSQL, Prometheus, or REST A
 through a unified interface.
 """
 
+import asyncio
+import logging
+import sqlite3
 from abc import ABC, abstractmethod
-from typing import Dict, Any, List, Optional
 from dataclasses import dataclass
 from datetime import datetime
-import asyncio
-import sqlite3
-import logging
+from typing import Any, Dict, List, Optional
 
 # Import data source configuration models
 from tower_iq.models.dashboard_config_models import DataSourceConfig
@@ -130,7 +130,7 @@ class SQLiteExecutor(DataSourceExecutor):
             self.logger.debug("Disconnected from SQLite database")
 
     async def execute(self, query: str, variables: Dict[str, Any] = None) -> QueryResponse:
-        """Execute SQL query against SQLite database"""
+        """Execute SQL query against SQLite database with safe parameter substitution"""
         if not self._connection:
             await self.connect()
 
@@ -142,28 +142,20 @@ class SQLiteExecutor(DataSourceExecutor):
             if not query_upper.startswith('SELECT'):
                 raise QueryExecutionError("Only SELECT queries are allowed")
 
-            # Execute query with variables
+            # Execute query with safe variable substitution
+            sql_params = {}
             if variables:
-                # Simple variable substitution (this would be enhanced in production)
-                for key, value in variables.items():
-                    placeholder = f"${{{key}}}"
-                    if placeholder in query:
-                        if isinstance(value, list):
-                            # Handle array values for IN clauses
-                            if len(value) > 0 and not (len(value) == 1 and value[0] == 'all'):
-                                value_str = ','.join([f"'{v}'" if isinstance(v, str) else str(v) for v in value])
-                                query = query.replace(placeholder, f"IN ({value_str})")
-                            else:
-                                query = query.replace(placeholder, "")
-                        else:
-                            query = query.replace(placeholder, str(value))
+                query = self._safe_substitute_variables(query, variables, sql_params)
 
             # Type narrowing: ensure connection is established
             if not self._connection:
                 raise QueryExecutionError("Database connection not available")
 
-            # Execute the query
-            cursor = await asyncio.to_thread(self._connection.execute, query)
+            # Execute the query with parameterized values
+            if sql_params:
+                cursor = await asyncio.to_thread(self._connection.execute, query, sql_params)
+            else:
+                cursor = await asyncio.to_thread(self._connection.execute, query)
             rows = await asyncio.to_thread(cursor.fetchall)
 
             # Convert sqlite3.Row objects to dictionaries
@@ -186,6 +178,69 @@ class SQLiteExecutor(DataSourceExecutor):
             self.logger.error("SQLite query execution failed",
                             extra={"query": query, "error": str(e), "execution_time_ms": execution_time})
             raise QueryExecutionError(f"Query execution failed: {str(e)}")
+
+    def _safe_substitute_variables(self, query: str, variables: Dict[str, Any], sql_params: Dict[str, Any]) -> str:
+        """
+        Safely substitute variables into SQL query.
+        
+        For simple values: Convert to SQL parameters (:param_name)
+        For clause builders (like filters): Validate and safely construct SQL fragments
+        """
+        import re
+        
+        for key, value in variables.items():
+            placeholder = f"${{{key}}}"
+            if placeholder not in query:
+                continue
+            
+            # Handle special clause placeholders (tier_filter, limit_clause, etc.)
+            if key.endswith('_filter'):
+                # Build a safe WHERE/AND clause for filters
+                if isinstance(value, list) and len(value) > 0 and not (len(value) == 1 and value[0] == 'all'):
+                    # Sanitize list values - only allow alphanumeric, underscore, and numbers
+                    sanitized = []
+                    for v in value:
+                        if isinstance(v, (int, float)):
+                            sanitized.append(str(v))
+                        elif isinstance(v, str) and re.match(r'^[a-zA-Z0-9_-]+$', v):
+                            sanitized.append(v)
+                        else:
+                            raise QueryExecutionError(f"Invalid filter value: {v}")
+                    
+                    # Use parameterized query for IN clause
+                    param_names = [f":filter_{key}_{i}" for i in range(len(sanitized))]
+                    for i, val in enumerate(sanitized):
+                        sql_params[f"filter_{key}_{i}"] = val
+                    
+                    # Determine if we need WHERE or AND
+                    filter_clause = f"AND {key.replace('_filter', '')} IN ({','.join(param_names)})"
+                    query = query.replace(placeholder, filter_clause)
+                else:
+                    # Remove placeholder if no filtering needed
+                    query = query.replace(placeholder, "")
+            
+            elif key.endswith('_clause'):
+                # Handle clauses like LIMIT
+                if key == 'limit_clause' and value and value != 'all':
+                    # Sanitize limit value - must be a positive integer
+                    try:
+                        limit_val = int(value)
+                        if limit_val > 0:
+                            query = query.replace(placeholder, f"LIMIT {limit_val}")
+                        else:
+                            query = query.replace(placeholder, "")
+                    except (ValueError, TypeError):
+                        query = query.replace(placeholder, "")
+                else:
+                    query = query.replace(placeholder, "")
+            
+            else:
+                # For simple values, use SQL parameters
+                param_name = f":{key}"
+                sql_params[key] = value
+                query = query.replace(placeholder, param_name)
+        
+        return query
 
     async def test_connection(self) -> ConnectionTestResult:
         """Test SQLite connection"""
@@ -415,7 +470,8 @@ def get_data_source_manager() -> DataSourceManager:
 
 async def initialize_default_data_source(database_path: str) -> None:
     """Initialize default SQLite data source"""
-    from tower_iq.models.dashboard_config_models import DataSourceConfig, DataSourceType
+    from tower_iq.models.dashboard_config_models import (DataSourceConfig,
+                                                         DataSourceType)
 
     default_config = DataSourceConfig(
         id="default",

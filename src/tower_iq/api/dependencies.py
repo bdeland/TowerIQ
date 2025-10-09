@@ -4,8 +4,8 @@ Provides dependency injection functions for FastAPI endpoints.
 """
 
 from typing import Any, Optional
-import structlog
 
+import structlog
 
 # Global variables for the backend services
 # These will be initialized in the main api_server.py
@@ -13,6 +13,7 @@ logger: Any = None
 controller: Any = None
 db_service: Any = None
 query_service: Any = None
+restore_suggestion_cache: Any = None
 
 
 def get_logger():
@@ -67,4 +68,16 @@ def set_query_service(service_instance: Any):
     """Set the global QueryService instance."""
     global query_service
     query_service = service_instance
+
+
+def get_restore_suggestion():
+    """Get the restore suggestion cache."""
+    global restore_suggestion_cache
+    return restore_suggestion_cache
+
+
+def set_restore_suggestion(suggestion: Any):
+    """Set the restore suggestion cache."""
+    global restore_suggestion_cache
+    restore_suggestion_cache = suggestion
 

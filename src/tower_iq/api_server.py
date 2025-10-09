@@ -7,7 +7,6 @@ with the existing Python backend services.
 
 import asyncio
 import os
-import sys
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
@@ -33,36 +32,9 @@ from tower_iq.main_controller import MainController
 from tower_iq.models.dashboard_models import QueryService
 from tower_iq.services.database_service import DatabaseService
 
-
-# Configure logging at module level to ensure it's set up before Uvicorn starts
-def configure_logging():
-    """Configure logging for the API server."""
-    app_root = Path(__file__).parent.parent.parent
-    config = ConfigurationManager(str(app_root / 'config' / 'main_config.yaml'))
-    setup_logging(config)
-    config._recreate_logger()
-
-    # Configure all uvicorn loggers to use our system
-    import logging
-    uvicorn_loggers = [
-        "uvicorn",
-        "uvicorn.error",
-        "uvicorn.access",
-        "uvicorn.asgi"
-    ]
-    for logger_name in uvicorn_loggers:
-        uvicorn_logger = logging.getLogger(logger_name)
-        uvicorn_logger.handlers = []  # Remove default handlers
-        uvicorn_logger.propagate = True  # Let it propagate to our root logger
-
-    return config
-
-
-# Configure logging immediately when module is imported
-config = configure_logging()
-
-# Global variables for the backend services
-logger: Any = structlog.get_logger()
+# Global variables for the backend services (initialized in lifespan)
+config: Any = None
+logger: Any = None
 controller: Any = None
 db_service: Any = None
 query_service: Any = None
@@ -84,6 +56,19 @@ async def lifespan(app: FastAPI):
     # Set up logging
     setup_logging(config)
     logger = structlog.get_logger()
+    
+    # Configure uvicorn loggers to use our logging system
+    import logging
+    uvicorn_loggers = [
+        "uvicorn",
+        "uvicorn.error",
+        "uvicorn.access",
+        "uvicorn.asgi"
+    ]
+    for logger_name in uvicorn_loggers:
+        uvicorn_logger = logging.getLogger(logger_name)
+        uvicorn_logger.handlers = []  # Remove default handlers
+        uvicorn_logger.propagate = True  # Let it propagate to our root logger
 
     # Initialize database service
     db_service = DatabaseService(config, logger)
@@ -225,7 +210,7 @@ async def lifespan(app: FastAPI):
                         restore_suggestion["suggest"] = True
                         restore_suggestion["reason"] = "database missing" if db_missing else "database empty"
                         restore_suggestion["latest_backup"] = str(backups[0])
-        globals()['_restore_suggestion_cache'] = restore_suggestion
+        dependencies.set_restore_suggestion(restore_suggestion)
     except Exception as e:
         if logger:
             logger.warning("Failed to compute restore suggestion", error=str(e))
@@ -319,6 +304,7 @@ app = FastAPI(
 )
 
 # Add CORS middleware for Tauri frontend
+# Only enumerate trusted origins to avoid security misconfiguration
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
@@ -326,7 +312,6 @@ app.add_middleware(
         "http://localhost:3000", "http://127.0.0.1:3000",  # React dev server
         "https://tauri.localhost",  # Tauri production build
         "tauri://localhost",  # Tauri custom protocol
-        "*",  # Allow all origins for development (remove in production)
     ],
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
@@ -346,18 +331,25 @@ def start_server(host: str | None = None, port: int | None = None):
         host: Bind address (defaults to config or 127.0.0.1)
         port: Port number (defaults to config or 8000)
     """
+    # Initialize config if not already set (needed when called from __main__)
+    global config
+    if config is None:
+        app_root = Path(__file__).parent.parent.parent
+        config = ConfigurationManager(str(app_root / 'config' / 'main_config.yaml'))
+    
     # Read bind settings from configuration
     if host is None:
         host = str(config.get('grafana.bind_address', '127.0.0.1'))
     if port is None:
         port = int(config.get('grafana.port', 8000))
     
-    logger.info(f"Starting FastAPI server", host=host, port=port)
+    # Use print instead of logger since logging may not be initialized yet
+    print(f"Starting FastAPI server on {host}:{port}")
     
     # Show warning if binding to 0.0.0.0
     if host == '0.0.0.0':
-        logger.warning("Server is binding to 0.0.0.0 - accessible from all network interfaces. "
-                      "Ensure your firewall is properly configured.")
+        print("WARNING: Server is binding to 0.0.0.0 - accessible from all network interfaces. "
+              "Ensure your firewall is properly configured.")
     
     uvicorn.run(
         "tower_iq.api_server:app",
@@ -368,7 +360,5 @@ def start_server(host: str | None = None, port: int | None = None):
     )
 
 
-if __name__ == "__main__":
-    start_server()
 if __name__ == "__main__":
     start_server()
