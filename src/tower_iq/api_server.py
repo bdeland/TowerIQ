@@ -5,6 +5,9 @@ This module provides a FastAPI server that bridges the React/Tauri frontend
 with the existing Python backend services.
 """
 
+from __future__ import annotations
+
+import argparse
 import asyncio
 import os
 from contextlib import asynccontextmanager
@@ -92,11 +95,11 @@ async def lifespan(app: FastAPI):
         sqlmodel_engine = get_sqlmodel_engine()
         sqlmodel_engine.create_tables()
 
-        # Initialize query service
-        with get_sqlmodel_session() as session:
-            query_service = QueryService(session)
+        # Initialize query service - Note: QueryService will create sessions as needed
+        # Don't create a session here since the context manager would close it immediately
+        query_service = None  # Will be set to None for now, queries will use get_sqlmodel_session()
 
-        logger.info("SQLModel engine and query service initialized successfully")
+        logger.info("SQLModel engine initialized successfully")
 
     except Exception as e:
         logger.error(f"Failed to initialize SQLModel: {str(e)}")
@@ -128,72 +131,102 @@ async def lifespan(app: FastAPI):
         logger.warning("Failed to restart ADB server on startup", error=str(e))
 
     # Start the loading sequence
-    controller.loading_manager.start_loading()
-    controller.loading_manager.mark_step_complete('database')
-    controller.loading_manager.mark_step_complete('emulator_service')
-    controller.loading_manager.mark_step_complete('frida_service')
-    controller.loading_manager.mark_step_complete('hook_scripts')
+    try:
+        logger.info("Starting loading sequence")
+        controller.loading_manager.start_loading()
+        controller.loading_manager.mark_step_complete('database')
+        controller.loading_manager.mark_step_complete('emulator_service')
+        controller.loading_manager.mark_step_complete('frida_service')
+        controller.loading_manager.mark_step_complete('hook_scripts')
+        logger.info("Loading sequence steps marked complete")
+    except Exception as e:
+        logger.error("Failed during loading sequence", error=str(e), exc_info=True)
+        raise
 
     # Signal that the API server is ready (no artificial delays)
-    controller.signal_loading_complete()
-    logger.info("API server is ready")
+    try:
+        logger.info("Signaling loading complete")
+        controller.signal_loading_complete()
+        logger.info("API server is ready")
+    except Exception as e:
+        logger.error("Failed to signal loading complete", error=str(e), exc_info=True)
+        raise
 
     # Initialize task scheduler for periodic tasks
-    task_scheduler = TaskScheduler(logger)
-    task_scheduler.start()
+    try:
+        logger.info("Initializing task scheduler")
+        task_scheduler = TaskScheduler(logger)
+        task_scheduler.start()
+        logger.info("Task scheduler started")
+    except Exception as e:
+        logger.error("Failed to initialize task scheduler", error=str(e), exc_info=True)
+        raise
 
     # Schedule periodic backup task if enabled
-    if config and db_service and bool(config.get('database.backup.enabled', True)):
-        interval = int(config.get('database.backup.interval_seconds', 86400))
-        # Ensure minimum interval of 60 seconds
-        interval = max(60, interval)
-        
-        async def run_backup():
-            """Scheduled backup task."""
-            try:
-                logger.info("Starting scheduled database backup")
-                await asyncio.to_thread(db_service.backup_database)
-                logger.info("Scheduled database backup completed successfully")
-            except Exception as e:
-                logger.warning("Scheduled backup failed", error=str(e))
-        
-        task_scheduler.add_interval_job(
-            run_backup,
-            interval_seconds=interval,
-            job_id="periodic_backup",
-            initial_delay=60  # Wait 1 minute after startup
-        )
-        logger.info(f"Scheduled periodic backup every {interval}s")
+    try:
+        logger.info("Checking if periodic backup should be scheduled")
+        if config and db_service and bool(config.get('database.backup.enabled', True)):
+            interval = int(config.get('database.backup.interval_seconds', 86400))
+            # Ensure minimum interval of 60 seconds
+            interval = max(60, interval)
+            
+            async def run_backup():
+                """Scheduled backup task."""
+                try:
+                    logger.info("Starting scheduled database backup")
+                    await asyncio.to_thread(db_service.backup_database)
+                    logger.info("Scheduled database backup completed successfully")
+                except Exception as e:
+                    logger.warning("Scheduled backup failed", error=str(e))
+            
+            task_scheduler.add_interval_job(
+                run_backup,
+                interval_seconds=interval,
+                job_id="periodic_backup",
+                initial_delay=60  # Wait 1 minute after startup
+            )
+            logger.info(f"Scheduled periodic backup every {interval}s")
+        else:
+            logger.info("Periodic backup is disabled")
+    except Exception as e:
+        logger.error("Failed to schedule periodic backup", error=str(e), exc_info=True)
+        raise
 
     # Schedule periodic metrics collection
-    if db_service:
-        async def run_metrics_collection():
-            """Scheduled metrics collection task."""
-            try:
-                logger.info("Starting scheduled database metrics collection")
-                success = await asyncio.to_thread(db_service.collect_and_store_db_metrics)
-                if success:
-                    logger.info("Scheduled database metrics collection completed successfully")
-                else:
-                    logger.warning("Scheduled database metrics collection failed")
-            except Exception as e:
-                logger.warning("Periodic metrics collection failed", error=str(e))
-        
-        task_scheduler.add_interval_job(
-            run_metrics_collection,
-            interval_seconds=86400,  # Daily
-            job_id="periodic_metrics",
-            initial_delay=300  # Wait 5 minutes after startup
-        )
-        logger.info("Scheduled periodic metrics collection every 24 hours")
+    try:
+        logger.info("Scheduling periodic metrics collection")
+        if db_service:
+            async def run_metrics_collection():
+                """Scheduled metrics collection task."""
+                try:
+                    logger.info("Starting scheduled database metrics collection")
+                    success = await asyncio.to_thread(db_service.collect_and_store_db_metrics)
+                    if success:
+                        logger.info("Scheduled database metrics collection completed successfully")
+                    else:
+                        logger.warning("Scheduled database metrics collection failed")
+                except Exception as e:
+                    logger.warning("Periodic metrics collection failed", error=str(e))
+            
+            task_scheduler.add_interval_job(
+                run_metrics_collection,
+                interval_seconds=86400,  # Daily
+                job_id="periodic_metrics",
+                initial_delay=300  # Wait 5 minutes after startup
+            )
+            logger.info("Scheduled periodic metrics collection every 24 hours")
+    except Exception as e:
+        logger.error("Failed to schedule periodic metrics collection", error=str(e), exc_info=True)
+        raise
 
     # Compute restore suggestion: if db file missing or empty and backups exist
-    restore_suggestion = {
-        "suggest": False,
-        "reason": None,
-        "latest_backup": None,
-    }
     try:
+        logger.info("Computing restore suggestion")
+        restore_suggestion = {
+            "suggest": False,
+            "reason": None,
+            "latest_backup": None,
+        }
         if config:
             db_path = Path(str(config.get('database.sqlite_path', 'data/toweriq.sqlite')))
             db_missing = not db_path.exists()
@@ -211,52 +244,73 @@ async def lifespan(app: FastAPI):
                         restore_suggestion["reason"] = "database missing" if db_missing else "database empty"
                         restore_suggestion["latest_backup"] = str(backups[0])
         dependencies.set_restore_suggestion(restore_suggestion)
+        logger.info("Restore suggestion computed")
     except Exception as e:
-        if logger:
-            logger.warning("Failed to compute restore suggestion", error=str(e))
+        logger.error("Failed to compute restore suggestion", error=str(e), exc_info=True)
+        raise
 
     # Initialize dependencies for routers
-    dependencies.set_logger(logger)
-    dependencies.set_controller(controller)
-    dependencies.set_db_service(db_service)
-    dependencies.set_query_service(query_service)
+    try:
+        logger.info("Initializing router dependencies")
+        dependencies.set_logger(logger)
+        dependencies.set_controller(controller)
+        dependencies.set_db_service(db_service)
+        dependencies.set_query_service(query_service)
+        logger.info("Router dependencies initialized")
+    except Exception as e:
+        logger.error("Failed to initialize router dependencies", error=str(e), exc_info=True)
+        raise
 
     # Initialize all routers with their dependencies
-    health.initialize(logger, controller, config)
-    adb.initialize(logger, controller)
-    scripts.initialize(logger, controller)
-    devices.initialize(logger, controller)
-    connection.initialize(logger, controller)
-    frida.initialize(logger, controller)
-    queries.initialize(logger, db_service, query_service)
-    database.initialize(logger, db_service, config)
-    dashboards_v1.initialize(logger, db_service)
-    dashboards_v2.initialize(logger, db_service)
-    data_sources.initialize(logger, db_service)
-    grafana.initialize(logger, db_service, config)
+    try:
+        logger.info("Initializing API routers")
+        health.initialize(logger, controller, config)
+        adb.initialize(logger, controller)
+        scripts.initialize(logger, controller)
+        devices.initialize(logger, controller)
+        connection.initialize(logger, controller)
+        frida.initialize(logger, controller)
+        queries.initialize(logger, db_service, query_service)
+        database.initialize(logger, db_service, config)
+        dashboards_v1.initialize(logger, db_service)
+        dashboards_v2.initialize(logger, db_service)
+        data_sources.initialize(logger, db_service)
+        grafana.initialize(logger, db_service, config)
+        logger.info("All routers initialized")
+    except Exception as e:
+        logger.error("Failed to initialize routers", error=str(e), exc_info=True)
+        raise
 
     # Register all routers with the app
-    app.include_router(health.router)
-    app.include_router(adb.router)
-    app.include_router(scripts.router)
-    app.include_router(devices.router)
-    app.include_router(connection.router)
-    app.include_router(frida.router)
-    app.include_router(queries.router)
-    app.include_router(database.router)
-    app.include_router(dashboards_v1.router)
-    app.include_router(dashboards_v2.router)
-    app.include_router(data_sources.router)
-    
-    # Conditionally register Grafana router based on settings
-    grafana_enabled = bool(config.get('grafana.enabled', False))
-    if grafana_enabled:
-        app.include_router(grafana.router)
-        logger.info("Grafana integration router registered (enabled in settings)")
-    else:
-        logger.info("Grafana integration router not registered (disabled in settings)")
+    try:
+        logger.info("Registering API routers with FastAPI app")
+        app.include_router(health.router)
+        app.include_router(adb.router)
+        app.include_router(scripts.router)
+        app.include_router(devices.router)
+        app.include_router(connection.router)
+        app.include_router(frida.router)
+        app.include_router(queries.router)
+        app.include_router(database.router)
+        app.include_router(dashboards_v1.router)
+        app.include_router(dashboards_v2.router)
+        app.include_router(data_sources.router)
+        
+        # Conditionally register Grafana router based on settings
+        grafana_enabled = bool(config.get('grafana.enabled', False))
+        if grafana_enabled:
+            app.include_router(grafana.router)
+            logger.info("Grafana integration router registered (enabled in settings)")
+        else:
+            logger.info("Grafana integration router not registered (disabled in settings)")
 
-    logger.info("All API routers registered successfully")
+        logger.info("All API routers registered successfully")
+        logger.info("=" * 80)
+        logger.info("STARTUP COMPLETE - Application is ready to accept requests")
+        logger.info("=" * 80)
+    except Exception as e:
+        logger.error("Failed to register routers", error=str(e), exc_info=True)
+        raise
 
     yield
 
@@ -282,6 +336,16 @@ async def lifespan(app: FastAPI):
         if logger:
             logger.info("Shutting down controller")
         controller.shutdown()
+    
+    # Close SQLModel engine first to release its connection pool
+    try:
+        from .core.sqlmodel_engine import close_sqlmodel_engine
+        logger.info("Closing SQLModel engine")
+        close_sqlmodel_engine()
+    except Exception as e:
+        if logger:
+            logger.warning("Error closing SQLModel engine", error=str(e))
+    
     # Ensure database connection is closed and journal files are cleaned
     if db_service:
         try:
@@ -337,6 +401,19 @@ def start_server(host: str | None = None, port: int | None = None):
         app_root = Path(__file__).parent.parent.parent
         config = ConfigurationManager(str(app_root / 'config' / 'main_config.yaml'))
     
+    # Allow environment variables to override configuration defaults
+    env_host = os.environ.get("TOWERIQ_BACKEND_HOST")
+    env_port = os.environ.get("TOWERIQ_BACKEND_PORT")
+
+    if host is None and env_host:
+        host = env_host
+
+    if port is None and env_port:
+        try:
+            port = int(env_port)
+        except ValueError:
+            print("Invalid TOWERIQ_BACKEND_PORT environment variable; falling back to configuration value")
+
     # Read bind settings from configuration
     if host is None:
         host = str(config.get('grafana.bind_address', '127.0.0.1'))
@@ -361,4 +438,9 @@ def start_server(host: str | None = None, port: int | None = None):
 
 
 if __name__ == "__main__":
-    start_server()
+    parser = argparse.ArgumentParser(description="Start the TowerIQ FastAPI server")
+    parser.add_argument("--host", dest="host", default=None, help="Bind address for the API server")
+    parser.add_argument("--port", dest="port", type=int, default=None, help="Port for the API server")
+
+    args = parser.parse_args()
+    start_server(host=args.host, port=args.port)

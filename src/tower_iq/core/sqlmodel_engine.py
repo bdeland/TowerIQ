@@ -5,9 +5,11 @@ This module provides SQLModel engine setup compatible with SQLCipher,
 enabling type-safe database operations while maintaining existing security.
 """
 
-from sqlmodel import SQLModel, create_engine, Session
-from typing import Optional
 import logging
+from typing import Optional
+
+from sqlalchemy import Engine
+from sqlmodel import Session, SQLModel, create_engine
 
 logger = logging.getLogger(__name__)
 
@@ -18,7 +20,7 @@ class SQLModelEngine:
     def __init__(self, database_path: str, password: Optional[str] = None):
         self.database_path = database_path
         self.password = password
-        self.engine = None
+        self.engine: Optional[Engine] = None
         self._create_engine()
 
     def _create_engine(self):
@@ -58,6 +60,11 @@ class SQLModelEngine:
     def create_tables(self):
         """Create all tables defined in SQLModel models."""
         try:
+            if not self.engine:
+                raise RuntimeError("SQLModel engine not initialized")
+            
+            # Type assertion: at this point we know engine is not None
+            assert self.engine is not None
             SQLModel.metadata.create_all(self.engine)
             logger.info("SQLModel tables created successfully")
         except Exception as e:

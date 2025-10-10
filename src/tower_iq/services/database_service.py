@@ -5,19 +5,20 @@ This module provides the DatabaseService class for managing the SQLite database
 used by the embedded application architecture.
 """
 
+import functools
 import json
-import sqlite3
 import os
 import shutil
-from typing import Any, Optional, Dict, List, cast
-from pathlib import Path
-from datetime import datetime
-import pandas as pd
-import functools
+import sqlite3
 import tempfile
-import zipfile
-import uuid
 import threading
+import uuid
+import zipfile
+from datetime import datetime
+from pathlib import Path
+from typing import Any, Dict, List, Optional, cast
+
+import pandas as pd
 
 from ..core.config import ConfigurationManager
 
@@ -291,16 +292,27 @@ class DatabaseService:
 
                 # Checkpoint the WAL file to merge changes back to main database
                 self.logger.debug("Checkpointing WAL file before closing")
-                self.sqlite_conn.execute("PRAGMA wal_checkpoint(TRUNCATE);")
+                try:
+                    self.sqlite_conn.execute("PRAGMA wal_checkpoint(TRUNCATE);")
+                except sqlite3.OperationalError as e:
+                    # Database might be locked, log and continue
+                    self.logger.warning("Could not checkpoint WAL (database may be busy)", error=str(e))
 
-                # Switch back to DELETE mode to clean up WAL and SHM files
+                # Try to switch back to DELETE mode to clean up WAL and SHM files
+                # This requires exclusive access, so it may fail if other connections exist
                 self.logger.debug("Switching to DELETE journal mode for cleanup")
-                self.sqlite_conn.execute("PRAGMA journal_mode=DELETE;")
+                try:
+                    self.sqlite_conn.execute("PRAGMA journal_mode=DELETE;")
+                except sqlite3.OperationalError as e:
+                    # Database is locked by another connection, just close our connection
+                    # WAL files will be cleaned up on next startup
+                    self.logger.debug("Could not switch to DELETE mode (database locked), will clean up on next startup", error=str(e))
 
                 # Close the connection
                 self.sqlite_conn.close()
 
                 # Best-effort removal of any remaining -wal/-shm files
+                # Only try this if we successfully switched to DELETE mode
                 try:
                     wal_path = f"{self.db_path}-wal"
                     shm_path = f"{self.db_path}-shm"
@@ -311,7 +323,7 @@ class DatabaseService:
                 except Exception as cleanup_err:
                     # Non-fatal: log at debug to avoid noise
                     self.logger.debug("Could not remove SQLite journal file(s)", error=str(cleanup_err))
-                self.logger.info("SQLite connection closed and WAL files cleaned up")
+                self.logger.info("SQLite connection closed")
             except Exception as e:
                 self.logger.error("Error closing SQLite connection", error=str(e))
                 # Still try to close the connection even if cleanup failed
@@ -2648,4 +2660,5 @@ class DatabaseService:
 
         except Exception as e:
             self.logger.error("Error ensuring v2 tables exist", error=str(e))
+            return False
             return False

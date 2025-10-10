@@ -109,7 +109,7 @@ system_defaults:
   grafana:
     enabled: false
     bind_address: "127.0.0.1"
-    port: 8000
+    port: 8080 # Changed from 8000 due to Windows port exclusion range conflict
     allow_read_only: true
     query_timeout: 30
     max_rows: 10000

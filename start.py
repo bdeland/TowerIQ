@@ -6,6 +6,8 @@ This script launches both the FastAPI backend server and the Tauri frontend.
 It ensures the backend is running before starting the frontend.
 """
 
+from __future__ import annotations
+
 import asyncio
 import os
 import shutil
@@ -20,6 +22,7 @@ import structlog
 from tower_iq.core.async_utils import wait_for_condition
 from tower_iq.core.config import ConfigurationManager
 from tower_iq.core.logging_config import setup_logging
+from tower_iq.core.port_utils import find_available_port
 from tower_iq.core.process_monitor import (ProcessMonitor,
                                            wait_for_process_alive)
 
@@ -33,7 +36,31 @@ config._recreate_logger()
 
 logger = structlog.get_logger(__name__)
 
-async def check_backend_health(url: str = "http://127.0.0.1:8000/", timeout: float = 30.0) -> bool:
+def resolve_backend_binding() -> tuple[str, int, str]:
+    """Determine the host/port the backend should bind to and the URL to use."""
+    host = str(config.get('grafana.bind_address', '127.0.0.1'))
+    preferred_port = int(config.get('grafana.port', 8000))
+
+    port = find_available_port([preferred_port], host=host)
+
+    if port != preferred_port:
+        logger.warning(
+            "Preferred backend port unavailable, using fallback",
+            preferred_port=preferred_port,
+            selected_port=port,
+        )
+    else:
+        logger.info("Using configured backend port", port=port)
+
+    if host in {'0.0.0.0', '::'}:
+        reachable_host = '127.0.0.1'
+    else:
+        reachable_host = host
+
+    backend_base_url = f"http://{reachable_host}:{port}"
+    return host, port, backend_base_url
+
+async def check_backend_health(url: str, timeout: float = 30.0) -> bool:
     """
     Check if the backend server is healthy using proper polling with exponential backoff.
     
@@ -68,13 +95,13 @@ async def check_backend_health(url: str = "http://127.0.0.1:8000/", timeout: flo
     
     return success
 
-async def start_backend_server():
+async def start_backend_server(host: str, port: int):
     """
     Start the FastAPI backend server.
     
     Implements Pattern #10: Use proper readiness contracts instead of sleep.
     """
-    logger.info("Starting TowerIQ FastAPI backend server")
+    logger.info("Starting TowerIQ FastAPI backend server", host=host, port=port)
     
     # Get the path to the API server
     script_dir = Path(__file__).parent
@@ -86,9 +113,16 @@ async def start_backend_server():
     
     try:
         # Start the FastAPI server with real-time output
+        env = os.environ.copy()
+        env["TOWERIQ_BACKEND_HOST"] = host
+        env["TOWERIQ_BACKEND_PORT"] = str(port)
+
         process = subprocess.Popen([
-            sys.executable, str(api_server_path)
-        ], stdout=None, stderr=None, text=True)  # Don't capture output - show it in real-time
+            sys.executable,
+            str(api_server_path),
+            "--host", host,
+            "--port", str(port),
+        ], stdout=None, stderr=None, text=True, env=env)  # Don't capture output - show it in real-time
         
         logger.info("Backend server started", pid=process.pid)
         
@@ -104,13 +138,17 @@ async def start_backend_server():
         logger.error("Failed to start backend server", error=str(e))
         return None
 
-async def start_tauri_frontend():
+async def start_tauri_frontend(backend_base_url: str, backend_port: int):
     """
     Start the Tauri frontend.
     
     Implements Pattern #10: Use proper readiness contracts.
     """
-    logger.info("Starting TowerIQ Tauri frontend")
+    logger.info(
+        "Starting TowerIQ Tauri frontend",
+        backend_base_url=backend_base_url,
+        backend_port=backend_port,
+    )
     
     # Get the path to the Tauri app
     script_dir = Path(__file__).parent
@@ -157,12 +195,19 @@ async def start_tauri_frontend():
             os.chdir(original_dir)
             return None
         
+        # Prepare environment overrides so the frontend knows which backend URL to use
+        env = os.environ.copy()
+        env.setdefault("TOWERIQ_BACKEND_URL", backend_base_url)
+        env.setdefault("TOWERIQ_BACKEND_PORT", str(backend_port))
+        env.setdefault("VITE_API_BASE_URL", f"{backend_base_url}/api")
+        env.setdefault("VITE_QUERY_PREVIEW_URL", f"{backend_base_url}/api/query/preview")
+
         # Start the Tauri app using npx to run the local CLI
         # Don't capture output so we can see what's happening
         try:
             process = subprocess.Popen([
                 npx_cmd, "@tauri-apps/cli", "dev"
-            ], stdout=None, stderr=None, text=True)
+            ], stdout=None, stderr=None, text=True, env=env)
         except FileNotFoundError:
             logger.error("Failed to execute npx. Verify Node.js installation and PATH configuration.")
             os.chdir(original_dir)
@@ -186,15 +231,19 @@ async def main():
     Implements Pattern #4: Use OS/runtime primitives for process monitoring.
     """
     logger.info("TowerIQ Startup Script", version="1.0.0")
-    
+
+    backend_host, backend_port, backend_base_url = resolve_backend_binding()
+    backend_health_url = f"{backend_base_url}/"
+    backend_api_url = f"{backend_base_url}/api"
+
     backend_process = None
     frontend_process = None
     backend_monitor = None
     frontend_monitor = None
-    
+
     try:
         # Start Tauri frontend FIRST (with splash screen)
-        frontend_process = await start_tauri_frontend()
+        frontend_process = await start_tauri_frontend(backend_base_url, backend_port)
         if not frontend_process:
             logger.error("Failed to start Tauri frontend. Exiting.")
             return 1
@@ -203,7 +252,7 @@ async def main():
         frontend_monitor = ProcessMonitor(frontend_process)
         
         # Start backend server in background
-        backend_process = await start_backend_server()
+        backend_process = await start_backend_server(backend_host, backend_port)
         if not backend_process:
             logger.error("Failed to start backend server. Exiting.")
             return 1
@@ -212,15 +261,15 @@ async def main():
         backend_monitor = ProcessMonitor(backend_process)
         
         # Wait for backend to be healthy
-        backend_healthy = await check_backend_health(timeout=30.0)
+        backend_healthy = await check_backend_health(url=backend_health_url, timeout=30.0)
         if not backend_healthy:
             logger.error("Backend server failed to become healthy. Exiting.")
             return 1
         
         logger.info("TowerIQ is now running", 
                    frontend_url="http://localhost:1420",
-                   backend_url="http://localhost:8000",
-                   api_docs="http://localhost:8000/docs")
+                   backend_url=backend_base_url,
+                   api_docs=f"{backend_base_url}/docs")
         
         # Use proper wait primitives instead of polling loop
         # Wait for either process to exit
@@ -248,7 +297,7 @@ async def main():
             try:
                 shutdown_timeout = aiohttp.ClientTimeout(total=2)
                 async with aiohttp.ClientSession(timeout=shutdown_timeout) as session:
-                    await session.post("http://127.0.0.1:8000/api/shutdown")
+                    await session.post(f"{backend_api_url}/shutdown")
             except Exception:
                 pass
             

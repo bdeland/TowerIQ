@@ -9,11 +9,12 @@ Handles:
 - Settings management
 """
 
-from fastapi import APIRouter, HTTPException
 from typing import Dict
 
-from ..models import SessionState, SettingValue, SettingUpdate
-from ..dependencies import get_logger, get_controller
+from fastapi import APIRouter, HTTPException
+
+from ..dependencies import get_controller, get_logger
+from ..models import SessionState, SettingUpdate, SettingValue
 
 router = APIRouter()
 
@@ -107,6 +108,16 @@ async def shutdown_services():
             if logger:
                 logger.warning("Error during controller shutdown", error=str(e))
 
+        # Close SQLModel engine first to release its connection pool
+        try:
+            from ...core.sqlmodel_engine import close_sqlmodel_engine
+            if logger:
+                logger.info("Closing SQLModel engine")
+            close_sqlmodel_engine()
+        except Exception as e:
+            if logger:
+                logger.warning("Error closing SQLModel engine", error=str(e))
+
         # Import db_service here to avoid circular import
         from ..dependencies import get_db_service
         try:
@@ -165,4 +176,5 @@ async def set_setting(update: SettingUpdate):
         if logger:
             logger.error("Error setting value", key=update.key, value=update.value, error=str(e))
         raise HTTPException(status_code=500, detail=f"Failed to set setting: {str(e)}")
+
 

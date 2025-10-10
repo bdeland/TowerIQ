@@ -1,43 +1,46 @@
-﻿import { useState, useEffect } from 'react';
-import { BrowserRouter as Router, Routes, Route, useLocation } from 'react-router-dom';
-import {
-  Box,
-  CssBaseline,
-  ThemeProvider,
-} from '@mui/material';
-import { Alert, Snackbar, Button } from '@mui/material';
-import {
-  Home as HomeIcon,
+﻿import {
   Dashboard as DashboardIcon,
-  Settings as SettingsIcon,
   Explore as ExploreIcon,
   History as HistoryIcon,
+  Home as HomeIcon,
+  Settings as SettingsIcon,
   Smartphone as SmartphoneIcon,
 } from '@mui/icons-material';
-import { HomePage } from './pages/HomePage';
+import {
+  Alert,
+  Box,
+  Button,
+  CssBaseline,
+  Snackbar,
+  ThemeProvider,
+} from '@mui/material';
+import { useEffect, useState } from 'react';
+import { Route, BrowserRouter as Router, Routes, useLocation } from 'react-router-dom';
+import { AppearanceSettings } from './pages/AppearanceSettings';
+import { ConnectionPage } from './pages/ConnectionPage';
 import { DashboardsPage } from './pages/DashboardsPage';
 import { DashboardViewPage } from './pages/DashboardViewPage';
 import { DatabaseHealthDashboardPage } from './pages/DatabaseHealthDashboardPage';
-import { PanelViewPage } from './pages/PanelViewPage';
-import { PanelEditPage } from './pages/PanelEditPage';
+import { DatabaseSettings } from './pages/DatabaseSettings';
 import { ExplorePage } from './pages/ExplorePage';
 import { HistoryPage } from './pages/HistoryPage';
-import { SettingsPage } from './pages/SettingsPage';
-import { DatabaseSettings } from './pages/DatabaseSettings';
-import { AppearanceSettings } from './pages/AppearanceSettings';
+import { HomePage } from './pages/HomePage';
 import { OtherSettings } from './pages/OtherSettings';
-import { ConnectionPage } from './pages/ConnectionPage';
+import { PanelEditPage } from './pages/PanelEditPage';
+import { PanelViewPage } from './pages/PanelViewPage';
+import { SettingsPage } from './pages/SettingsPage';
 
-import SplashScreen from './components/SplashScreen';
 import { Header } from './components/Header';
 import { Sidebar } from './components/Sidebar';
+import SplashScreen from './components/SplashScreen';
+import { API_CONFIG } from './config/environment';
 import { DashboardProvider, useDashboard } from './contexts/DashboardContext';
 import { DashboardEditProvider } from './contexts/DashboardEditContext';
 import { DashboardVariableProvider } from './contexts/DashboardVariableContext';
 import { DeveloperProvider } from './contexts/DeveloperContext';
 import { HeaderToolbarProvider } from './contexts/HeaderToolbarContext';
 import { NewDashboardProvider } from './contexts/NewDashboardContext';
-import { toweriqTheme, colors, spacing } from './theme';
+import { colors, spacing, toweriqTheme } from './theme';
 
 import './App.css';
 
@@ -61,6 +64,9 @@ const layout = {
 
 // Use the centralized TowerIQ theme
 const theme = toweriqTheme;
+
+const API_BASE_URL = API_CONFIG.BASE_URL.replace(/\/$/, '');
+const apiUrl = (path: string) => `${API_BASE_URL}${path.startsWith('/') ? path : `/${path}`}`;
 
 // Navigation items with routes - Grafana-style organization
 const navigationItems = [
@@ -279,13 +285,13 @@ function App() {
   useEffect(() => {
     const checkLoadingStatus = async () => {
       try {
-        const response = await fetch('http://localhost:8000/api/status');
+        const response = await fetch(apiUrl('/status'));
         const data = await response.json();
         
         if (data.loading_complete) {
           // Also check restore suggestion once after backend is ready
           try {
-            const r = await fetch('http://localhost:8000/api/database/restore-suggestion');
+            const r = await fetch(apiUrl('/database/restore-suggestion'));
             const s = await r.json();
             if (s?.suggest) {
               setRestorePrompt({ open: true, latest: s.latest_backup, reason: s.reason });
@@ -340,7 +346,7 @@ function App() {
                   setRestoring(true);
                   const latest = restorePrompt.latest;
                   if (!latest) return;
-                  const res = await fetch('http://localhost:8000/api/database/restore', {
+                  const res = await fetch(apiUrl('/database/restore'), {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ backup_path: latest })
@@ -369,5 +375,3 @@ function App() {
 }
 
 export default App;
-
-
