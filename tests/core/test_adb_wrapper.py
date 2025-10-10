@@ -108,15 +108,18 @@ class TestAdbWrapperServerStatus:
         """Test server status check with no cache."""
         wrapper = AdbWrapper(logger)
         
-        with patch.object(wrapper, 'run_command', new_callable=AsyncMock) as mock_run:
-            mock_run.return_value = ("List of devices attached\n", "")
+        # Import socket from utils module to patch it in the right namespace
+        import src.tower_iq.core.utils as utils_module
+        with patch.object(utils_module.socket, 'create_connection') as mock_socket:
+            # Mock successful connection (server is running)
+            # No need to set return_value, just don't raise an exception
             
             result = await wrapper._is_server_running_cached()
             
             assert result is True
             assert wrapper._server_running is True
             assert wrapper._last_check is not None
-            mock_run.assert_called_once_with("devices", timeout=5.0)
+            mock_socket.assert_called_once_with(("127.0.0.1", 5037), timeout=0.5)
     
     @pytest.mark.asyncio
     async def test_is_server_running_cached_with_valid_cache(self, logger):
@@ -125,12 +128,13 @@ class TestAdbWrapperServerStatus:
         wrapper._server_running = True
         wrapper._last_check = datetime.now()
         
-        with patch.object(wrapper, 'run_command', new_callable=AsyncMock) as mock_run:
+        import src.tower_iq.core.utils as utils_module
+        with patch.object(utils_module.socket, 'create_connection') as mock_socket:
             result = await wrapper._is_server_running_cached()
             
             assert result is True
-            # Should not call run_command because cache is valid
-            mock_run.assert_not_called()
+            # Should not call socket.create_connection because cache is valid
+            mock_socket.assert_not_called()
     
     @pytest.mark.asyncio
     async def test_is_server_running_cached_expired_cache(self, logger):
@@ -139,27 +143,32 @@ class TestAdbWrapperServerStatus:
         wrapper._server_running = True
         wrapper._last_check = datetime.now() - timedelta(seconds=35)  # Expired
         
-        with patch.object(wrapper, 'run_command', new_callable=AsyncMock) as mock_run:
-            mock_run.return_value = ("List of devices attached\n", "")
+        import src.tower_iq.core.utils as utils_module
+        with patch.object(utils_module.socket, 'create_connection') as mock_socket:
+            # Mock successful connection (server is running)
+            # No need to set return_value, just don't raise an exception
             
             result = await wrapper._is_server_running_cached()
             
             assert result is True
-            # Should call run_command because cache expired
-            mock_run.assert_called_once()
+            # Should call socket.create_connection because cache expired
+            mock_socket.assert_called_once()
     
     @pytest.mark.asyncio
     async def test_is_server_running_cached_server_not_running(self, logger):
         """Test server status check when server is not running."""
         wrapper = AdbWrapper(logger)
         
-        with patch.object(wrapper, 'run_command', new_callable=AsyncMock) as mock_run:
-            mock_run.side_effect = AdbError("Server not running")
+        import src.tower_iq.core.utils as utils_module
+        with patch.object(utils_module.socket, 'create_connection') as mock_socket:
+            # Mock connection failure (server not running)
+            mock_socket.side_effect = ConnectionRefusedError("Connection refused")
             
             result = await wrapper._is_server_running_cached()
             
             assert result is False
             assert wrapper._server_running is False
+            assert wrapper._last_check is not None
 
 
 class TestAdbWrapperStartServer:
@@ -267,15 +276,12 @@ class TestAdbWrapperRestartServer:
         
         # Mock the server status checks to simulate proper stop/start sequence
         check_count = [0]
-        async def mock_check():
+        async def mock_check(force_check=False):
             check_count[0] += 1
-            # First 2 checks: server is running (before kill completes)
-            if check_count[0] <= 2:
-                return True
-            # Next 2 checks: server is stopped
-            elif check_count[0] <= 4:
+            # First check: server is stopped (after kill)
+            if check_count[0] <= 1:
                 return False
-            # Final checks: server is running again
+            # Subsequent checks: server is running (after start)
             else:
                 return True
         
@@ -372,7 +378,7 @@ class TestAdbWrapperRestartServer:
     
     @pytest.mark.asyncio
     async def test_restart_server_cache_invalidation(self, logger, fast_polling_env):
-        """Test that restart properly invalidates cache."""
+        """Test that restart properly uses force_check during verification."""
         wrapper = AdbWrapper(logger)
         
         # Set up initial cache state
@@ -380,18 +386,16 @@ class TestAdbWrapperRestartServer:
         wrapper._last_check = datetime.now()
         
         check_count = [0]
-        async def mock_check():
+        force_check_used = []
+        
+        async def mock_check(force_check=False):
             check_count[0] += 1
-            # First checks: stopped
-            if check_count[0] <= 2:
-                # Verify cache was cleared before check
-                assert wrapper._server_running is None
-                assert wrapper._last_check is None
+            force_check_used.append(force_check)
+            # First check: stopped
+            if check_count[0] <= 1:
                 return False
             # After start: running
             else:
-                # Verify cache was cleared before check
-                assert wrapper._server_running is None or wrapper._server_running is False
                 return True
         
         with patch.object(wrapper, 'kill_server', new_callable=AsyncMock):
@@ -403,24 +407,23 @@ class TestAdbWrapperRestartServer:
                     
                     # Verify multiple checks were made (condition waiting)
                     assert check_count[0] >= 2
+                    # Verify force_check=True was used during restart verification
+                    assert all(force_check_used), "All restart verification checks should use force_check=True"
     
     @pytest.mark.asyncio
     async def test_restart_server_uses_wait_for_condition(self, logger, fast_polling_env):
         """Test that restart uses wait_for_condition with proper parameters."""
         wrapper = AdbWrapper(logger)
         
-        async def mock_check():
-            return False if check_count[0] <= 2 else True
-        
         check_count = [0]
-        async def incrementing_mock_check():
+        async def mock_check(force_check=False):
             check_count[0] += 1
-            return await mock_check()
+            return False if check_count[0] <= 1 else True
         
         with patch.object(wrapper, 'kill_server', new_callable=AsyncMock):
             with patch.object(wrapper, 'start_server', new_callable=AsyncMock):
                 with patch.object(wrapper, '_is_server_running_cached', new_callable=AsyncMock) as mock_check_fn:
-                    mock_check_fn.side_effect = incrementing_mock_check
+                    mock_check_fn.side_effect = mock_check
                     
                     with patch('src.tower_iq.core.async_utils.wait_for_condition') as mock_wait:
                         # Make wait_for_condition actually call the condition function
@@ -444,13 +447,13 @@ class TestAdbWrapperRestartServer:
                         # First call: waiting for server to stop
                         assert calls[0][1]['timeout'] == 5.0
                         assert calls[0][1]['initial_delay'] == 0.1
-                        assert calls[0][1]['max_delay'] == 1.0
+                        assert calls[0][1]['max_delay'] == 0.5
                         assert 'stopped' in calls[0][1]['condition_name'].lower()
                         
                         # Second call: waiting for server to start
                         assert calls[1][1]['timeout'] == 5.0
                         assert calls[1][1]['initial_delay'] == 0.1
-                        assert calls[1][1]['max_delay'] == 1.0
+                        assert calls[1][1]['max_delay'] == 0.5
                         assert 'started' in calls[1][1]['condition_name'].lower()
 
 

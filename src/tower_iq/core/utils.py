@@ -137,28 +137,33 @@ class AdbWrapper:
             self.logger.error(f"AdbWrapper.list_devices caught AdbError: {e}")
             return [] # Return empty list if command fails
 
-    async def _is_server_running_cached(self) -> bool:
-        """Check if ADB server is running using cached status when possible."""
+    async def _is_server_running_cached(self, force_check: bool = False) -> bool:
+        """Check if ADB server is running using cached status when possible.
+        
+        Args:
+            force_check: If True, bypass cache and perform fresh check
+        """
         now = datetime.now()
 
-        # Check if we have a valid cached result
-        if (self._server_running is not None and
+        # Check if we have a valid cached result (unless forced)
+        if (not force_check and
+            self._server_running is not None and
             self._last_check is not None and
             (now - self._last_check).total_seconds() < self._check_timeout):
             self.logger.debug("Using cached ADB server status", cached_status=self._server_running)
             return self._server_running
 
-        # Cache expired or no cache, check server status
+        # Cache expired, forced, or no cache - check server status
+        # Check port 5037 instead of running 'adb devices' to avoid auto-starting the server
         try:
-            # Use 'adb devices' command to check if server is running
-            stdout, _ = await self.run_command("devices", timeout=5.0)
-            # If the command succeeds, server is running
-            self._server_running = True
-            self._last_check = now
-            self.logger.debug("ADB server status checked and cached", status="running")
-            return True
-        except AdbError:
-            # Command failed, server is not running
+            with socket.create_connection(("127.0.0.1", 5037), timeout=0.5):
+                # Port is listening, server is running
+                self._server_running = True
+                self._last_check = now
+                self.logger.debug("ADB server status checked and cached", status="running")
+                return True
+        except Exception:
+            # Port is not listening, server is not running
             self._server_running = False
             self._last_check = now
             self.logger.debug("ADB server status checked and cached", status="not running")
@@ -214,17 +219,15 @@ class AdbWrapper:
             await self.kill_server()
             
             # Wait for server to actually stop (not arbitrary delay)
+            # Use force_check=True to bypass cache during verification
             async def server_stopped():
-                # Force a fresh check by clearing cache first
-                self._server_running = None
-                self._last_check = None
-                return not await self._is_server_running_cached()
+                return not await self._is_server_running_cached(force_check=True)
             
             stopped = await wait_for_condition(
                 server_stopped,
                 timeout=5.0,
                 initial_delay=0.1,
-                max_delay=1.0,
+                max_delay=0.5,  # Reduced from 1.0s since we need faster checks
                 condition_name="ADB server stopped"
             )
             
@@ -234,17 +237,15 @@ class AdbWrapper:
             await self.start_server()
             
             # Verify server is actually running (not just assuming)
+            # Use force_check=True to bypass cache during verification
             async def server_running():
-                # Force a fresh check
-                self._server_running = None
-                self._last_check = None
-                return await self._is_server_running_cached()
+                return await self._is_server_running_cached(force_check=True)
             
             started = await wait_for_condition(
                 server_running,
                 timeout=5.0,
                 initial_delay=0.1,
-                max_delay=1.0,
+                max_delay=0.5,  # Reduced from 1.0s since we need faster checks
                 condition_name="ADB server started"
             )
             
