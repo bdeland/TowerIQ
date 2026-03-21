@@ -279,7 +279,7 @@ function DashboardLayout() {
 
 function App() {
   const [isLoading, setIsLoading] = useState(true);
-  const [restorePrompt, setRestorePrompt] = useState<{open: boolean, latest?: string, reason?: string}>({ open: false });
+  const [restorePrompt, setRestorePrompt] = useState<{open: boolean, latest?: string, reason?: string, error?: string}>({ open: false });
   const [restoring, setRestoring] = useState(false);
 
   useEffect(() => {
@@ -357,7 +357,8 @@ function App() {
                   }
                   setRestorePrompt({ open: false });
                 } catch (e) {
-                  setRestorePrompt({ open: false });
+                  const msg = e instanceof Error ? e.message : 'Restore failed';
+                  setRestorePrompt(prev => ({ ...prev, error: msg }));
                 } finally {
                   setRestoring(false);
                 }
@@ -366,7 +367,9 @@ function App() {
             </>
           }
         >
-          The main database is {restorePrompt.reason}. Restore from latest backup?
+          {restorePrompt.error
+            ? `Restore failed: ${restorePrompt.error}`
+            : `The main database is ${restorePrompt.reason}. Restore from latest backup?`}
         </Alert>
       </Snackbar>
       {isLoading && <SplashScreen onComplete={() => setIsLoading(false)} />}

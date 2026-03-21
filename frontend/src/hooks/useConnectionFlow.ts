@@ -42,12 +42,16 @@ export function useConnectionFlow() {
       // Start Frida server
       console.log('Starting Frida server...');
       await startFridaServer(device.id);
-      
-      // Wait a moment and check if it's running
-      await new Promise(resolve => setTimeout(resolve, 2000));
-      const newStatus = await getFridaStatus(device.id);
-      
-      return newStatus.is_running;
+
+      // Poll until Frida server is running (up to 10s with 1s intervals)
+      for (let attempt = 0; attempt < 10; attempt++) {
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        const newStatus = await getFridaStatus(device.id);
+        if (newStatus.is_running) {
+          return true;
+        }
+      }
+      return false;
       
     } catch (err) {
       console.error('Frida auto-provision failed:', err);
