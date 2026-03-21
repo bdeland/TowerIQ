@@ -41,9 +41,16 @@ struct ApiClient {
 
 impl ApiClient {
     fn new() -> Self {
-        Self {
-            base_url: "http://127.0.0.1:8000".to_string(),
-        }
+        // Prefer the full URL env var set by start.py; fall back to port-only env var;
+        // finally default to the configured port (8080, matching main_config.yaml).
+        let base_url = std::env::var("TOWERIQ_BACKEND_URL").unwrap_or_else(|_| {
+            let port = std::env::var("TOWERIQ_BACKEND_PORT")
+                .ok()
+                .and_then(|p| p.parse::<u16>().ok())
+                .unwrap_or(8080);
+            format!("http://127.0.0.1:{}", port)
+        });
+        Self { base_url }
     }
 
     async fn get_status(&self) -> Result<StatusResponse, Box<dyn std::error::Error>> {
@@ -492,11 +499,6 @@ async fn restart_adb_server() -> Result<serde_json::Value, String> {
     client.restart_adb_server().await.map_err(|e| e.to_string())
 }
 
-#[tauri::command]
-fn greet(name: &str) -> String {
-    format!("Hello, {}! You've been greeted from Rust!", name)
-}
-
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -561,7 +563,6 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
-            greet,
             get_backend_status,
             connect_device,
             disconnect_device,

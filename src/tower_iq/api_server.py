@@ -86,7 +86,7 @@ async def lifespan(app: FastAPI):
     # Initialize SQLModel engine for type-safe queries
     try:
         # Get database path from config
-        database_path = str(Path(config.get('database_path', 'data/toweriq.sqlite')))
+        database_path = str(Path(config.get('database.sqlite_path', 'data/toweriq.sqlite')))
 
         # Initialize SQLModel engine (compatible with SQLCipher)
         initialize_sqlmodel_engine(database_path)
