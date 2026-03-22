@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { CacheKeys, defaultRequestCache } from "../utils/requestCache";
 
 export interface SessionState {
@@ -163,7 +163,6 @@ const stopGlobalPolling = () => {
 export const useBackend = () => {
   const [status, setStatus] = useState<BackendStatus | null>(globalStatus);
   const [error, setError] = useState<string | null>(null);
-  const isInitialized = useRef(false);
 
   const updateStatusState = useCallback((nextStatus: BackendStatus | null) => {
     setStatus(nextStatus);
@@ -236,28 +235,24 @@ export const useBackend = () => {
 
   // Shared polling mechanism
   useEffect(() => {
-    if (!isInitialized.current) {
-      isInitialized.current = true;
+    // Add this component as a listener
+    const statusListener = (newStatus: BackendStatus | null) => {
+      updateStatusState(newStatus);
+    };
+    globalStatusListeners.add(statusListener);
 
-      // Add this component as a listener
-      const statusListener = (newStatus: BackendStatus | null) => {
-        updateStatusState(newStatus);
-      };
-      globalStatusListeners.add(statusListener);
+    // Start global polling if not already started
+    startGlobalPolling();
 
-      // Start global polling if not already started
-      startGlobalPolling();
+    // Cleanup function
+    return () => {
+      globalStatusListeners.delete(statusListener);
 
-      // Cleanup function
-      return () => {
-        globalStatusListeners.delete(statusListener);
-
-        // If no more listeners, stop polling
-        if (globalStatusListeners.size === 0) {
-          stopGlobalPolling();
-        }
-      };
-    }
+      // If no more listeners, stop polling
+      if (globalStatusListeners.size === 0) {
+        stopGlobalPolling();
+      }
+    };
   }, []);
 
   const scanDevices = async (): Promise<Device[]> => {
